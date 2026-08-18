@@ -126,6 +126,14 @@ ChatPage / MessageBlocks / Markdown / A2UI renderer（只读投影，纯展示�
 | `runId` | 每次发送 `crypto.randomUUID()`（mock 在 `createRunInput`，官方在 `send()`）；HITL 续跑沿用同一 run | Dexie `checkpoints.runId`（主键）+ `snapshot.runId`；后端必须原样回显，禁止二次生成 |
 | `streamId` | 后端 SSE `id:` 或 `rawEvent.streamId`，前端 `parseSseStream` 提取 | 每个 run 的 `RuntimeRunState` 独立维护 `latestStreamId + processedStreamIds[]`（去重上限 5000）；checkpoint 落盘 `latestStreamId` |
 
+**会话列表刷新与会话标题**：
+
+- 落库即广播：`createSession / updateSession / saveRunCheckpoint` 写库后派发 `agentdock:sessions-changed`，HomeSidebar / GroupSidebar / GroupHomePage 收到后重新拉取列表。
+- 乐观插入：新建会话/群聊通过路由 `pendingSession` 立即插入侧边栏，不依赖 IndexedDB 写入与事件时序；focus / visibilitychange 变化时兜底刷新。
+- 标题规则：创建时为“新对话/New chat”（群聊为“新建群聊/New group chat”），发送首条消息后用消息前 32 字符更新标题。
+- 路由切换：`ensureSession` 仅在内存 session.id 与路由 id 一致时复用，避免把消息更新到上一个会话。
+- 群聊返回主页：群侧边栏顶部「对话」入口、群聊页头部返回按钮均可回到 `/chat/session-inbox`；群设置面板由头部信息图标开关。
+
 **机制完备性说明**：
 
 - `threadId`：✅ 创建会话时 UUID 固化、持久化、同一会话所有 run 复用；切换 agent/fab 是否新建 threadId 待与后端确认。

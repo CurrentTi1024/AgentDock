@@ -172,6 +172,17 @@ Browser（CopilotKit transport）
 - [x] `sequence` 单调计数器
 - [x] mock 模式 Provider 不发起 Runtime 连接
 
+## 4.8 第三轮修复（2026-08-19，浏览器自动化验证）
+
+用 Chrome headless + CDP 完成“新建对话 → 发送 → HITL 批准 → 刷新恢复 → 群创建”全链路点击，并逐步读取 IndexedDB（sessions/messages/checkpoints）核对落库时机，全部符合预期；过程中发现并修复：
+
+- 会话主键与路由不一致：默认入口 `session-inbox` 之前创建为 UUID 会话行，改为 `createSession({ id: sessionId })` 同键。
+- 切换会话复用旧 session state：`ensureSession` 仅在同 id 时复用，避免发送消息更新到上一个会话。
+- 刷新后历史重复渲染：落库文本 id 带 `text:` 前缀，过滤时未去前缀导致历史与实时 run 各渲染一份；已修。
+- 标题双 FAB 后缀：agentName 已含 FAB 时不再二次拼接。
+- 侧边栏刷新缺失：新增 `sessions-changed` 广播 + pendingSession 乐观插入 + focus/visibility 兜底。
+- 群聊导航缺失：群侧边栏“对话”入口 + 群聊页返回按钮；群设置面板默认收起、成员标签超长省略。
+
 ## 6. 联调验证入口（代码侧自检）
 
 ```bash

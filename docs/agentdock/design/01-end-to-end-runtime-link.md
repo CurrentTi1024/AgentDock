@@ -57,7 +57,7 @@ type ConversationContext = {
 
 | ID | 产生方 | 生成方式（当前实现） | 语义 | 管理位置 |
 |---|---|---|---|---|
-| `sessionId` | AgentDock | 路由 `/chat/:id`；会话主键 = 路由 id（默认入口固定 `session-inbox`，真实会话 `crypto.randomUUID()`），`createSession({ id: sessionId })` 保证会话行、消息、checkpoint 同键 | 用户可见的一段本地会话；IndexedDB sessions 主键 | Dexie `sessions.id`；ChatPage `session` state |
+| `sessionId` | AgentDock | 路由 `/chat/:id`；会话主键 = 路由 id（默认入口固定 `session-inbox`，真实会话 `crypto.randomUUID()`），`createSession({ id: sessionId })` 保证会话行、消息、checkpoint 同键 | 用户可见的一段本地会话；IndexedDB sessions 主键 | Dexie `sessions.id`；ChatPage `session` state（路由切换时仅同 id 复用内存 state） |
 | `threadId` | AgentDock | 创建会话时 `crypto.randomUUID()` 固化进 `SessionRecord.threadId`；hook 兜底 `thread-${sessionId}` | DeepAgents 上下文线程；同一会话内所有 run 共用 | Dexie `sessions.threadId`；后端保存上下文 |
 | `runId` | AG-UI Client | 每次发送 `crypto.randomUUID()`（mock 在 `createRunInput`，官方在 `send()`） | 一次用户提问/Agent 执行；Orchestration 必须沿用，不得新建 | Dexie `checkpoints.runId`（主键）+ `snapshot.runId`；后端执行记录 |
 | `parentRunId` | AG-UI Client | A2UI Action 新 run 时指向产生 Surface 的 runId（mock 已设；官方 transport 暂不传，见 4.4） | 子执行（A2UI Action 新 run）的父 run | 按需 |
@@ -95,6 +95,13 @@ AG-UI 规范中 `RunAgentInput.runId` 由 **调用方（Client/Application）提
   - mock 路径：内存 `runStore` 是全局单例（`run/activeInput/controller`），切换会话时 `restoreSession(sessionId)` 会用该会话最新 checkpoint 替换内存状态——恢复层面隔离，但不支持同页真并发双 run。
   - 官方路径：`useOfficialConversation` 为每个会话注册独立代理 `agentdock-${sessionId}`，`httpRun` 是组件本地 state，切换会话时 `restore()` 重新加载对应 checkpoint 并 `agent.setMessages` 回填——按会话隔离。
 - 已知边界：`scheduleRunCheckpoint` 的防抖槽是模块级单槽；若未来同页支持多会话并发运行，需要改为按 sessionId 分槽，并在文档登记（当前产品形态不触发）。
+
+### 3.6 会话行、落库 id 与会话列表刷新
+
+- `createSession({ id: sessionId })`：会话行主键与路由一致；默认入口固定 `session-inbox`，真实会话为 UUID。`ensureSession` 只在内存 `session.id === sessionId` 时复用，路由切换必须按新 id 重新加载。
+- 消息落库 id 带 kind 前缀（`text:` / `reasoning:` / `tool:` / `step:` / `activity:` / `surface:`）；渲染过滤时先去掉前缀再与 `run.messages`（原始 id）比对，避免刷新后历史与实时 run 重复渲染。
+- 列表刷新：`createSession / updateSession / saveRunCheckpoint` 后派发 `agentdock:sessions-changed`；侧边栏对路由 `pendingSession` 乐观插入，并监听 focus / visibilitychange 兜底刷新。
+- 标题更新：发送首条消息后用消息前 32 字符更新会话标题（默认文案“新对话 / New chat”）。
 
 ## 4. 一次 run 的完整请求/响应
 

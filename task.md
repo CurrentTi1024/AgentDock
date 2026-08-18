@@ -10,9 +10,9 @@
 |---|---|---|---|
 | M0/M1 应用壳与导航 | 迁移 LobeHub 壳/导航；本月模式开关 | ✅ 已完成 | `docs/agentdock/06` |
 | M2 对话页 | Agent 对话、@Agent、流式、Reasoning/Tool/HITL/A2UI、IndexedDB 全量历史（单 Agent + Group） | ✅ P0 主要完成（HITL wire 待后端冻结） | `design/01`、`design/02`、`design/05`、`design/09` |
-| M3 市场列表 | Agent/Skill/MCP 市场，FAB 前置，all/permissioned | ⚠️ 功能完成，竞态/locale 待修 | `design/04` |
-| M4 详情页 | 三类详情，FAB 前置，Version 不分区 | ⚠️ 功能完成，竞态/locale/静态样例待修 | `design/04` |
-| M5 Skill 创建 | 三步表单 + 立即发布 | ⚠️ 完成，发布跳转死链待修 | `design/04` |
+| M3 市场列表 | Agent/Skill/MCP 市场，FAB 前置，all/permissioned | ✅ 完成（竞态/locale 已修） | `design/04` |
+| M4 详情页 | 三类详情，FAB 前置，Version 不分区 | ✅ 完成（竞态/locale 已修；Reviews/Security/Info 静态样例 P2） | `design/04` |
+| M5 Skill 创建 | 三步表单 + 立即发布 | ✅ 完成（受控表单 + detailUrl + Mock 详情注册） | `design/04` |
 | M6 隐藏模块 | Channel/Artifact/Page/Group/Tasks/Documents/Memory/Settings | ✅ 本月模式隐藏；占位完成 | `docs/agentdock/00` |
 | M7 i18n | 覆盖 LobeHub 全部语言；UI 静态字段 | ✅ 18 种语言词典 + 测试 | `src/i18n` |
 | R 运行时链路 | agentId/fab/sessionId/threadId/runId 携带；FAB 路由；AG-UI/A2UI 流式回显 | ⚠️ 官方集成已落地（Provider/hook/server/A2UI catalog），HITL wire 与后端 A2UI fixture 待联调 | `design/01`、`design/02`、`design/03`、`design/06`、`design/08`、`design/09` |
@@ -155,6 +155,7 @@
 
 - `pnpm run test`：通过（runReducer 2 项、sse 1 项、i18n 3 项）。
 - `pnpm run build`：通过。
+- 浏览器自动化（Chrome headless + CDP）：新建对话/发送/HITL 批准/刷新恢复/群创建全链路点击验证，并逐步读取 IndexedDB 核对 sessions/messages/checkpoints 落库时机，全部符合预期；当前单测 13/13 通过。
 - 全盘一致性核对（2026-08-19）：修正 `docs/agentdock/02/03/04/05/06` 与 `design/01/02/03/05/06/07/08/09` 中与代码不一致的内容；联调指南按官方 single-route envelope 重写，Registry 调试路径修正为 `/api/market/getFabOptions`，IndexedDB 名称修正为 v3。
 - i18n 联网复核（全量）：15 种新语言 × 全部 257 个 key（共 3855 条）逐一与机器翻译比对。阿拉伯语走 DeepL oneshot，其余 14 种走本地 Argos Translate（模型约 1.5GB，首次需下载）；比对脚本保留为 `scripts/verify-i18n.mjs`（`I18N_BASE_URL` 可指向本地 `scripts/argos-translate-server.py`）。
 - i18n 复核修复：全量 flagged 逐条人工复核后，补齐 12 种语言中 13 个英文漏译 key（`nav.newGroup/recentGroups/emptyGroups`、`group.home.*`、`group.welcome.*`、`workspace.settings.mockDesc/themeMode*`），并修正阿拉伯语 `chat.mentionEmpty` 语法、德语 `skillCreate.branch`/`workspace.group.members` 用词；其余 flagged 均为机器错义/同义表达，人工译文保留（如 bg `Tool call` 机器误译为 `Name`、ko/fa/tr 旧模型大量乱译）。
@@ -196,5 +197,15 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - Chat：复制按钮接入 clipboard、`@` 菜单空态（`chat.mentionEmpty` 18 语言）。
 - 文档/记忆页日期使用用户 locale；Provider 在 mock 模式下不发起 Runtime `/info`。
 - 服务端：`AGENT_ORCHESTRATION_BASE_URLS_JSON` 协议由公司内网规范决定，不做强制校验。
+
+第三轮（2026-08-19，浏览器自动化验证后修复）：
+
+- 会话主键 = 路由 id：默认入口 `session-inbox` 与 UUID 会话均 `createSession({ id: sessionId })`，会话行/消息/checkpoint 同键。
+- 会话列表刷新：落库后广播 `agentdock:sessions-changed`；侧边栏对路由 `pendingSession` 乐观插入；focus/visibility 兜底重载。
+- 切换会话不信任旧 session state：`ensureSession` 仅在同 id 时复用内存状态，避免发送消息更新到上一个会话。
+- 刷新去重：落库文本 id 带 `text:` 前缀，渲染过滤时去掉前缀再与 run.messages 比对，历史不再重复。
+- 标题修复：agentName 已含 FAB 时不再二次拼接；发送首条消息用前 32 字符更新会话标题。
+- 群聊导航：群侧边栏新增“对话”入口、群聊页头部新增返回按钮；群设置面板默认收起（头部信息图标开关）；成员标签超长省略。
+- UI 测试稳定选择器：`chat-input / chat-send / chat-stop`（design/07 §10）。
 
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。
