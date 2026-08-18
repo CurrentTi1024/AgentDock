@@ -9,7 +9,6 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { agentGroupService } from '@/api/agent-group/agentGroupService';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
-import { runtimeConfig } from '@/api/runtimeConfig';
 import {
   sessionHistoryService,
   type SessionMessageRecord,
@@ -74,6 +73,7 @@ const GroupChatPage = () => {
   const [mode, setMode] = useState('supervisor');
   const [members, setMembers] = useState(DEFAULT_GROUP_MEMBERS);
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const groupConfig = useMemo<StoredGroupConfig | undefined>(() => {
     const value = session?.group;
@@ -259,9 +259,6 @@ const GroupChatPage = () => {
                     </Tag>
                   )}
                 </Flexbox>
-                <Text ellipsis fontSize={11} type="secondary">
-                  {runtimeConfig.resolveAgentRuntimeUrl(fab)}
-                </Text>
               </Flexbox>
             </Flexbox>
           }
@@ -273,10 +270,11 @@ const GroupChatPage = () => {
                 </Tag>
               )}
               <ActionIcon
-                aria-label={t('workspace.group.title')}
+                active={settingsOpen}
+                aria-label={t('group.chat.settings')}
                 icon={Info}
-                onClick={() => navigate('/group')}
-                title={t('workspace.group.title')}
+                onClick={() => setSettingsOpen((open) => !open)}
+                title={t('group.chat.settings')}
               />
             </Flexbox>
           }
@@ -287,7 +285,7 @@ const GroupChatPage = () => {
           gap={6}
           paddingBlock={8}
           paddingInline={16}
-          style={{ borderBlockEnd: `1px solid ${cssVar.colorBorderSecondary}` }}
+          style={{ borderBlockEnd: `1px solid ${cssVar.colorBorderSecondary}`, flexWrap: 'wrap', overflow: 'hidden' }}
         >
           {members.map((member) => {
             const mention = mentionByMember(member);
@@ -295,12 +293,24 @@ const GroupChatPage = () => {
               <Tag
                 closable
                 key={`${member.agentId}@${member.fab}`}
+                style={{ maxWidth: 220 }}
                 onClose={(event) => {
                   event.preventDefault();
                   removeMember(member);
                 }}
               >
-                {mention?.icon ?? '🤖'} {mention?.agentFullName ?? member.agentId} · {member.fab}
+                <span
+                  style={{
+                    display: 'inline-block',
+                    maxWidth: 170,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    verticalAlign: 'bottom',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {mention?.icon ?? '🤖'} {mention?.agentFullName ?? member.agentId} · {member.fab}
+                </span>
               </Tag>
             );
           })}
@@ -410,6 +420,7 @@ const GroupChatPage = () => {
         </Flexbox>
       </Flexbox>
 
+      {settingsOpen && (
       <Flexbox className={styles.panel} gap={16} padding={16}>
         <Block gap={14} padding={18} variant="outlined">
           <Text weight={500}>{t('workspace.group.mode')}</Text>
@@ -477,6 +488,7 @@ const GroupChatPage = () => {
           <Button icon={Plus}>{t('workspace.group.addMember')}</Button>
         </Block>
       </Flexbox>
+      )}
     </Flexbox>
   );
 };

@@ -225,6 +225,7 @@ export default {
   'workspace.group.temp': '临时 Group · 不保存到市场',
   'workspace.group.timeout': '超时: 10 min',
   'group.home.desc': '组合多个 Agent，以编排模式协作完成任务。',
+  'group.chat.settings': '群组设置',
   'group.chat.addMember': '添加 Agent',
   'group.chat.needAtLeastTwo': '群聊至少需要 2 个成员',
   'group.chat.removeMember': '移除成员',

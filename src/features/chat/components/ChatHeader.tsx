@@ -12,14 +12,13 @@ interface ChatHeaderProps {
   agentId: string;
   agentName: string;
   artifactOpen: boolean;
-  endpoint: string;
   fab: string;
   onToggleArtifact: () => void;
   status?: string;
 }
 
 const ChatHeader = memo<ChatHeaderProps>(
-  ({ agentId, agentName, artifactOpen, endpoint, fab, onToggleArtifact, status }) => {
+  ({ agentId, agentName, artifactOpen, fab, onToggleArtifact, status }) => {
     const navigate = useNavigate();
     const { t } = useI18n();
     return (
@@ -41,9 +40,6 @@ const ChatHeader = memo<ChatHeaderProps>(
                   </Tag>
                 )}
               </Flexbox>
-              <Text ellipsis fontSize={11} type="secondary">
-                {endpoint}
-              </Text>
             </Flexbox>
           </Flexbox>
         }

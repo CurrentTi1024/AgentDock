@@ -225,6 +225,7 @@ export default {
   'workspace.group.temp': 'Временна група · не е запазена на пазара',
   'workspace.group.timeout': 'Таймаут: 10 мин',
   'group.home.desc': 'Комбинирайте множество агенти и ги оркестрирайте заедно.',
+  'group.chat.settings': 'Group settings',
   'group.chat.addMember': 'Add agent',
   'group.chat.needAtLeastTwo': 'A group chat needs at least 2 members',
   'group.chat.removeMember': 'Remove member',

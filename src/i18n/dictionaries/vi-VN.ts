@@ -225,6 +225,7 @@ export default {
   'workspace.group.temp': 'Nhóm tạm thời · không lưu trên thị trường',
   'workspace.group.timeout': 'Hết thời gian: 10 phút',
   'group.home.desc': 'Kết hợp nhiều Agent và điều phối chúng cùng nhau.',
+  'group.chat.settings': 'Group settings',
   'group.chat.addMember': 'Add agent',
   'group.chat.needAtLeastTwo': 'A group chat needs at least 2 members',
   'group.chat.removeMember': 'Remove member',

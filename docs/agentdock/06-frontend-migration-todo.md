@@ -231,7 +231,7 @@ src/
 - [x] 新增入口与 FAB 交互：侧边栏 + 下拉菜单仅保留「新建对话 / 新建群聊」（用户不允许新建 Agent，移除市场 Agent 入口）；新建群聊为创建向导（群组名称 + 选择成员 Agent + 后端支持的编排模式，配置随会话持久化，群聊页按配置初始化成员与模式）；市场 FAB 切换改为 Select 下拉（适配 14–20 个 FAB，不再挤压搜索框）；详情页移除 FAB 切换，仅展示列表带入的当前 FAB 版本。
 - [x] mock 模式不再挂载 CopilotKit Provider（消除 `/api/copilotkit` 404 报错与错误提示）；对话 hook 按模式拆分为 mock/official 两条路径，页面渲染与发送链路不变。
 - [x] 新建会话/群聊统一“先跳转 + 路由携带 pendingSession + 后台落库”，写入完成广播 `sessions-changed` 刷新侧边栏，避免 IndexedDB 慢/卡住时无法进入新会话或列表不更新。
-- [x] 群聊会话页与单 Agent 对话对齐：顶部展示成员 Agent（带叉可移除，至少保留 2 个）与「添加 Agent」下拉；头部右上角显示运行状态与群组信息；成员增删即时更新会话 `group` 配置并持久化。
+- [x] 群聊会话页与单 Agent 对话对齐：顶部展示成员 Agent（超长省略，带叉可移除，至少保留 2 个）与「添加 Agent」下拉；右侧群组设置面板默认收起，由头部信息图标打开；头部不再显示 runtime 端点；成员增删即时更新会话 `group` 配置并持久化。
 - [x] 非 zh-CN/en-US/zh-TW 的 15 种语言已人工翻译补齐；`dictionaries.test.ts` 守护 18 种语言的 key 集合与占位符一致；全量联网复核见 `task.md`，脚本 `scripts/verify-i18n.mjs` + `scripts/argos-translate-server.py`。
 - [x] 需求 Review / Code Review 已输出详细设计与缺口清单：见 `docs/agentdock/design/`（00-10：索引、端到端链路、AG-UI、A2UI、Registry、渲染矩阵、CopilotKit 接入、联调调试指南、最终架构决策、渲染投影层、逐行 Code Review）。
 - [ ] 浏览器逐页视觉验收（当前环境无浏览器驱动，已用 build/test + HTTP 冒烟代替）。

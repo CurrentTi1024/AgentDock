@@ -225,6 +225,7 @@ export default {
   'workspace.group.temp': '暫時 Group · 不儲存到市場',
   'workspace.group.timeout': '逾時: 10 min',
   'group.home.desc': 'Combine multiple agents and orchestrate them together.',
+  'group.chat.settings': '群組設定',
   'group.chat.addMember': '新增 Agent',
   'group.chat.needAtLeastTwo': '群聊至少需要 2 個成員',
   'group.chat.removeMember': '移除成員',

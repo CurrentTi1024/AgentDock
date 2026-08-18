@@ -225,6 +225,7 @@ export default {
   'workspace.group.temp': 'Geçici grup · pazara kaydedilmedi',
   'workspace.group.timeout': 'Zaman aşımı: 10 dk',
   'group.home.desc': 'Birden fazla ajanı birleştirin ve birlikte orkestrasyon yapın.',
+  'group.chat.settings': 'Group settings',
   'group.chat.addMember': 'Add agent',
   'group.chat.needAtLeastTwo': 'A group chat needs at least 2 members',
   'group.chat.removeMember': 'Remove member',

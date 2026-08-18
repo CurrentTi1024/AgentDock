@@ -26,7 +26,6 @@ import { messageFeedbackService } from '@/api/conversation/messageFeedbackServic
 import { getServiceMode } from '@/api/core/serviceMode';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
 import type { RuntimeStep } from '@/api/runtime/types';
-import { runtimeConfig } from '@/api/runtimeConfig';
 import {
   sessionHistoryService,
   type SessionMessageRecord,
@@ -247,7 +246,6 @@ export default function ChatPage() {
           agentId={agentId}
           agentName={agent}
           artifactOpen={artifactOpen}
-          endpoint={runtimeConfig.resolveAgentRuntimeUrl(fab)}
           fab={fab}
           status={run?.status}
           onToggleArtifact={() => setArtifactOpen((open) => !open)}

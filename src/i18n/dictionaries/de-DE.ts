@@ -225,6 +225,7 @@ export default {
   'workspace.group.temp': 'Temporäre Gruppe · nicht im Markt gespeichert',
   'workspace.group.timeout': 'Timeout: 10 Min.',
   'group.home.desc': 'Kombiniere mehrere Agents und orchestriere sie gemeinsam.',
+  'group.chat.settings': 'Group settings',
   'group.chat.addMember': 'Add agent',
   'group.chat.needAtLeastTwo': 'A group chat needs at least 2 members',
   'group.chat.removeMember': 'Remove member',

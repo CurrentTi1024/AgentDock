@@ -225,6 +225,7 @@ export default {
   'workspace.group.temp': 'مجموعة مؤقتة · غير محفوظة في السوق',
   'workspace.group.timeout': 'المهلة: 10 دقائق',
   'group.home.desc': 'ادمج عدة وكلاء ونظّم عملهم معًا.',
+  'group.chat.settings': 'Group settings',
   'group.chat.addMember': 'Add agent',
   'group.chat.needAtLeastTwo': 'A group chat needs at least 2 members',
   'group.chat.removeMember': 'Remove member',

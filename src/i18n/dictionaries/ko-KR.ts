@@ -225,6 +225,7 @@ export default {
   'workspace.group.temp': '임시 그룹 · 마켓에 저장되지 않음',
   'workspace.group.timeout': '제한 시간: 10분',
   'group.home.desc': '여러 에이전트를 결합하여 함께 오케스트레이션하세요.',
+  'group.chat.settings': 'Group settings',
   'group.chat.addMember': 'Add agent',
   'group.chat.needAtLeastTwo': 'A group chat needs at least 2 members',
   'group.chat.removeMember': 'Remove member',
