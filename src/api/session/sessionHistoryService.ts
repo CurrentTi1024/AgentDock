@@ -1,0 +1,55 @@
+import Dexie, { type EntityTable } from 'dexie';
+import type { RunAgentInput, RuntimeMessage, RuntimeRunState } from '@/api/runtime/types';
+export interface SessionRecord { agentId?: string; agentName?: string; createdAt: string; fab: string; group?: unknown; id: string; pinned: boolean; threadId: string; title: string; type: 'agent' | 'group'; updatedAt: string; version?: string }
+export type SessionMessageKind = 'activity' | 'reasoning' | 'step' | 'surface' | 'text' | 'tool';
+export interface SessionMessageRecord { content?: string; createdAt: string; id: string; kind: SessionMessageKind; payload?: Record<string, unknown>; role?: RuntimeMessage['role']; runId?: string; sequence: number; sessionId: string; streamId?: string }
+export interface RunCheckpointRecord { input: RunAgentInput; latestStreamId?: string; runId: string; sessionId: string; snapshot: RuntimeRunState; status: RuntimeRunState['status']; threadId: string; updatedAt: string }
+class SessionDatabase extends Dexie {
+  sessions!: EntityTable<SessionRecord, 'id'>; messages!: EntityTable<SessionMessageRecord, 'id'>; checkpoints!: EntityTable<RunCheckpointRecord, 'runId'>;
+  constructor() { super('agentdock-session-v3'); this.version(1).stores({ sessions: 'id,threadId,updatedAt,pinned,type', messages: 'id,sessionId,runId,createdAt,sequence', checkpoints: 'runId,sessionId,threadId,status,updatedAt' }); }
+}
+const db = new SessionDatabase();
+export const sessionHistoryService = {
+  async createSession(input: Omit<SessionRecord, 'createdAt' | 'id' | 'updatedAt'> & { id?: string }) { const now = new Date().toISOString(); const record = { ...input, id: input.id ?? crypto.randomUUID(), createdAt: now, updatedAt: now }; await db.sessions.put(record); return record; },
+  async getSession(id: string) { return db.sessions.get(id); },
+  async listSessions() { return db.sessions.orderBy('updatedAt').reverse().toArray(); },
+  async searchSessions(keyword: string) { const sessions = await this.listSessions(); const query = keyword.toLowerCase(); return sessions.filter((session) => `${session.title}${session.agentName || ''}`.toLowerCase().includes(query)); },
+  async updateSession(id: string, value: Partial<SessionRecord>) { await db.sessions.update(id, { ...value, updatedAt: new Date().toISOString() }); return db.sessions.get(id); },
+  async removeSession(id: string) { await db.transaction('rw', db.sessions, db.messages, db.checkpoints, async () => { await db.sessions.delete(id); await db.messages.where('sessionId').equals(id).delete(); await db.checkpoints.where('sessionId').equals(id).delete(); }); },
+  async appendMessages(records: SessionMessageRecord[]) { await db.messages.bulkPut(records); },
+  async getMessages(sessionId: string) { return db.messages.where('sessionId').equals(sessionId).sortBy('sequence'); },
+  async saveRunCheckpoint(sessionId: string, input: RunAgentInput, snapshot: RuntimeRunState) {
+    const updatedAt = new Date().toISOString();
+    const record: RunCheckpointRecord = { input, latestStreamId: snapshot.latestStreamId, runId: snapshot.runId, sessionId, snapshot, status: snapshot.status, threadId: snapshot.threadId, updatedAt };
+    await db.checkpoints.put(record);
+    await this.persistRunSnapshot(sessionId, snapshot);
+    await db.sessions.update(sessionId, { updatedAt });
+    return record;
+  },
+  async persistRunSnapshot(sessionId: string, snapshot: RuntimeRunState) {
+    const base = Date.now();
+    const records: SessionMessageRecord[] = [];
+    let index = 0;
+    const push = (kind: SessionMessageKind, id: string, value: Omit<SessionMessageRecord, 'createdAt' | 'id' | 'kind' | 'sequence' | 'sessionId'>) => records.push({ ...value, createdAt: new Date().toISOString(), id: `${kind}:${id}`, kind, sequence: base + index++, sessionId });
+    for (const message of Object.values(snapshot.messages)) {
+      if (!message || !message.id) continue;
+      push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, streamId: snapshot.latestStreamId });
+    }
+    for (const [id, content] of Object.entries(snapshot.reasoning || {})) push('reasoning', id, { content, runId: snapshot.runId, streamId: snapshot.latestStreamId });
+    for (const [id, call] of Object.entries(snapshot.toolCalls || {})) push('tool', id, { content: call.args, payload: { args: call.args, name: call.name, result: call.result, status: call.status }, runId: snapshot.runId, streamId: snapshot.latestStreamId });
+    for (const [id, step] of Object.entries(snapshot.steps || {})) push('step', id, { payload: { finishedAt: step.finishedAt, name: step.name, startedAt: step.startedAt, status: step.status }, runId: snapshot.runId, streamId: snapshot.latestStreamId });
+    for (const [id, activity] of Object.entries(snapshot.activities || {})) {
+      const payload = (activity && typeof activity === 'object') ? (activity as Record<string, unknown>) : {};
+      const activityType = String(payload.activityType || '');
+      push('activity', id, { payload: { ...payload, activityType, messageId: id }, runId: snapshot.runId, streamId: snapshot.latestStreamId });
+      if (activityType === 'a2ui.surface') push('surface', String(payload.surfaceId || id), { payload: { ...payload, surfaceId: payload.surfaceId || id }, runId: snapshot.runId, streamId: snapshot.latestStreamId });
+    }
+    for (const [surfaceId, surface] of Object.entries(snapshot.surfaces || {})) {
+      const payload = (surface && typeof surface === 'object') ? (surface as Record<string, unknown>) : {};
+      push('surface', surfaceId, { payload: { ...payload, surfaceId }, runId: snapshot.runId, streamId: snapshot.latestStreamId });
+    }
+    if (records.length) await db.messages.bulkPut(records);
+  },
+  async getLatestRun(sessionId: string) { const records = await db.checkpoints.where('sessionId').equals(sessionId).sortBy('updatedAt'); return records.at(-1); },
+  async getLatestRecoverableRun(sessionId: string) { const records = await db.checkpoints.where('sessionId').equals(sessionId).sortBy('updatedAt'); return records.reverse().find((record) => ['running', 'paused'].includes(record.status)); },
+};

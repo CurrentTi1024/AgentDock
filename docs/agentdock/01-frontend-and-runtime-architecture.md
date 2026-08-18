@@ -50,36 +50,26 @@ Orchestration Core + DeepAgents + CopilotKitMiddleware
 - single-route 模式。
 - 一个远端 Orchestration Agent Adapter，调用 FastAPI `/ag-ui`。
 - 不配置模型，不直接运行 Agent。
-- 负责 SSO 校验/透传、Catalog、A2UI Middleware、AG-UI run/connect/stop 和上游断线恢复适配。
+- 负责 Catalog、A2UI Middleware、AG-UI run/connect/stop 和上游断线恢复适配。
+- **不负责 SSO 与普通 API 转发**：SSO 登录态注入与 `/api/*` 到 Agent Registry 的路由由 OAuth2 Proxy 统一完成（见 `design/08` §7）；仓库不自建反向代理。
 
 ## 3. 建议仓库结构
 
 ```text
 agentdock/
-├── src/                         # Vite Browser App
-│   ├── app/
-│   ├── pages/
-│   ├── features/
-│   │   ├── conversation/
-│   │   ├── market/
-│   │   ├── session-history/
-│   │   ├── memory/
-│   │   └── tasks/
-│   ├── renderers/
-│   │   ├── tools/
-│   │   ├── hitl/
-│   │   ├── activities/
-│   │   └── a2ui/
-│   ├── services/
-│   ├── stores/
-│   └── db/
+├── src/                         # Vite Browser App（bulletproof-react 范式）
+│   ├── app/                     # 应用装配层：App.tsx / router.tsx / providers.tsx
+│   ├── api/                     # 数据访问层：core/market/runtime/session/… Service
+│   ├── components/              # 全局共享 UI：AppShell + shell 布局原语
+│   ├── features/                # 业务域：chat / market / skill / workspace
+│   ├── i18n/                    # 国际化：locales + dictionaries
+│   ├── lib/                     # 可复用基础设施：httpClient / mock 工具
+│   ├── mock-data/               # 与 api/ 一一对应的 Mock 数据
+│   ├── stores/                  # zustand：runStore / uiStore
+│   ├── types/                   # 全局共享领域类型
+│   └── main.tsx                 # 薄入口
 ├── server/                      # 同一服务中的服务端代码
-│   ├── runtime.ts
-│   ├── orchestrationAgent.ts
-│   ├── auth.ts
-│   └── server.ts                # 托管 dist + /api/copilotkit
-├── shared/
-│   └── contracts/
+│   └── copilot-runtime/         # 托管 dist + /api/copilotkit 的 FAB 代理
 ├── docs/
 ├── package.json                 # 同一个项目和依赖锁文件
 └── vite.config.ts
@@ -90,10 +80,13 @@ agentdock/
 生产拓扑：
 
 ```text
-AgentDock Container / Node Process
-├── GET/静态资源 → Vite dist
-└── POST /api/copilotkit → Copilot Runtime
-                         └── FastAPI /ag-ui
+Browser
+  ├─ GET/静态资源 → AgentDock Container（Vite dist，可选由 OAuth2 Proxy/CDN 前置）
+  └─ POST /api/* → OAuth2 Proxy（SSO token 注入）
+       ├─ /api/market/* → Agent Registry
+       ├─ /api/copilotkit → Copilot Runtime（AgentDock Container / Node Process）
+       │                     └─ FabRoutingAgent → {fab}/ag-ui（Orchestration FastAPI）
+       └─ 其他 /api/* → Agent Registry
 ```
 
 ## 4. Copilot Runtime 配置原则
@@ -302,21 +295,17 @@ interface SessionUiState {
 页面不能直接 `fetch`。
 
 ```text
-features/market/services/marketService.ts
-features/conversation/services/agentRuntimeService.ts
-features/session-history/services/sessionHistoryService.ts
-features/memory/services/memoryService.ts
+src/api/market/{marketService,agentMarketService,skillMarketService,mcpMarketService}.ts
+src/api/runtime/agentRuntimeService.ts
+src/api/session/sessionHistoryService.ts
+src/api/memory/memoryService.ts
 ```
 
-每个 Service 提供：
-
-- `types.ts`
-- `mockData.ts`
-- `mockService.ts`
-- `httpService.ts`
-- `index.ts`：根据环境选择实现
+每个 Service 导出 interface、HTTP 实现、Mock 实现和按环境选择的实例（`selectService`），共享契约类型在 `src/api/core/types.ts`，传输与 Mock 工具在 `src/lib/`。
 
 页面只依赖 Service interface，后续替换真实接口时不修改页面组件。
+
+Service 模式默认由 `VITE_SERVICE_MODE` 决定（构建期）；设置页「开发预览环境」可在运行时切换 Mock/HTTP，偏好写入 `localStorage`（`agentdock-service-mode`），`selectService` 与 `agentRuntimeService` 按当前模式动态分发，页面无需改动。
 
 ## 9. 错误边界
 
@@ -325,6 +314,13 @@ features/memory/services/memoryService.ts
 - 非法/未知 AG-UI Custom 事件记录日志并忽略，不中断文本流。
 - IndexedDB 写入失败不阻断当前对话，但必须提示“历史可能无法保存”。
 - Memory 检索失败不阻断 Agent Run。
+
+## 9.1 布局与群聊
+
+- 应用外壳由 `providers.tsx` 的 ThemeProvider 撑满视口（`height: 100%` + `min/max-height: 100dvh`），`AppShell` 左右分栏：左侧 `NavPanelDraggable` 侧边栏，右侧 `DesktopLayoutContainer` 内容容器。
+- 侧边栏按路由切换：`/group*` 显示群组侧边栏（最近群聊 + 新建群聊），其余路由显示 HomeSidebar（功能导航 + 最近会话）。
+- 对话页参照 LobeHub：消息列最大宽度 840 居中，输入区绝对定位于底部通栏，内部同样 840 居中；历史会话（agent 与 group 两类）统一在侧边栏「最近会话/最近群聊」按类型展示。
+- `/group` 为群聊首页（创建 + 最近群聊），`/group/:id` 为群聊会话页（主会话区 + 右侧配置面板：成员/编排模式/启动停止）。
 
 ## 10. 本文待确认项
 

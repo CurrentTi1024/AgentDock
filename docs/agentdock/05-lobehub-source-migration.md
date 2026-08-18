@@ -19,13 +19,13 @@
 | Agent 对话 | `src/routes/(main)/agent/(chat)`、`src/routes/(main)/agent/features/Conversation` | `agentRuntimeService` Mock AG-UI stream |
 | 消息、推理、工具与任务过程 | `src/features/Conversation/ChatItem`、`Messages/AssistantGroup`、`Messages/Tool`、`Messages/Task` | 标准化本地事件 reducer |
 | 对话输入框 | `src/features/ChatInput`、`MainChatInput` | `getMentionAgentsList` mock，返回全部 Agent-FAB 组合 |
-| Agent 市场 | `src/routes/(main)/community/(list)/agent` | `agentMarketService` mock |
-| Agent 详情 | `src/routes/(main)/community/(detail)/agent` | FAB 版本详情 mock |
-| Skill 市场 | `src/routes/(main)/community/(list)/skill` | `skillMarketService` mock |
-| Skill 详情 | `src/features/CommunitySkillDetail`、`community/(detail)/skill` | FAB 版本与引用 Agent mock |
+| Agent 市场 | `src/routes/(main)/community/(list)/agent` | `agentMarketService` mock；页面顶部增加 FAB 选择器（`getFabOptions`），分类/列表按 FAB 查询 |
+| Agent 详情 | `src/routes/(main)/community/(detail)/agent` | 按 FAB 查询的详情 mock；Version 页不再按 FAB 分区 |
+| Skill 市场 | `src/routes/(main)/community/(list)/skill` | `skillMarketService` mock；FAB 选择器前置 |
+| Skill 详情 | `src/features/CommunitySkillDetail`、`community/(detail)/skill` | 按 FAB 查询的详情 mock；Version 页不再分区 |
 | Skill 创建 | Community Skill 表单、Modal 与表单基础组件 | `createAndPublishSkill` mock |
-| MCP 市场 | `src/routes/(main)/community/(list)/mcp` | `mcpMarketService` mock |
-| MCP 详情 | `src/routes/(main)/community/(detail)/mcp` | FAB、Schema、Tools、引用 Agent mock |
+| MCP 市场 | `src/routes/(main)/community/(list)/mcp` | `mcpMarketService` mock；FAB 选择器前置 |
+| MCP 详情 | `src/routes/(main)/community/(detail)/mcp` | 按 FAB 查询的详情 mock；Version 页不再分区 |
 | Agent Group | `src/routes/(main)/group` | 临时成员、模式与配置 mock |
 | Documents | `src/routes/(main)/agent/docs` | 本地文档 mock |
 | Memory | `src/routes/(main)/memory` | 本地 Memory mock，不拼接 user message |

@@ -1,7 +1,29 @@
-import { buildMarketDetailMockData, marketItemsMockData as marketItems } from './marketShared';
+import { buildAgentDetailMockData, marketItemsMockData } from './marketShared';
+
+const agentItems = marketItemsMockData.agent.filter(
+  (item): item is Extract<typeof item, { agentFullName: string }> => 'agentFullName' in item,
+);
+
 export const agentMarketMockData = {
-  categories: [{ categoryId: 'all', categoryName: '全部', icon: '✨', count: marketItems.agent.length }, { categoryId: 'analysis', categoryName: '数据分析', icon: '📊', count: 1 }, { categoryId: 'programming', categoryName: '编程', icon: '💻', count: 1 }, { categoryId: 'office', categoryName: '办公', icon: '📝', count: 1 }],
-  items: marketItems.agent,
-  details: Object.fromEntries(marketItems.agent.map((item) => [item.id, buildMarketDetailMockData('agent', item)])),
-  mentions: marketItems.agent.flatMap((agent) => agent.versions.filter((version) => version.callPermission).map((version) => ({ agentId: agent.id, name: `${agent.name}-${version.fab}`, icon: agent.icon, description: agent.description, version: version.version, fab: version.fab }))),
+  categories: [
+    { categoryId: 'all', categoryName: '全部', icon: '✨', count: agentItems.length },
+    { categoryId: 'analysis', categoryName: '数据分析', icon: '📊', count: 1 },
+    { categoryId: 'programming', categoryName: '编程', icon: '💻', count: 1 },
+    { categoryId: 'office', categoryName: '办公', icon: '📝', count: 1 },
+  ],
+  details: Object.fromEntries(
+    agentItems.map((item) => [`${item.id}@${item.fabPermission.fab}`, buildAgentDetailMockData(item)]),
+  ),
+  items: agentItems,
+  mentions: agentItems
+    .filter((item) => item.fabPermission.callPermission)
+    .map((item) => ({
+      agentId: item.id,
+      agentFullName: item.agentFullName,
+      description: item.description,
+      fab: item.fabPermission.fab,
+      icon: item.icon,
+      ownerName: item.ownerName,
+      version: item.version,
+    })),
 };

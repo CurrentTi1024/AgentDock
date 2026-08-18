@@ -1,4 +1,4 @@
-import type { AgUiEvent, RunAgentInput } from '@/services/runtime/types';
+import type { AgUiEvent, RunAgentInput } from '@/api/runtime/types';
 const delay = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => { const timer = setTimeout(resolve, ms); signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); }, { once: true }); });
 export async function* createAgentRuntimeMockEvents(input: RunAgentInput, signal?: AbortSignal): AsyncGenerator<AgUiEvent> {
   const assistantId = `assistant-${input.runId}`; const fab = input.forwardedProps.fab; let sequence = 0;

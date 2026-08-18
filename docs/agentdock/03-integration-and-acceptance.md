@@ -39,7 +39,7 @@
 - 暴露 single-route `POST /api/copilotkit`。
 - 注册 Orchestration Agent Adapter。
 - 代理 FastAPI `/ag-ui`。
-- 透传 SSO、forwardedProps、Catalog 和 AG-UI events。
+- 透传 forwardedProps、Catalog 和 AG-UI events；SSO 登录态由前置 OAuth2 Proxy 注入（仓库不自建 `/api/*` 反向代理，普通 REST 由 OAuth2 Proxy 路由到 Agent Registry）。
 - 对上游错误转换为 `RUN_ERROR`，不返回 HTML 错误页。
 
 ### Orchestration Service

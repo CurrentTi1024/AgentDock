@@ -4,7 +4,7 @@
 > 文档版本：0.1  
 > 日期：2026-08-17  
 > 适用范围：AgentDock 公司内部版本，不保留 LobeHub 原版运行模式
-[https://github.com/lobehub/lobehub](https://github.com/lobehub/lobehub) lobehub源码
+[https://github.com/lobehub/lobehub](https://github.com/lobehub/lobehub) lobehub源码，已经下载到：/private/tmp/lobehub-canary
 
 ## 1. 文档目的
 
@@ -59,8 +59,9 @@ AgentDock 是公司内部使用的 Agent 前端工作台：
 
 ### 4.2 P0：本地会话历史
 
-- IndexedDB 仅保存用户回看页面所需的会话和可见消息。
-- 用户刷新页面或重新进入时，可以看到历史对话。
+- IndexedDB 保存**全部**会话消息记录：单 Agent 对话与 Agent Group 对话的所有可见消息（用户文本、助手文本、reasoning、tool call、activity/HITL、A2UI surface、step 步骤等）。
+- 每次打开页面从 IndexedDB 恢复历史对话：会话列表 + 当前会话完整消息；恢复过程不请求后端。
+- **清空浏览器存储后历史为空**：IndexedDB 不内置任何 Mock 种子会话（演示数据只允许作为“新建会话”入口，不允许伪造用户历史）。
 - 不承担 DeepAgents 上下文、checkpoint 或长期记忆存储。
 - 不考虑跨设备同步。
 - DeepAgents 通过 `threadId` 自己加载和维护上下文。
@@ -68,10 +69,11 @@ AgentDock 是公司内部使用的 Agent 前端工作台：
 ### 4.3 P0：市场
 
 - Agent、Skill、MCP 分类。分类图标改成和agent头像一样的emoji表情，因为后端存储的就是emoji表情而不是组件。
+- Agent、Skill、MCP 市场统一采用 **FAB 前置** 查询：进入市场时先通过 `getFabOptions` 获取 FAB 选项和默认 FAB，用户选择 FAB 后，分类、列表、详情接口都携带 `fab`，页面展示与选中 FAB 保持一致。
 - Agent、Skill、MCP 分页列表和详情。
 - 分类/列表统一支持 `mode: all | permissioned`，不建立三个独立 Own 接口。
 - `permissioned` 只显示用户有权限的资源版本/FAB组合。
-- Agent、Skill、MCP 详情尽量覆盖 LobeHub Market UI 展示的信息。同时version中增加fab tab，按照详情返回的内容by fab区分显示哪个版本的信息。（后端会保证一个fab只有一个activate版本可用，而且不会返回历史不可用的版本）
+- Agent、Skill、MCP 详情尽量覆盖 LobeHub Market UI 展示的信息。三类详情接口都按当前 FAB 返回其当前激活版本，Version 页不再按 FAB 分区（原“Version 中增加 FAB Tab”的定制取消）。
 - 查询 Skill 被哪些 Agent 使用。
 - 查询 MCP 被哪些 Agent 使用。
 - Skill Creator 创建并立即发布 Skill。
@@ -151,7 +153,7 @@ AgentDock 是公司内部使用的 Agent 前端工作台：
 
 ## 9. 市场列表权限约定
 
-以下接口统一接受 `mode`：
+以下市场列表接口统一接受 `mode`，并且为满足后端 SQL 查询性能，Agent、Skill、MCP 市场**必须先选择 FAB 再查询**，请求中携带 `fab`：
 
 - `getAgentsListByCategoryAndKW`
 - `getSkillsListByCategoryAndKW`
@@ -164,17 +166,21 @@ type MarketListMode = 'all' | 'permissioned';
 - `all`：返回全部可展示资源及权限标记。
 - `permissioned`：只返回用户至少拥有一个可调用版本/FAB组合的资源，并过滤无权限组合。
 
-Agent 版本权限结构：
+市场 FAB 规则：
+
+- Agent、Skill、MCP 的分类、列表、详情九个接口均新增 `fab` 入参。
+- Agent 接口采用展平的 `version + fabPermission`（当前 FAB 激活版本），不再返回 `versions` 数组；Skill/MCP 接口的 `versions` 只返回当前 `fab` 的当前激活版本（单元素），不再返回其他 FAB 或历史不可用版本。
+- 三类市场的 FAB 选项与默认值由 `getFabOptions` 提供：`type` 区分 `agent`/`skill`/`mcp`，`mode=all` 返回该市场全部 FAB，`mode=permissioned` 返回用户至少有一个可调用组合的 FAB。
+
+Agent 版本权限结构（展平，仅当前 FAB）：
 
 ```json
 {
-  "versions": [
-    {
-      "version": "1.0.0",
-      "fab": "F15B",
-      "callPermission": true
-    }
-  ]
+  "version": "1.0.0",
+  "fabPermission": {
+    "fab": "F15B",
+    "callPermission": true
+  }
 }
 ```
 
@@ -191,4 +197,3 @@ Agent 版本权限结构：
 - [失败码就是非0] 公司失败码最终使用 `1` 还是 `-1`。
 - [ 是的 ] Skill/MCP 是否也采用版本 + FAB 粒度的 `callPermission`。
 - [ 已授权 ] 首期市场中 `permissioned` 页签最终显示名称：`可用`、`已授权`或其他。
-

@@ -45,7 +45,7 @@
 
 ### 2.3 SSO 与权限
 
-- SSO Cookie 或公司授权头由浏览器/AgentDock App Server 自动携带。
+- SSO Cookie 或公司授权头由 **OAuth2 Proxy** 统一注入：浏览器只访问同源 `/api/*`，OAuth2 Proxy 校验登录态、附加授权头后按 path 转发到对应后端；仓库不自建反向代理。
 - 请求体不传 `userId`、角色或权限列表。
 - FastAPI 根据 SSO 身份判断 `user`、`skill_creator` 角色及资源权限。
 - 前端隐藏无权限操作只用于改善体验，不能代替后端鉴权。
@@ -61,12 +61,21 @@ type MarketListMode = 'all' | 'permissioned';
 - 分类接口的 `count` 必须按相同 `mode` 统计，避免分类数量与列表不一致。
 - 后端保证同一资源的一个 FAB 只返回一个当前激活版本，不返回历史不可用版本。
 
-### 2.5 后端服务与 Base URL 路由
+### 2.5 市场 FAB 前置查询
 
-- Agent、Skill、MCP 的市场查询和 Skill 创建统一由 **Agent Registry** 提供。它不区分 FAB，AgentDock App Server 使用单一环境变量 `AGENT_REGISTRY_BASE_URL` 配置上游地址。
+为满足后端 SQL 查询性能，Agent、Skill、MCP 市场统一采用 **FAB 前置** 流程：
+
+- 进入任一市场时，先调用 `getFabOptions({ type: 'agent'|'skill'|'mcp', mode: 'all' })` 渲染 FAB 选择器，再调用 `getFabOptions({ type, mode: 'permissioned' })` 确定默认 FAB（取列表第一项；为空时展示无权限空态，不自动回退到 `all` 发起查询）。
+- 用户选择 FAB 后，对应市场的分类、列表、详情接口都携带 `fab`，后端按 `fab + mode` 过滤。
+- 三类市场的分类/列表/详情接口，`versions` 只返回当前 `fab` 的当前激活版本（单元素），不返回其他 FAB 或历史版本；详情 Version 页不再按 FAB 分区。
+- 切换 FAB 后必须重新请求分类/列表/详情，避免展示与选中 FAB 不一致。
+
+### 2.6 后端服务与 Base URL 路由
+
+- Agent、Skill、MCP 的市场查询和 Skill 创建统一由 **Agent Registry** 提供。它不区分 FAB；OAuth2 Proxy 使用单一环境变量 `AGENT_REGISTRY_BASE_URL` 配置上游地址。
 - 除 Agent Chat 的实时接口外，所有普通 REST API 都使用各自固定的后端入口，不得因请求中的 FAB 切换 Base URL。
 - Agent Chat 的 Orchestration Service 按 FAB 部署。生产默认使用 **Copilot Runtime proxy**：Browser 始终访问同源 `/api/copilotkit`，Runtime 根据 `forwardedProps.fab` 选择对应 Base URL 并请求 `{baseUrl}/ag-ui`。
-- FAB 映射由 App Server/CD 的服务端变量 `AGENT_ORCHESTRATION_BASE_URLS_JSON` 配置。这样保留 Runtime middleware、认证透传、A2UI Catalog、审计、限流和统一错误处理。
+- FAB 映射由 Copilot Runtime/CD 的服务端变量 `AGENT_ORCHESTRATION_BASE_URLS_JSON` 配置。这样保留 Runtime middleware、认证透传、A2UI Catalog、审计、限流和统一错误处理。
 - 可选 `direct` 模式只用于本地或专项联调：Browser 从 `VITE_AGENT_ORCHESTRATION_ENDPOINTS_JSON` 选择 FAB endpoint。此时 Orchestration Service 必须自行提供 CORS、认证和完整 AG-UI/A2UI/HITL 事件。
 - 未配置请求 FAB 的 Orchestration URL 时必须拒绝执行并返回明确错误，不得静默路由到其他 FAB。
 
@@ -92,24 +101,25 @@ env:
 | 优先级 | 接口名称 | 使用页面/功能 |
 |---|---|---|
 | P0 | `getCurrentUserProfile` | App 初始化、角色和 Skill 创建入口 |
-| P0 | `getAgentCategories` | Agent 市场分类 |
-| P0 | `getAgentsListByCategoryAndKW` | Agent 市场列表、已授权列表 |
-| P0 | `getAgentDetailById` | Agent 详情、FAB Tab |
+| P0 | `getFabOptions` | Agent/Skill/MCP 市场 FAB 选择器与默认 FAB |
+| P0 | `getAgentCategories` | Agent 市场分类（按 FAB） |
+| P0 | `getAgentsListByCategoryAndKW` | Agent 市场列表、已授权列表（按 FAB） |
+| P0 | `getAgentDetailById` | Agent 详情（按 FAB，Version 页不分区） |
 | P0 | `getMentionAgentsList` | 对话输入框 `@Agent` |
-| P0 | `getSkillCategories` | Skill 市场分类 |
-| P0 | `getSkillsListByCategoryAndKW` | Skill 市场列表、已授权列表 |
-| P0 | `getSkillDetailById` | Skill 详情、FAB Tab |
+| P0 | `getSkillCategories` | Skill 市场分类（按 FAB） |
+| P0 | `getSkillsListByCategoryAndKW` | Skill 市场列表、已授权列表（按 FAB） |
+| P0 | `getSkillDetailById` | Skill 详情（按 FAB，Version 页不分区） |
 | P0 | `getAgentsReferencingSkillBySkillId` | Skill 详情中的“使用此 Skill 的 Agent” |
 | P0 | `createAndPublishSkill` | Skill Creator 创建并立即发布 |
-| P0 | `getMcpServerCategories` | MCP 市场分类 |
-| P0 | `getMcpServersListByCategoryAndKW` | MCP 市场列表、已授权列表 |
-| P0 | `getMcpServerDetailById` | MCP 详情、安装方式、Schema、FAB Tab |
+| P0 | `getMcpServerCategories` | MCP 市场分类（按 FAB） |
+| P0 | `getMcpServersListByCategoryAndKW` | MCP 市场列表、已授权列表（按 FAB） |
+| P0 | `getMcpServerDetailById` | MCP 详情、安装方式、Schema（按 FAB，Version 页不分区） |
 | P0 | `getAgentsReferencingMcpServerByMcpServerId` | MCP 详情中的“使用此 MCP 的 Agent” |
 | P0 | `submitMessageFeedback` | 助手消息点赞/点踩 |
 | P1 | `getSupportedAgentGroupOrchestrationModes` | 临时 Agent Group 编排方式 |
 | P0 | Copilot Runtime single-route | Agent run、stop、resume、HITL、A2UI Action |
 
-本地 Session History 不在此表中：它只通过 IndexedDB Service 读写，不调用后端。
+本地 Session History 不在此表中：它只通过 IndexedDB Service 读写，不调用后端。IndexedDB 保存全部会话消息（单 Agent 与 Agent Group 的所有可见消息，包括 reasoning/tool/activity/A2UI/step），每次打开从本地恢复；用户清空浏览器存储后历史为空（不内置 Mock 种子会话）。
 
 ## 4. 用户接口
 
@@ -150,7 +160,43 @@ env:
 
 ## 5. Agent 市场接口
 
-### 5.1 `getAgentCategories`
+### 5.1 `getFabOptions`
+
+**HTTP**：`POST /api/market/getFabOptions`
+**前端 Service**：`marketService.getFabOptions`（Agent/Skill/MCP 市场共用）
+**使用位置**：Agent/Skill/MCP 市场 FAB 选择器、默认 FAB
+
+请求：
+
+```json
+{
+  "type": "agent",
+  "mode": "all",
+  "locale": "zh-CN"
+}
+```
+
+成功响应：
+
+```json
+{
+  "code": 0,
+  "message": "",
+  "data": {
+    "fabs": ["F15B", "F18B", "F35A"]
+  }
+}
+```
+
+规则：
+
+- `type` 取值 `agent`、`skill`、`mcp`，与对应市场一致；前端不把 FAB 或 type 写成枚举常量。
+- `mode = all`：返回该市场全部可展示 FAB（去重后的完整集合）。
+- `mode = permissioned`：只返回当前用户至少拥有一个可调用组合的 FAB。
+- 返回顺序即推荐展示顺序；前端默认 FAB 取 `permissioned` 第一项，`permissioned` 为空时展示无可用 Agent 的空态。
+- 切换 FAB 后，对应市场的分类、列表、详情请求必须携带新 FAB，避免页面展示与选中 FAB 不一致。
+
+### 5.2 `getAgentCategories`
 
 **HTTP**：`POST /api/getAgentCategories`  
 **前端 Service**：`agentMarketService.getAgentCategories`
@@ -160,6 +206,7 @@ env:
 ```json
 {
   "mode": "all",
+  "fab": "F15B",
   "locale": "zh-CN"
 }
 ```
@@ -193,9 +240,10 @@ env:
 
 - `icon` 是后端存储的图标名或 emoji 字符串，不返回 React 组件。
 - `all` 分类建议由后端返回，且 `count` 为当前 `mode` 下去重后的资源总数。
+- `fab` 必填，取值必须是 `getFabOptions` 返回的 FAB；分类 `count` 必须按 `fab + mode` 统计，避免分类数量与列表不一致。
 - `mode` 是请求变量名，取值只能为 `all` 或 `permissioned`。
 
-### 5.2 `getAgentsListByCategoryAndKW`
+### 5.3 `getAgentsListByCategoryAndKW`
 
 **HTTP**：`POST /api/getAgentsListByCategoryAndKW`  
 **前端 Service**：`agentMarketService.getAgentsListByCategoryAndKW`
@@ -205,6 +253,7 @@ env:
 ```json
 {
   "mode": "all",
+  "fab": "F15B",
   "categoryId": "programming",
   "keyword": "代码",
   "locale": "zh-CN",
@@ -230,7 +279,7 @@ env:
     "items": [
       {
         "agentId": "agent-code-review",
-        "name": "CodeReview_Agent",
+        "agentFullName": "CodeReview_Agent-F15B",
         "icon": "🧑‍💻",
         "description": "审查代码并给出风险和改进建议",
         "ownerId": "133890",
@@ -245,18 +294,11 @@ env:
         "knowledgeCount": 3,
         "createTimeAt": "2026-06-01T09:00:00+08:00",
         "updatedAt": "2026-08-15T10:30:00+08:00",
-        "versions": [
-          {
-            "version": "1.3.0",
-            "fab": "F15B",
-            "callPermission": true
-          },
-          {
-            "version": "1.2.1",
-            "fab": "F18A",
-            "callPermission": false
-          }
-        ]
+        "version": "1.3.0",
+        "fabPermission": {
+          "fab": "F15B",
+          "callPermission": true
+        }
       }
     ]
   }
@@ -265,13 +307,15 @@ env:
 
 规则：
 
+- `fab` 必填；`agentFullName` 格式固定为 `{AgentName}-{fab}`，与 `getMentionAgentsList` 的展示名一致。
+- `version` 为当前 `fab` 的当前激活版本号；`fabPermission.callPermission` 表示当前用户在当前 FAB 上能否调用。
+- `mode = permissioned` 时只返回当前 FAB 有调用权限的 Agent；`mode = all` 时返回当前 FAB 可展示的 Agent，并通过 `callPermission` 标记能否调用。
 - `categoryId`、`keyword` 可传 `null`；空条件表示不过滤。
 - `sortBy` 首期支持 `recommended`、`mostUsage`、`updatedAt`、`haveSkills`。
-- `mode = permissioned` 时示例中的 F18A 组合必须被过滤；资源无剩余组合时整个 item 不返回。
-- 页面禁止根据 `versions[0]` 推断默认 FAB；默认 FAB 由用户当前 FAB 或第一个 `callPermission = true` 的组合决定。
+- 页面禁止根据 `agentFullName` 或本地缓存推断默认 FAB；默认 FAB 来自 `getFabOptions({ mode: 'permissioned' })` 第一项。
 - `hasNextPage` 表示是否存在下一页；前端不得用当前页条数自行推断。
 
-### 5.3 `getAgentDetailById`
+### 5.4 `getAgentDetailById`
 
 **HTTP**：`POST /api/getAgentDetailById`  
 **前端 Service**：`agentMarketService.getAgentDetailById`
@@ -281,6 +325,7 @@ env:
 ```json
 {
   "agentId": "agent-code-review",
+  "fab": "F15B",
   "locale": "zh-CN"
 }
 ```
@@ -293,7 +338,7 @@ env:
   "message": "",
   "data": {
     "agentId": "agent-code-review",
-    "name": "CodeReview_Agent",
+    "agentFullName": "CodeReview_Agent-F15B",
     "icon": "🧑‍💻",
     "description": "审查代码并给出风险和改进建议",
     "summary": "适合 Pull Request、补丁和代码片段审查。",
@@ -310,15 +355,7 @@ env:
     "knowledgeCount": 3,
     "createdAt": "2026-06-01T09:00:00+08:00",
     "updatedAt": "2026-08-15T10:30:00+08:00",
-    "versions": [
-      {
-        "version": "1.3.0",
-        "fab": "F15B",
-        "callPermission": true,
-        "overview": "针对 F15B 工程规范优化的代码审查版本。",
-        "systemRoleMarkdown": "你是公司内部代码审查助手……",
-        "capabilities": ["代码缺陷识别", "安全检查", "改进建议"],
-        "examples": [
+    "examples": [
           {
             "title": "审查补丁",
             "userMessage": "请审查这段变更并列出高风险问题。"
@@ -341,24 +378,22 @@ env:
             "version": "2.0.0",
             "fab": "F15B"
           }
-        ]
-      },
-      {
-        "version": "1.2.1",
-        "fab": "F18A",
-        "callPermission": false,
-        "overview": "针对 F18A 工程规范的代码审查版本。",
+        ],
+        "overview": "针对 F15B 工程规范优化的代码审查版本。",
         "systemRoleMarkdown": "你是公司内部代码审查助手……",
-        "capabilities": ["代码缺陷识别"],
-        "examples": [],
-        "skills": [],
-        "mcpServers": []
-      }
-    ],
+        "capabilities": ["代码缺陷识别", "安全检查", "改进建议"],
+        "versionInfo": {
+          "version": "1.3.0",
+          "fab": "F15B",
+          "callPermission": true,
+          "updateAt": "",
+          "createAt": "",
+          "changeLog": ""
+        },
     "relatedAgents": [
       {
         "agentId": "agent-test-generator",
-        "name": "TestGenerator_Agent",
+        "agentFullName": "TestGenerator_Agent-F15B",
         "icon": "🧪",
         "description": "根据代码生成测试用例",
         "ownerId": "133890",
@@ -374,13 +409,14 @@ env:
 
 规则：
 
-- 详情页 FAB Tab 直接由 `versions` 生成；同一个 FAB 只有一个当前激活版本。
-- Agent 的概述、系统角色、能力、示例、Skill 和 MCP 均允许随 FAB 版本不同。
+- `fab` 必填；详情只返回当前 FAB 的当前激活版本，Version 页不再按 FAB 分区。
+- 版本内容展平在顶层：`overview`、`systemRoleMarkdown`、`capabilities`、`examples`、`skills`、`mcpServers`；`versionInfo` 提供版本号、FAB、调用权限、创建/更新时间与变更记录。
+- FAB 由市场/详情页顶部选择器决定，切换 FAB 时重新请求详情；上述版本内容允许随 FAB 版本不同。
 - 无调用权限的版本可以在 `all` 场景展示详情，但“开始对话”按钮必须禁用。
 - Agent 只供使用，不提供创建、编辑、发布或删除接口。
-- 详情顶层字段与 Agent 列表字段保持同名；额外返回详情页所需的 `summary`、主页、创建时间及各 FAB 版本内容。
+- 详情顶层字段与 Agent 列表字段保持同名（`agentFullName`、`icon`、`description`、`category` 等）；额外返回详情页所需的 `summary`、主页、创建时间及当前 FAB 版本内容。
 
-### 5.4 `getMentionAgentsList`
+### 5.5 `getMentionAgentsList`
 
 **HTTP**：`POST /api/getMentionAgentsList`  
 **前端 Service**：`agentMarketService.getMentionAgentsList`
@@ -390,8 +426,7 @@ env:
 ```json
 {
   "keyword": "OCAP",
-  "locale": "zh-CN",
-  "limit": 20
+  "locale": "zh-CN"
 }
 ```
 
@@ -405,17 +440,19 @@ env:
     "items": [
       {
         "agentId": "agent-ocap",
-        "name": "OCAP_Agent-F15B",
+        "agentFullName": "OCAP_Agent-F15B",
         "icon": "🛩️",
         "description": "分析 OCAP 数据并生成结论",
+        "ownerName": "IMC",
         "version": "1.3.0",
         "fab": "F15B"
       },
       {
         "agentId": "agent-ocap",
-        "name": "OCAP_Agent-F18B",
+        "agentFullName": "OCAP_Agent-F18B",
         "icon": "🛩️",
         "description": "分析 OCAP 数据并生成结论",
+        "ownerName": "IMC",
         "version": "1.2.0",
         "fab": "F18B"
       }
@@ -428,10 +465,11 @@ env:
 
 - 返回当前用户有权调用的全部 `Agent + FAB` 组合，不在请求中按单个 FAB 过滤。
 - 一个 Agent 如果在多个 FAB 有调用权限，必须拆成多条 item；每条 item 对应一个 FAB 的当前激活版本。
-- `name` 是用户输入 `@` 后展示和插入的完整内容，格式固定为 `{Agent名称}-{fab}`，例如 `OCAP_Agent-F18B`。
-- `name` 不得包含空白字符；Agent 名中的多个词使用下划线等非空白分隔符，FAB 前只拼接一个连字符 `-`。
-- `keyword` 同时匹配 `name` 和 FAB；为空时返回后端排序后的常用或推荐组合。
-- 选择结果必须保存 `agentId + version + fab`；拼接后的 `name` 只用于展示和文本解析，不能作为资源主键。
+- `agentFullName` 是用户输入 `@` 后展示和插入的完整内容，格式固定为 `{Agent名称}-{fab}`，例如 `OCAP_Agent-F18B`。
+- `agentFullName` 不得包含空白字符；Agent 名中的多个词使用下划线等非空白分隔符，FAB 前只拼接一个连字符 `-`。
+- `keyword` 同时匹配 `agentFullName` 和 FAB；为空时返回后端排序后的常用或推荐组合。
+- 选择结果必须保存 `agentId + version + fab`；拼接后的 `agentFullName` 只用于展示和文本解析，不能作为资源主键。
+- `ownerName` 用于 `@` 菜单中的来源展示，不参与匹配。
 
 ## 6. Skill 市场接口
 
@@ -445,6 +483,7 @@ env:
 ```json
 {
   "mode": "all",
+  "fab": "F15B",
   "locale": "zh-CN"
 }
 ```
@@ -474,7 +513,7 @@ env:
 }
 ```
 
-规则与 Agent 分类一致，`count` 必须应用 `mode` 权限过滤。
+规则与 Agent 分类一致；`fab` 必填，`count` 必须按 `fab + mode` 过滤。
 
 ### 6.2 `getSkillsListByCategoryAndKW`
 
@@ -486,6 +525,7 @@ env:
 ```json
 {
   "mode": "permissioned",
+  "fab": "F15B",
   "categoryId": "development",
   "keyword": "文档",
   "locale": "zh-CN",
@@ -543,7 +583,7 @@ env:
 规则：
 
 - `sortBy` 首期支持 `recommended`、`installCount`、`updatedAt`。
-- `mode` 对 `versions` 和整个 item 的过滤规则与 Agent 一致。
+- `fab` 必填；`versions` 只返回当前 FAB 的当前激活版本（单元素），`mode` 对权限与整个 item 的过滤规则与 Agent 一致。
 - `repositoryUrl`、统计字段可为空；UI 对空值隐藏对应区域，不能显示伪造的 0。
 - `createTimeAt` 为资源首次创建时间，命名与 Agent、MCP 列表保持一致。
 - `hasNextPage` 由 Agent Registry 根据查询结果计算并返回。
@@ -558,6 +598,7 @@ env:
 ```json
 {
   "skillId": "skill-document-summary",
+  "fab": "F15B",
   "locale": "zh-CN"
 }
 ```
@@ -629,8 +670,8 @@ env:
 
 规则：
 
+- `fab` 必填；详情只返回当前 FAB 的当前激活版本（`versions` 单元素），Version 页不再按 FAB 分区。
 - 概述、仓库 URL、使用说明、资源和版本信息足以覆盖 LobeHub Skill 详情的主要内容。
-- FAB Tab 直接由 `versions` 生成；不再单独返回不可用历史版本。
 - `contentMarkdown` 只能包含经过后端清理的 Markdown；前端仍需禁用危险 HTML。
 - 详情顶层字段与 Skill 列表字段保持同名，并增加详情页所需的说明、许可证链接、创建时间、版本内容和相关 Skill。
 
@@ -755,6 +796,7 @@ env:
 ```json
 {
   "mode": "all",
+  "fab": "F15B",
   "locale": "zh-CN"
 }
 ```
@@ -784,7 +826,7 @@ env:
 }
 ```
 
-规则与 Agent 分类一致，`count` 必须应用 `mode` 权限过滤。
+规则与 Agent 分类一致；`fab` 必填，`count` 必须按 `fab + mode` 过滤。
 
 ### 7.2 `getMcpServersListByCategoryAndKW`
 
@@ -796,6 +838,7 @@ env:
 ```json
 {
   "mode": "all",
+  "fab": "F15B",
   "categoryId": "developer",
   "keyword": "git",
   "connectionType": "http",
@@ -849,11 +892,6 @@ env:
             "version": "2.0.0",
             "fab": "F15B",
             "callPermission": true
-          },
-          {
-            "version": "1.8.0",
-            "fab": "F18A",
-            "callPermission": false
           }
         ]
       }
@@ -866,6 +904,7 @@ env:
 
 - `connectionType` 可为 `http`、`sse`、`stdio` 或 `null`；首期 UI 可只开放公司实际支持的类型。
 - `sortBy` 首期支持 `recommended`、`installCount`、`updatedAt`。
+- `fab` 必填；`versions` 只返回当前 FAB 的当前激活版本（单元素），`mode` 对权限与整个 item 的过滤规则与 Agent 一致。
 - 不向前端返回 MCP 密钥、Token、实际用户配置值或内部网络凭据。
 - `createTimeAt` 为资源首次创建时间，命名与 Agent、Skill 列表保持一致。
 - `hasNextPage` 由 Agent Registry 根据查询结果计算并返回。
@@ -880,6 +919,7 @@ env:
 ```json
 {
   "mcpServerId": "mcp-company-git",
+  "fab": "F15B",
   "locale": "zh-CN"
 }
 ```
@@ -916,78 +956,58 @@ env:
     "installCount": 850,
     "createdAt": "2026-05-10T09:00:00+08:00",
     "updatedAt": "2026-08-16T11:00:00+08:00",
-    "versions": [
-      {
-        "version": "2.0.0",
-        "fab": "F15B",
-        "callPermission": true,
-        "overviewMarkdown": "# Company Git MCP\n\n提供仓库检索能力……",
-        "changelogMarkdown": "- 增加 Pull Request 查询工具",
-        "connectionType": "http",
-        "installation": {
-          "title": "由平台托管",
-          "instructionsMarkdown": "选择 Agent 后由平台自动注入，无需本机安装。"
-        },
-        "deploymentOptions": [
+        "versions": [
           {
-            "type": "remoteHttp",
-            "label": "公司托管 HTTP",
-            "recommended": true
-          }
-        ],
-        "configurationSchema": {
-          "type": "object",
-          "properties": {
-            "repositoryScope": {
-              "type": "string",
-              "title": "仓库范围"
-            }
-          },
-          "required": ["repositoryScope"]
-        },
-        "tools": [
-          {
-            "name": "searchRepositories",
-            "description": "搜索用户有权访问的仓库",
-            "inputSchema": {
+            "version": "2.0.0",
+            "fab": "F15B",
+            "callPermission": true,
+            "overviewMarkdown": "# Company Git MCP\n\n提供仓库检索能力……",
+            "changelogMarkdown": "- 增加 Pull Request 查询工具",
+            "connectionType": "http",
+            "installation": {
+              "title": "由平台托管",
+              "instructionsMarkdown": "选择 Agent 后由平台自动注入，无需本机安装。"
+            },
+            "deploymentOptions": [
+              {
+                "type": "remoteHttp",
+                "label": "公司托管 HTTP",
+                "recommended": true
+              }
+            ],
+            "configurationSchema": {
               "type": "object",
               "properties": {
-                "keyword": { "type": "string" }
+                "repositoryScope": {
+                  "type": "string",
+                  "title": "仓库范围"
+                }
               },
-              "required": ["keyword"]
-            }
+              "required": ["repositoryScope"]
+            },
+            "tools": [
+              {
+                "name": "searchRepositories",
+                "description": "搜索用户有权访问的仓库",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "keyword": { "type": "string" }
+                  },
+                  "required": ["keyword"]
+                }
+              }
+            ],
+            "resources": [
+              {
+                "name": "repository",
+                "description": "仓库元数据",
+                "uriTemplate": "company-git://repositories/{repositoryId}"
+              }
+            ],
+            "prompts": []
           }
         ],
-        "resources": [
-          {
-            "name": "repository",
-            "description": "仓库元数据",
-            "uriTemplate": "company-git://repositories/{repositoryId}"
-          }
-        ],
-        "prompts": []
-      },
-      {
-        "version": "1.8.0",
-        "fab": "F18A",
-        "callPermission": false,
-        "overviewMarkdown": "# Company Git MCP\n\nF18A 可用能力……",
-        "changelogMarkdown": "",
-        "connectionType": "http",
-        "installation": {
-          "title": "由平台托管",
-          "instructionsMarkdown": "由平台自动注入。"
-        },
-        "deploymentOptions": [],
-        "configurationSchema": {
-          "type": "object",
-          "properties": {}
-        },
-        "tools": [],
-        "resources": [],
-        "prompts": []
-      }
-    ],
     "relatedMcpServers": [
       {
         "mcpServerId": "mcp-code-search",
@@ -1009,7 +1029,7 @@ env:
 - 信息覆盖 LobeHub MCP 详情的 Overview、Deployment、Schema、Agents、Related 和 Version 主导航。
 - 安装方式是展示信息；实际注入和凭据管理由后端完成。
 - `configurationSchema` 可以描述前端表单，但绝不能回传密钥值。
-- FAB Tab 直接由 `versions` 生成；不返回历史不可用版本。
+- `fab` 必填；详情只返回当前 FAB 的当前激活版本（`versions` 单元素），Version 页不再按 FAB 分区。
 - 详情顶层字段与 MCP 列表字段保持同名，并增加详情页所需的说明、主页、创建时间、版本部署信息、Schema、Tools、Resources、Prompts 和相关 MCP。
 
 ### 7.4 `getAgentsReferencingMcpServerByMcpServerId`
@@ -1236,26 +1256,30 @@ Headless Client 始终使用标准 `RunAgentInput`。生产 proxy 模式由 Runt
 建议目录：
 
 ```text
-src/services/user/userService.ts
-src/services/market/agentMarketService.ts
-src/services/market/skillMarketService.ts
-src/services/market/mcpMarketService.ts
-src/services/conversation/messageFeedbackService.ts
-src/services/agent-group/agentGroupService.ts
-src/services/runtime/{agentRuntimeService,runReducer,sse}.ts
-src/services/session/sessionHistoryService.ts
+src/api/user/userService.ts
+src/api/market/agentMarketService.ts
+src/api/market/skillMarketService.ts
+src/api/market/mcpMarketService.ts
+src/api/market/marketService.ts
+src/api/conversation/messageFeedbackService.ts
+src/api/agent-group/agentGroupService.ts
+src/api/runtime/{agentRuntimeService,runReducer,sse}.ts
+src/api/session/sessionHistoryService.ts
+src/lib/{httpClient,mock}.ts
 src/mock-data/{user,agentMarket,skillMarket,mcpMarket,...}.ts
 ```
 
 - 每个普通业务模块在同一个 Service 文件中导出 interface、HTTP 实现、Mock 实现和按环境选择的实例。
-- `src/mock-data/` 与 `src/services/` 按功能一一对应，页面不得直接导入 Mock Data。
+- `src/mock-data/` 与 `src/api/` 按功能一一对应，页面不得直接导入 Mock Data。
 
 约束：
 
 - 页面和组件只依赖 Service interface，不直接调用 `fetch`。
 - Mock Service 与 HTTP Service 返回相同的 `data` 类型。
 - HTTP Client 统一处理 envelope、SSO、超时、取消、locale 和非零 code。
-- Agent、Skill、MCP 的 HTTP Service 通过 App Server 代理访问同一个 Agent Registry，不自行按 FAB 选择地址。
+- Service 模式默认取 `VITE_SERVICE_MODE`；设置页「开发预览环境」可运行时切换 `mock`/`http`（持久化到 `localStorage` 的 `agentdock-service-mode`），两种实现仍返回相同 `data` 类型，不改变本契约。
+- Agent、Skill、MCP 的 HTTP Service 经 OAuth2 Proxy 访问同一个 Agent Registry（同源 `/api/*`），不自行按 FAB 选择地址。
+- 市场页面先通过 `getFabOptions` 获取 FAB 选项与默认 FAB，Agent/Skill/MCP 分类/列表/详情请求必须携带当前 FAB。
 - Copilot Runtime 单独由 `agentRuntimeService` 封装，不套普通业务 API envelope。
 - 生产环境中 `agentRuntimeService` 只提交 `fab`；FAB 到 Orchestration Base URL 的选择由 App Server Runtime 完成。仅本地专项联调允许启用 `direct` transport。
 - IndexedDB 由 `sessionHistoryService` 封装，不模拟成 FastAPI 接口。
@@ -1286,7 +1310,7 @@ Memory 自动注入 Agent context 属于后端运行逻辑，不允许前端把 
 
 ## 13. 联调前待确认
 
-- [x] Agent Registry 使用单一 `AGENT_REGISTRY_BASE_URL`，由 AgentDock App Server 统一反向代理为 `/api/*`，不区分 FAB。
+- [x] Agent Registry 使用单一 `AGENT_REGISTRY_BASE_URL`，由 OAuth2 Proxy 路由 `/api/*`（仓库不自建反向代理），不区分 FAB。
 - [x] Agent Chat 使用 `AGENT_ORCHESTRATION_BASE_URLS_JSON` 按 FAB 配置上游，Browser 仍只访问 `/api/copilotkit`。
 - [ ] 非零业务码的具体编号及其多语言错误 key。
 - [ ] 公司 SSO 使用 Cookie 还是授权头，以及 Runtime 到 FastAPI 的透传方式。

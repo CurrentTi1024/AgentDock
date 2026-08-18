@@ -1,71 +1,171 @@
-可以继续使用 Copilot Runtime 代理。更优雅的方案是：
+# AgentDock 任务清单与进度（需求 / 实现 / 状态 / 引用）
 
-```text
-Browser
-  → 固定同源 /api/copilotkit
-  → Copilot Runtime 根据 forwardedProps.fab 选择上游
-      ├─ F15B → F15B_BASE_URL/ag-ui
-      ├─ F18A → F18A_BASE_URL/ag-ui
-      └─ ...
-```
+> 更新日期：2026-08-19
+> 模式：需求 Review + Code Review + 文档输出（详见 `docs/agentdock/design/`）
+> 基线：LobeHub canary `/private/tmp/lobehub-canary`；只迁移前端
 
-浏览器不切换 URL，只在请求中携带：
+## 1. 模块总览
 
-```json
-{
-  "forwardedProps": {
-    "fab": "F18A",
-    "agentId": "OCAP_Agent",
-    "action": "run"
-  }
-}
-```
+| 模块 | 需求摘要 | 状态 | 引用 |
+|---|---|---|---|
+| M0/M1 应用壳与导航 | 迁移 LobeHub 壳/导航；本月模式开关 | ✅ 已完成 | `docs/agentdock/06` |
+| M2 对话页 | Agent 对话、@Agent、流式、Reasoning/Tool/HITL/A2UI、IndexedDB 全量历史（单 Agent + Group） | ✅ P0 主要完成（HITL wire 待后端冻结） | `design/01`、`design/02`、`design/05`、`design/09` |
+| M3 市场列表 | Agent/Skill/MCP 市场，FAB 前置，all/permissioned | ⚠️ 功能完成，竞态/locale 待修 | `design/04` |
+| M4 详情页 | 三类详情，FAB 前置，Version 不分区 | ⚠️ 功能完成，竞态/locale/静态样例待修 | `design/04` |
+| M5 Skill 创建 | 三步表单 + 立即发布 | ⚠️ 完成，发布跳转死链待修 | `design/04` |
+| M6 隐藏模块 | Channel/Artifact/Page/Group/Tasks/Documents/Memory/Settings | ✅ 本月模式隐藏；占位完成 | `docs/agentdock/00` |
+| M7 i18n | 覆盖 LobeHub 全部语言；UI 静态字段 | ✅ 18 种语言词典 + 测试 | `src/i18n` |
+| R 运行时链路 | agentId/fab/sessionId/threadId/runId 携带；FAB 路由；AG-UI/A2UI 流式回显 | ⚠️ 官方集成已落地（Provider/hook/server/A2UI catalog），HITL wire 与后端 A2UI fixture 待联调 | `design/01`、`design/02`、`design/03`、`design/06`、`design/08`、`design/09` |
+| D 调试 | 公司内无缝调试 Registry + Orchestration + 事件消费回显 | ✅ 文档已输出 | `design/07` |
 
-Runtime 从服务端环境变量读取映射：
+## 2. 功能需求与实现方案（分模块）
 
-```env
-AGENT_ORCHESTRATION_BASE_URLS_JSON={"F15B":"https://f15b.example","F18A":"https://f18a.example"}
-```
+### 2.1 M0/M1 应用壳与导航
 
-然后转发到对应的 `/ag-ui`。这样仍然完整保留：
+**需求**：左侧可拖拽导航面板 + 圆角内容容器 + 本月模式开关；菜单包含对话、Chat Group、任务、文档、记忆、商场、设置及 Channel/Artifact 占位。
 
-- Copilot Runtime/Headless 接入
-- AG-UI SSE 流式事件
-- HITL、A2UI、stop、resume
-- 统一认证、Cookie/Token 透传
-- 同源请求，无浏览器 CORS 复杂性
-- Orchestration 地址不与前端构建产物绑定
-- CD 只修改服务端环境变量，不需要重新构建前端
+**方案**：`src/components/shell/` 迁移 LobeHub `NavPanelShell + DraggablePanel + DesktopLayoutContainer + HomeSidebar`；`uiStore` 持久化面板宽度/展开/本月模式。
 
-浏览器直接切换 FAB URL 也能实现，例如使用 AG-UI `HttpAgent` 动态指定 URL；但此时流量绕过 Runtime，需要每个厂区分别处理 CORS、认证、恢复、错误规范和观测。它更适合作为本地联调的可选模式，不建议作为生产默认。[AG-UI HttpAgent](https://docs.ag-ui.com/sdk/js/client/http-agent) 支持直接配置后端 URL；CopilotKit 官方也说明直接连接会失去部分 Runtime 中间件能力。[Copilot Runtime 连接说明](https://docs.copilotkit.ai/agno/backend/copilot-runtime)
+**状态**：完成。本月模式开启后隐藏 Group/Tasks/Documents/Memory/Channel/Artifact/Page，且不触发业务请求。
 
-所以我会按以下方式定稿：
+### 2.2 M2 对话页（Agent 对话链路）
 
-- 生产：固定 `/api/copilotkit`，Runtime 按 FAB 动态选路由。
-- 本地联调：保留 `direct` 开关，允许浏览器直接访问 FAB `/ag-ui`。
-- Agent Registry 等普通 REST API：统一地址，不按 FAB 切换。
-- `VITE_*` 只保留本地 direct 模式配置；生产 FAB 地址放服务端/CD 环境变量。
+**需求**：
 
-剩余开发任务已完成，当前可在 [http://127.0.0.1:4173](http://127.0.0.1:4173) 查看。
+- 每次发送携带 `agentId`、`fab`、`sessionId`、`threadId`、`runId`。
+- 支持 `@Agent` 选择（`getMentionAgentsList`）。
+- 消费 AG-UI 文本/reasoning/tool/step/state/activity/lifecycle/error，LobeHub 风格渲染。
+- 支持停止、断线恢复、HITL、A2UI、IndexedDB 历史。
+- **IndexedDB 保存全部会话消息**（单 Agent 与 Agent Group 的所有可见消息：文本/reasoning/tool/activity/HITL/surface/step），每次打开从 IndexedDB 恢复；清空浏览器存储后为空（不内置 Mock 种子会话）。
 
-已完成：
+**方案**：
 
-- Agent、Skill、MCP、用户、反馈、Group、任务、文档、记忆、Artifact、Channel 的独立 Service 与对应 `mock-data`
-- HTTP/Mock 模式统一切换，页面不直接依赖 Mock Data
-- `/api/copilotkit` Runtime 按 FAB 选择 `/ag-ui` 上游
-- AG-UI SSE、断线恢复、事件去重、stop、HITL、A2UI Action
-- IndexedDB Session、消息和 Run checkpoint 持久化
-- HITL 暂停时刷新页面，可恢复并继续原 Run
-- Chat 历史消息渲染及 Agent Group 运行流程
-- Agent/Skill/MCP 完整详情导航，FAB 位于 Version 二级 Tab
-- 窄窗口自适应和桌面双栏布局
-- API 文档同步增加 Skill/MCP `createTimeAt` 和实际 Service 目录
+- `agentRuntimeService.createRunInput` 生成 runId/用户消息；`runStore.execute` 驱动 SSE + reducer + checkpoint。
+- `runtimeConfig.resolveAgentRuntimeUrl(fab)`：proxy 固定 `/api/copilotkit`；direct 按 FAB 拼 `/ag-ui`。
+- `MessageBlocks` 渲染 Reasoning/ToolCall/HITL/A2UI/Error。
 
-验证结果：
+**状态**：骨架完成；以下为 Review 缺口：
 
-- `pnpm run test`：3/3 通过
-- `pnpm run build`：通过
-- 浏览器实测 Chat、Group HITL、流式文本、A2UI、刷新恢复和市场详情页均正常
-- 生产构建输出位于 [dist](/Users/chenguo/Documents/ChatGPT/llxiea/dist)
+| 缺口 | 优先级 | 详情 |
+|---|---|---|
+| ~~未接官方 CopilotKit headless~~ | ✅ 已接 | `CopilotKit Provider + useAgent + useCopilotKit`（`useAgentDockConversation`） |
+| ~~A2UI 伪实现~~ | ✅ catalog/renderer 已接 | `a2ui/catalog.tsx` + Provider `a2ui` + `useRenderActivityMessage`；action 拦截待联调 |
+| ~~HITL requestId 硬编码空串~~ | ✅ 已修 | activity 的 requestId 现回传至 approve/reject |
+| ~~助手消息无 Markdown~~ | ✅ 已修 | `Markdown.tsx`（react-markdown + remark-gfm） |
+| ~~STEP_STARTED/FINISHED 无 UI~~ | ✅ 已修 | `RuntimeRunState.steps` + `WorkflowStepsBlock` |
+| 复制按钮无 onClick | P2 | 接 clipboard |
+| mention 默认选中 items[0] | P2 | 增加空态 |
 
-按之前约定，我暂未生成 ZIP、Docker image 或上传 Docker Hub；等你确认这一版 UIUX 后再执行打包流程。
+### 2.3 M3 市场列表
+
+**需求**（FAB 前置）：先 `getFabOptions(type, mode)` 再按 FAB 查分类/列表；`all / permissioned`；分页；分类 emoji 图标。
+
+**方案**：`marketService.getFabOptions` + `agent/skill/mcpMarketService` 三类 Service；Mock 与 HTTP 同构；`filterMarketItems + page` 实现 Mock 过滤。
+
+**状态**：功能完成。缺口：
+
+- 列表/分类请求无 AbortController、无 loading/error、FAB 切换竞态（P1）。
+- locale 硬编码 `zh-CN`（P1）。
+- `MarketItem` 日期 `toLocaleDateString('zh-CN')`（P1）。
+
+### 2.4 M4 详情页
+
+**需求**：三类详情 FAB 前置；Agent 详情展平当前 FAB 版本（`versionInfo + fabPermission`）；Skill/MCP 单元素 `versions`；Version 页不分区；无权限禁用“开始对话”。
+
+**方案**：`DetailPage` 顶部 FabSelector + Tabs（overview/system-role/capabilities/version/related；Skill/MCP 含 install/schema/reviews/info/security/agents）。
+
+**状态**：功能完成。缺口：
+
+- 详情请求无 AbortController/错误态（P1）。
+- 请求 locale 硬编码（P1）。
+- Reviews/Security/Info 为静态样例（P2，等待真实数据）。
+- homepage/repository 按钮无 onClick（P2）。
+
+### 2.5 M5 Skill 创建
+
+**需求**：skill_creator 创建并立即发布（三步表单：基本信息/仓库与版本/校验发布）。
+
+**方案**：`CreateSkillPage` 调用 `createAndPublishSkill`（Mock 返回 `detailUrl`）。
+
+**状态**：完成。缺口：
+
+- 发布成功跳转硬编码 `/market/skill/document-summary`，应使用返回 `detailUrl`；Mock 无该详情（P1）。
+- 表单全部 defaultValue，用户输入未收集；错误无展示（P1）。
+
+### 2.6 M6 隐藏模块
+
+**需求**：全部菜单可见，本月模式隐藏且不请求。
+
+**方案**：`WorkspacePage` 按 type 分发；channel/artifact/page 为占位；Group/Tasks/Documents/Memory 有 Mock 实现；Settings 含 18 语言切换。
+
+**状态**：完成。Group 成员为虚拟列表（P2）；Settings 暗色/推理开关无实际效果（P2）。
+
+### 2.7 M7 i18n
+
+**需求**：UI 静态字段全部 i18n，覆盖 LobeHub 全部语言；后端返回数据不翻译。
+
+**方案**：`src/i18n` 自研轻量 provider（localStorage 用户设置 → 浏览器语言）；18 份词典；`dictionaries.test.ts` 守护 key 与占位符一致、非英文词典确实翻译。
+
+**状态**：✅ 完成。`SUPPORTED_LOCALES` 18 种全部注册，无静默回退。
+
+## 3. 运行时链路与编排（重点）
+
+### 3.1 需求
+
+- chat 携带 `agentId / fab / sessionId / threadId / runId`。
+- runtime 根据 fab 自动切换 orchestration baseUrl（生产在 CD deployment.yml 注入服务端 env）。
+- AG-UI 通信 + 前后端 A2UI pipeline + 流式回显。
+- 最终每个信息粒度都有对应渲染（fully copy LobeHub）。
+
+### 3.2 现状（已核实）
+
+- `createRunInput`：runId = `crypto.randomUUID()`；消息、threadId、forwardedProps（action/agentId/fab/sessionId/group）齐全。
+- `fabProxy.ts`：`AGENT_ORCHESTRATION_BASE_URLS_JSON` → `{fab}/ag-ui`，透传 auth/cookie/x-request-id/traceparent，SSE 流式返回。
+- `runReducer`：run/text/reasoning/tool/state/activity/surface 事件消费；streamId 去重；IndexedDB checkpoint + resume。
+- A2UI Action：新 runId + parentRunId，结构正确。
+
+### 3.3 缺口（P0 汇总）
+
+| # | 缺口 | 行动 |
+|---|---|---|
+| R1 | ~~无 Copilot Runtime HTTP 挂载~~ | ✅ `server/index.ts` + `FabRoutingAgent`；`pnpm run server` 可启动；/healthz 与 single-route /api/copilotkit 已验证 |
+| R2 | ~~自研 transport 与官方 envelope 不一致~~ | ✅ 官方 Runtime handler（/info 返回 agents + a2uiEnabled）已接入；自研 SSE/reducer 仅保留给 mock |
+| R3 | ~~A2UI 伪实现~~ | ✅ catalog（metricCard/actionButton）+ Provider `a2ui` + 官方 renderer；Mock surface 保留 raw JSON 回退 |
+| R4 | ~~HITL requestId 丢失~~ | ✅ 已修；http 路径用 `agent.pendingInterrupts + resume[]`，legacy wire 保留 forwardedProps 后备 |
+| R5 | ~~STEP_* 不消费~~ | ✅ reducer + WorkflowStepsBlock |
+| R6 | ~~Markdown 不渲染~~ | ✅ ChatItem 助手消息走 Markdown 渲染 |
+| H0 | ~~全量会话历史持久化~~ | ✅ sessionHistoryService v3：text/reasoning/tool/activity/step/surface 全部入 IndexedDB；打开恢复；移除 Mock 种子（清空浏览器即空） |
+
+## 4. Review 输出物（本次新增）
+
+| 文档 | 说明 |
+|---|---|
+| `docs/agentdock/design/00-design-index.md` | 设计目录索引与 Review 摘要 |
+| `docs/agentdock/design/01-end-to-end-runtime-link.md` | 端到端链路、ID 语义、FAB 路由、CD 配置 |
+| `docs/agentdock/design/02-ag-ui-protocol-implementation.md` | AG-UI 协议与 reducer 事件矩阵 |
+| `docs/agentdock/design/03-a2ui-pipeline.md` | A2UI 端到端管线与落地方案 |
+| `docs/agentdock/design/04-agent-registry-integration.md` | Registry 集成、FAB 前置、Mock→HTTP |
+| `docs/agentdock/design/05-lobehub-rendering-matrix.md` | LobeHub 渲染矩阵与缺口 |
+| `docs/agentdock/design/06-copilotkit-integration-plan.md` | 官方依赖接入方案与迁移路径 |
+| `docs/agentdock/design/07-end-to-end-debugging-guide.md` | 公司内联调调试指南（额外文档） |
+| `docs/agentdock/design/08-final-architecture-decision.md` | 最终架构决策：官方 CopilotKit + Copilot Runtime、OAuth2 Proxy 分工、状态冲突解法 |
+| `docs/agentdock/design/09-agui-lobehub-rendering-adapter.md` | AG-UI/A2UI → LobeHub 渲染适配层：投影层方案（不做事件 Adapter） |
+
+## 5. 验证记录
+
+- `pnpm run test`：通过（runReducer 2 项、sse 1 项、i18n 3 项）。
+- `pnpm run build`：通过。
+- i18n 联网复核：15 种新语言各抽样 24 条与 MyMemory 机器翻译比对，平均相似度 0.60–0.77；人工译文正确且多处优于机器翻译（机器存在错义/混语），仅微调保加利亚语 1 条措辞；核对脚本保留为 `scripts/verify-i18n.mjs`。
+- 浏览器实测：Chat 流式、Group HITL、A2UI 折叠块、刷新恢复、市场/详情导航正常（此前记录）。
+
+## 6. 下一步
+
+按优先级执行：
+
+1. ✅ P0：`server/index.ts` 挂载 Copilot Runtime；OAuth2 Proxy 配置见 `design/08` §7.3。
+2. ✅ P0：官方 CopilotKit v2（Provider + `useAgent` + `useCopilotKit`）已接入，`useAgentDockConversation` 双模式运行。
+3. ✅ P0：A2UI catalog/renderer、HITL requestId、Markdown、STEP UI。
+4. ✅ P0：IndexedDB 全量会话历史（含 Group 消息类型）。
+5. ⏳ 联调项（需后端配合）：HITL wire 冻结（标准 resume[] vs legacy on_interrupt）、A2UI fixture 验证、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证。
+6. P1：市场/详情请求竞态与 locale、Skill 跳转、SSE 边界健壮性、构建产物体积优化（CopilotKit 依赖导致 bundle 增大）。
+7. P2：mention 空态、静态样例数据、Settings 开关。

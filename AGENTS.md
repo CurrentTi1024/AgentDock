@@ -1,140 +1,87 @@
-# LobeHub Development Guidelines
+# AgentDock 开发规范（AI Coding Agent 指南）
 
-Guidelines for using AI coding agents in this opensource LobeHub repository.
+本文件是 AI Coding Agent 在本仓库工作时必须遵守的约定。它是 AgentDock Web 工程的规范，不再沿用 LobeHub 上游仓库的 AGENTS.md。
 
-## Tech Stack
+## 项目速览
 
-- Next.js 16 + React 19 + TypeScript
-- SPA inside Next.js with `react-router-dom`
-- `@lobehub/ui`, antd for components; antd-style for CSS-in-JS — **prefer `createStaticStyles` with `cssVar.*`** (zero-runtime); only fall back to `createStyles` + `token` when styles genuinely need runtime computation. See `.cursor/docs/createStaticStyles_migration_guide.md`.
-- **Component priority**: `@lobehub/ui/base-ui` (headless primitives) **first**, then `@lobehub/ui` root, then antd as last resort. When the component exists in base-ui, use it — never reach for the root or antd counterpart. Base-ui covers `Select`, `Modal` / `createModal` / `confirmModal`, `DropdownMenu`, `ContextMenu`, `Popover`, `ScrollArea`, `Switch`, `Toast`, `FloatingSheet`. Prefer `@lobehub/ui/base-ui` for new code and migrate root-package call sites opportunistically.
-- react-i18next for i18n; zustand for state management
-- SWR for data fetching; TRPC for type-safe backend
-- Drizzle ORM with PostgreSQL; Vitest for testing
+- AgentDock：公司内部 Agent 前端工作台，复用 LobeHub UI/UX，只交付 Web 前端。
+- 数据一律通过 `src/api/**` Service 提供；默认 Mock，`VITE_SERVICE_MODE=http` 时走真实接口。
+- 实时通信走 `/api/copilotkit`（Copilot Runtime single-route）→ 按 `fab` 转发 Orchestration `/ag-ui`（AG-UI SSE）。
+- 文档权威源：
+  - 产品范围与决策：`docs/agentdock/00-project-baseline.md`
+  - 架构：`docs/agentdock/01-frontend-and-runtime-architecture.md`
+  - 实时运行时契约：`docs/agentdock/02-agui-a2ui-runtime-contract.md`
+  - 接口契约（唯一权威）：`docs/agentdock/04-frontend-backend-api.md`
+  - LobeHub 迁移矩阵与 TODO：`docs/agentdock/05-lobehub-source-migration.md`、`docs/agentdock/06-frontend-migration-todo.md`
 
-## Project Structure
-
-```plaintext
-lobehub/
-├── apps/
-│   ├── desktop/            # Electron desktop app
-│   ├── cli/                # LobeHub CLI
-│   └── server/             # Backend service (Hono app + server routers/services)
-├── packages/               # Shared packages (@lobechat/*)
-│   ├── database/           # Database schemas, models, repositories
-│   ├── agent-runtime/      # Agent runtime
-│   ├── locales/            # i18n source: packages/locales/src/default/
-│   ├── env/                # env schemas (@/envs/* → packages/env/src/*)
-│   └── ...
-├── src/
-│   ├── app/                # Next.js App Router (route shell + auth)
-│   │   ├── (backend)/      # Backend route shells
-│   │   ├── spa/            # SPA HTML template service
-│   │   └── spa-auth/       # Auth HTML shell (SSR)
-│   ├── routes/             # SPA page segments (thin — delegate to features/)
-│   │   ├── (main)/ (mobile)/ (desktop)/ (popup)/
-│   │   ├── auth/           # Auth page segments (signin, signup, …)
-│   │   ├── onboarding/ share/
-│   ├── spa/                # SPA entry points and router config
-│   │   ├── entry.{web,mobile,desktop,popup}.tsx
-│   │   └── router/         # React Router configuration
-│   ├── store/              # Zustand stores
-│   ├── services/           # Client services
-│   ├── libs/               # Shared client/server helpers for the app shell
-│   └── ...
-└── e2e/                    # E2E tests (Cucumber + Playwright)
-```
-
-## SPA Routes and Features
-
-SPA-related code is grouped under `src/spa/` (entries + router) and `src/routes/` (page segments). We use a **roots vs features** split: route trees only hold page segments; business logic and UI live in features.
-
-- **`src/spa/`** – SPA entry points (`entry.web.tsx`, `entry.mobile.tsx`, `entry.desktop.tsx`, `entry.popup.tsx`) and React Router config (`router/`, with `desktopRouter.config.*`, `mobileRouter.config.tsx`, `popupRouter.config.tsx`). Keeps router config next to entries to avoid confusion with `src/routes/`.
-
-- **`src/routes/` (roots)**\
-  Only page-segment files: `_layout/index.tsx`, `index.tsx` (or `page.tsx`), and dynamic segments like `[id]/index.tsx`. Keep these **thin**: they should only import from `@/features/*` and compose layout/page, with no business logic or heavy UI.
-
-- **`src/features/`**\
-  Business components by **domain** (e.g. `Pages`, `PageEditor`, `Home`). Put layout chunks (sidebar, header, body), hooks, and domain-specific UI here. Each feature exposes an `index.ts` (or `index.tsx`) with clear exports.
-
-When adding or changing SPA routes:
-
-1. In `src/routes/`, add only the route segment files (layout + page) that delegate to features.
-2. Implement layout and page content under `src/features/<Domain>/` and export from there.
-3. In route files, use `import { X } from '@/features/<Domain>'` (or `import Y from '@/features/<Domain>/...'`). Do not add new `features/` folders inside `src/routes/`.
-4. **Register desktop content routes in the `createMainAreaChildren()` twins:** the main-area content tree is built by `createMainAreaChildren()`, which exists in both `src/spa/router/desktopRouter.config.tsx` and `src/spa/router/desktopRouter.config.desktop.tsx` and must stay in sync (same paths and nesting). Web mounts these children under the root router; electron mounts them in per-tab memory routers via `src/spa/router/tabRouter.tsx`, so the electron root config's `/` children are intentionally slim stubs. Updating only one twin can cause **blank screens**. `desktopRouter.sync.test.tsx` guards builder parity — keep it passing.
-
-See the **spa-routes** skill for the full convention and file-division rules.
-
-## Development
-
-### Starting the Dev Environment
+## 常用命令
 
 ```bash
-# SPA dev mode (frontend only, proxies API to localhost:3010)
-bun run dev:spa
-
-# Full-stack dev (Next.js + Vite SPA concurrently)
-bun run dev
-
-# Standalone Hono backend service
-pnpm --filter @lobechat/server dev
+pnpm run dev        # Vite 开发服务，默认 http://127.0.0.1:5173
+pnpm run build      # tsc --noEmit + vite build；提交/交付前必须通过
+pnpm run test       # node:test 运行时单测（src/api/runtime/*.test.ts）
+pnpm run typecheck  # 仅类型检查
 ```
 
-### Backend Architecture
+- 不要引入 LobeHub 的 `bun run check` / vitest 体系；本仓库测试是 `node --experimental-strip-types --test`。
+- 修改后至少运行 `pnpm run build`；涉及 `src/api/runtime/` 时同时运行 `pnpm run test`。
 
-- Backend runtime code lives under `apps/server/src` and is imported through `@/server/*`.
-- `src/app/(backend)` contains Next.js route shells. Do not add backend business logic there.
-- Web shell helpers belong under `src/libs/*` or the relevant `src/app` segment, not under `src/server`.
+## 目录约定（bulletproof-react 范式）
 
-After `dev:spa` starts, the terminal prints a **Debug Proxy** URL:
-
-```plaintext
-Debug Proxy: https://app.lobehub.com/_dangerous_local_dev_proxy?debug-host=http%3A%2F%2Flocalhost%3A9876
+```text
+src/
+├── app/          # 应用装配：App.tsx、router.tsx（唯一路由表）、providers.tsx
+├── api/          # 数据访问层：每域一个 Service（agent-group/market/runtime/session/…）
+│   ├── core/     # 共享 API 契约类型（api/core/types.ts）与 serviceMode
+│   └── runtime/  # agentRuntimeService / runReducer / sse / types
+├── components/   # 全局共享 UI：AppShell + shell（LobeHub 布局原语）
+├── features/     # 业务域：chat / market / skill / workspace，各自带 components/
+├── i18n/         # locales.ts（18 种语言）+ dictionaries/
+├── lib/          # httpClient.ts（postApi/ApiError）、mock.ts（mockDelay/page/filterMarketItems）
+├── mock-data/    # 与 api/ 一一对应的 Mock 数据
+├── stores/       # Zustand：runStore / uiStore
+├── types/        # 全局共享领域类型（MarketItem/AgentDetail/SkillMcpDetail…）
+└── main.tsx      # 薄入口
 ```
 
-Open this URL to develop locally against the production backend (app.lobehub.com). The proxy page loads your local Vite dev server's SPA into the online environment, enabling HMR with real server config.
+规则：
 
-### Git Workflow
+- 不要新建 `src/pages/` 或 feature barrel（`features/*/index.ts`）；页面直接以文件路径懒加载。
+- 新增/修改路由只改 `src/app/router.tsx`，页面组件从 `@/features/<domain>/<Page>` 懒加载。
+- 业务与 UI 在 `features/<domain>/`；共享 UI 在 `components/`；跨页面复用的领域类型在 `types/`。
+- 文件超过约 800 行时拆分（子组件、hooks、helper、types）。
 
-- **Branch strategy**: `canary` is the development branch (cloud production); `main` is the release branch (periodically cherry-picks from canary)
-- New branches should be created from `canary`; PRs should target `canary`
-- Use rebase for `git pull`
-- Commit messages: prefix with gitmoji
-- Branch format: `<type>/<feature-name>`
+## 数据访问规范
 
-### Package Management
+- 页面与组件只能 import `@/api/**` Service，禁止直接 `fetch`、禁止直接 import `mock-data/`。
+- 每个普通业务模块在同一个 Service 文件中导出：interface、HTTP 实现、Mock 实现、`selectService` 选中的实例。
+- 接口/需求变更流程：先改 `docs/agentdock/04-frontend-backend-api.md`（接口唯一权威）与 `00/06`，再同步 `mock-data` 与 Service，最后改页面。
+- HTTP 与 Mock 实现必须返回同一数据类型；Mock 数据用 `structuredClone` 返回，避免页面意外修改共享数据。
+- 市场接口必须携带 `fab`；进入市场先 `getFabOptions`，再查分类/列表/详情。Agent 详情是展平的 `version + fabPermission + versionInfo`，Skill/MCP 是当前 FAB 单元素 `versions`。
 
-- `pnpm` for dependency management
-- `bun` to run npm scripts
-- `bunx` for executable npm packages
+## i18n 规范
 
-### Quality Check
+- 全部静态 UI 文案必须走 `useI18n().t(key)`；后端/Mock 返回的数据原文展示，不做翻译。
+- 支持 18 种语言（见 `src/i18n/locales.ts`），全部提供本地化词典：`en-US` 为源语言，`zh-CN`/`zh-TW` 与其余 15 种语言已人工翻译。
+- 新增 key 时必须同时补全所有 `dictionaries/*.ts`（至少 `en-US` 与 `zh-CN`，其余语言可暂沿用英文值），保持 key 集合一致；`src/i18n/dictionaries.test.ts` 会守护 key 集合与 `{placeholder}` 占位符一致。
+- 语言优先级：用户显式设置（localStorage `agentdock-locale`）→ 后端 `preferredLocale` → 浏览器语言。
 
-```bash
-bun run check [changed-files...]
-```
+## 代码风格
 
-- Every bug fix must include a corresponding regression test that fails before the fix and passes after it.
-- No selector = **lint + test in a single pass** — run it once; don't fire a separate pass per selector. `--lint` / `--test` / `--type` narrow scope and are composable within one run. Default files = all working-tree changes (staged + unstaged + untracked); explicit paths override.
-- `--lint` auto-fixes the given files and prints the applied fixes as a diff, so you can review what changed.
-- `--test` auto-discovers the related tests for the given source files and runs them under the nearest owning vitest config (e.g. `packages/database`) — no need to `cd` into packages.
-- `--type` runs the full type-check. NEVER run `bun run test` — the full suite takes \~10 minutes.
-- To run tests manually (e.g. a single file or unusual flags), `cd` into the owning package first: `cd packages/database && bunx vitest run --silent='passed-only' '[file-path]'`.
+- React 19 + TypeScript strict；组件优先 `@lobehub/ui/base-ui`（headless 原语），其次 `@lobehub/ui` 根包，最后才是 antd。
+- 样式优先 `createStaticStyles` + `cssVar.*`（零运行时）；只有确实需要运行时计算时才用 `createStyles` + token。
+- 页面入口组件默认导出，内部子组件具名导出。
+- 从 LobeHub 迁移的文件在文件头保留上游源码路径注释，便于对照升级。
 
-### i18n
+## 测试与验证
 
-- Add keys to a namespace file under `packages/locales/src/default/` (e.g. `agent.ts`, `auth.ts`)
-- Ship en-US and zh-CN by hand in the same PR: author the English source in `packages/locales/src/default/*.ts`, mirror it to `locales/en-US/`, and hand-translate `locales/zh-CN/`.
-- Leave all other locales to the daily CI workflow (`.github/workflows/auto-i18n.yml`), which runs `bun run i18n` and opens an automated translation PR. Missing locale keys fall back to English until that PR is merged.
-- Run `bun run i18n` manually only when the translated locales are needed immediately instead of waiting for the daily workflow. It is slow and requires `OPENAI_API_KEY`; don't hand-translate the generated locales.
+- 现有测试：`src/api/runtime/runReducer.test.ts`、`src/api/runtime/sse.test.ts`（`node:test`）。
+- 每个 bug 修复必须带回归测试（先复现失败，再修复后通过）。
+- 涉及运行时事件处理的改动必须保证 3 个现有测试全部通过。
+- i18n 字典完整性由 `src/i18n/dictionaries.test.ts` 守护；需要联网复核翻译时可运行 `node --experimental-strip-types scripts/verify-i18n.mjs`（抽样比对 MyMemory 翻译，低相似度项输出供人工复查）。
 
-### Code Style
+## 文档纪律
 
-- When a single file grows beyond \~800 lines, consider splitting it into multiple files (extract sub-components, hooks, helpers, or types). Smaller, focused files are friendly to humans and agents.
-
-### Code Review
-
-Before reviewing a PR / diff / branch change, read the **deep-review** skill. Ordinary review requests use its light mode (inline review against the dimension quick checklists); the full multi-subagent deep mode runs only on explicit invocation.
-
-When designing or reviewing user-facing flows (empty/loading/error states, confirmations, async feedback, button hierarchy, lists at scale, pickers), follow LobeHub's design values in [`DESIGN.md`](./DESIGN.md) — Natural / Meaningful / Certainty / Growth (自然 / 意义感 / 确定性 / 成长).
+- 需求、接口、架构的任何变更都要先同步 `docs/agentdock/` 对应文档，再动代码。
+- README（启动/配置/路由）与 docs 索引在目录结构或命令变化时同步更新。
+- 浏览器视觉验收受限时，用 `pnpm run build` + `pnpm run test` + HTTP 冒烟（`vite preview` 后请求关键路由）代替，并在 task.md 记录。

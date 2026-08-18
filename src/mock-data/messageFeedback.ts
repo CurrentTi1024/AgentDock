@@ -1,2 +1,2 @@
-import type { MessageFeedback } from '@/services/conversation/messageFeedbackService';
+import type { MessageFeedback } from '@/api/conversation/messageFeedbackService';
 export const messageFeedbackMockData = new Map<string, MessageFeedback>();

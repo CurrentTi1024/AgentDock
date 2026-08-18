@@ -1,2 +1,0 @@
-import type { SessionRecord } from '@/services/session/sessionHistoryService';
-export const sessionHistoryMockData: SessionRecord[] = [{ id: 'session-inbox', threadId: 'thread-inbox', type: 'agent', title: '飞行测试数据分析', agentId: 'flight-analysis', agentName: 'FlightAnalysis_Agent', fab: 'F15B', version: '2.1.0', pinned: false, createdAt: '2026-08-18T09:00:00+08:00', updatedAt: '2026-08-18T09:30:00+08:00' }];

@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import { agentRuntimeService, createRuntimeAction } from '@/services/runtime/agentRuntimeService';
-import { createRunState, reduceRunEvent } from '@/services/runtime/runReducer';
-import type { RunAgentInput, RuntimeRunState } from '@/services/runtime/types';
-import { sessionHistoryService } from '@/services/session/sessionHistoryService';
+import { agentRuntimeService, createRuntimeAction } from '@/api/runtime/agentRuntimeService';
+import { createRunState, reduceRunEvent } from '@/api/runtime/runReducer';
+import type { RunAgentInput, RuntimeRunState } from '@/api/runtime/types';
+import { sessionHistoryService } from '@/api/session/sessionHistoryService';
 interface RunStore { activeInput?: RunAgentInput; controller?: AbortController; run?: RuntimeRunState; execute(input: RunAgentInput): Promise<void>; restoreSession(sessionId: string): Promise<void>; resume(): Promise<void>; stop(): Promise<void>; respondToHitl(payload: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>): Promise<void>; sendA2uiAction(payload: NonNullable<RunAgentInput['forwardedProps']['a2uiAction']>): Promise<void> }
 export const useRunStore = create<RunStore>((set, get) => ({
   async execute(input) {

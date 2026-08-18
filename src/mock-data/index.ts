@@ -8,6 +8,5 @@ export * from './mcpMarket';
 export * from './memory';
 export * from './messageFeedback';
 export * from './scheduledTask';
-export * from './sessionHistory';
 export * from './skillMarket';
 export * from './user';
