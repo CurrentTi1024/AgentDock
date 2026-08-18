@@ -52,6 +52,7 @@ export default {
   'chat.workPanel.close': 'بستن پنل کار',
   'chat.workPanel.open': 'باز کردن پنل کار',
   'chat.you': 'شما',
+  'common.indexeddbBlocked': 'IndexedDB is blocked by another tab. Close old tabs and reload.',
   'common.cancel': 'لغو',
   'common.category': 'دسته‌بندی',
   'common.close': 'بستن',

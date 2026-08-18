@@ -117,6 +117,21 @@ ChatPage / MessageBlocks / Markdown / A2UI renderer（只读投影，纯展示�
 
 对话历史：全部会话消息（单 Agent 与 Agent Group 的文本/reasoning/tool/activity/HITL/A2UI/step）保存在 IndexedDB（`agentdock-session-v3`），每次打开从本地恢复；清空浏览器存储后历史为空。
 
+### ID 生成与管理（sessionId / threadId / runId / streamId）
+
+| ID | 生成方式 | 管理位置 |
+|---|---|---|
+| `sessionId` | 路由 `/chat/:id`；新会话由 `sessionHistoryService.createSession` 生成 `crypto.randomUUID()`（`session-inbox` 是固定入口示例） | Dexie `sessions.id`；ChatPage `session` state；消息/checkpoint 按 sessionId 查询 |
+| `threadId` | 创建会话时 `crypto.randomUUID()` 固化进会话记录；hook 仅防御性兜底 `thread-${sessionId}` | Dexie `sessions.threadId`；同一会话所有 run 共用（DeepAgents 上下文线程） |
+| `runId` | 每次发送 `crypto.randomUUID()`（mock 在 `createRunInput`，官方在 `send()`）；HITL 续跑沿用同一 run | Dexie `checkpoints.runId`（主键）+ `snapshot.runId`；后端必须原样回显，禁止二次生成 |
+| `streamId` | 后端 SSE `id:` 或 `rawEvent.streamId`，前端 `parseSseStream` 提取 | 每个 run 的 `RuntimeRunState` 独立维护 `latestStreamId + processedStreamIds[]`（去重上限 5000）；checkpoint 落盘 `latestStreamId` |
+
+**streamId 维护的独立性**：
+
+- 持久化层按 `runId` 主键 + `sessionId` 索引隔离，多个会话/run 的记录互不覆盖；多标签页各自独立，IndexedDB 同源共享但不冲突。
+- 单标签页同一时刻只展示一个会话：mock 路径用全局 `runStore`（切换会话时以该会话 checkpoint 替换内存状态）；官方路径为每个会话注册独立代理 `agentdock-${sessionId}`，`httpRun` 是组件本地状态，切换会话时 `restore()` 重载对应 checkpoint。
+- 已知边界：checkpoint 防抖槽是模块级单槽，未来若同页支持多会话并发运行，需改为按 sessionId 分槽（当前产品形态不触发）。
+
 详细决策与实现见 [design/08](docs/agentdock/design/08-final-architecture-decision.md)、[design/09](docs/agentdock/design/09-agui-lobehub-rendering-adapter.md)、[design/10](docs/agentdock/design/10-end-to-end-code-review.md)。
 
 ## 快速开始

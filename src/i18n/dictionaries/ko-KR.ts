@@ -52,6 +52,7 @@ export default {
   'chat.workPanel.close': '작업 패널 닫기',
   'chat.workPanel.open': '작업 패널 열기',
   'chat.you': '나',
+  'common.indexeddbBlocked': 'IndexedDB is blocked by another tab. Close old tabs and reload.',
   'common.cancel': '취소',
   'common.category': '카테고리',
   'common.close': '닫기',

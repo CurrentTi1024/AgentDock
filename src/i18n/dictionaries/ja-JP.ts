@@ -52,6 +52,7 @@ export default {
   'chat.workPanel.close': '作業パネルを閉じる',
   'chat.workPanel.open': '作業パネルを開く',
   'chat.you': 'あなた',
+  'common.indexeddbBlocked': 'IndexedDB is blocked by another tab. Close old tabs and reload.',
   'common.cancel': 'キャンセル',
   'common.category': 'カテゴリ',
   'common.close': '閉じる',

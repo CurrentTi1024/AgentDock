@@ -52,6 +52,7 @@ export default {
   'chat.workPanel.close': 'Çalışma panelini kapat',
   'chat.workPanel.open': 'Çalışma panelini aç',
   'chat.you': 'Sen',
+  'common.indexeddbBlocked': 'IndexedDB is blocked by another tab. Close old tabs and reload.',
   'common.cancel': 'İptal',
   'common.category': 'Kategori',
   'common.close': 'Kapat',

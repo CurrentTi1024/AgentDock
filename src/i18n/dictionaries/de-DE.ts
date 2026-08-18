@@ -52,6 +52,7 @@ export default {
   'chat.workPanel.close': 'Arbeitsbereich schließen',
   'chat.workPanel.open': 'Arbeitsbereich öffnen',
   'chat.you': 'Du',
+  'common.indexeddbBlocked': 'IndexedDB is blocked by another tab. Close old tabs and reload.',
   'common.cancel': 'Abbrechen',
   'common.category': 'Kategorie',
   'common.close': 'Schließen',

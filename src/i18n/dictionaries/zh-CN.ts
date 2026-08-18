@@ -52,6 +52,7 @@ export default {
   'chat.workPanel.close': '关闭工作面板',
   'chat.workPanel.open': '打开工作面板',
   'chat.you': '你',
+  'common.indexeddbBlocked': 'IndexedDB 被其他标签页占用，请关闭旧标签页后刷新重试。',
   'common.cancel': '取消',
   'common.category': '分类',
   'common.close': '关闭',

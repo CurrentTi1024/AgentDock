@@ -52,6 +52,7 @@ export default {
   'chat.workPanel.close': 'Đóng bảng làm việc',
   'chat.workPanel.open': 'Mở bảng làm việc',
   'chat.you': 'Bạn',
+  'common.indexeddbBlocked': 'IndexedDB is blocked by another tab. Close old tabs and reload.',
   'common.cancel': 'Hủy',
   'common.category': 'Danh mục',
   'common.close': 'Đóng',
