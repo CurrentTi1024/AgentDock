@@ -228,7 +228,8 @@ src/
 - [x] 全量 UI 文案迁移到 i18n key；设置页提供 18 种语言切换；语言优先级：用户显式设置 → 后端 preferredLocale → 浏览器语言。
 - [x] 设置页开关接线：主题模式（跟随系统/浅色/深色）、显示推理摘要、开发预览环境（运行时 Mock/HTTP 切换）已实现并持久化。
 - [x] 布局修复与群聊：外层全屏（100dvh）、对话输入区锚定底部并 840 居中、侧边栏按路由切换、群聊首页/会话页与群组历史落地。
-- [x] 新增入口与 FAB 交互：侧边栏 + 改为下拉菜单（新建 Agent 对话 / 新建群聊 / 市场 Agent，参照 LobeHub `createTopLevelMenuItems`）；市场 FAB 切换改为 Select 下拉（适配 14–20 个 FAB，不再挤压搜索框）；详情页移除 FAB 切换，仅展示列表带入的当前 FAB 版本。
+- [x] 新增入口与 FAB 交互：侧边栏 + 下拉菜单仅保留「新建对话 / 新建群聊」（用户不允许新建 Agent，移除市场 Agent 入口）；新建群聊为创建向导（群组名称 + 选择成员 Agent + 后端支持的编排模式，配置随会话持久化，群聊页按配置初始化成员与模式）；市场 FAB 切换改为 Select 下拉（适配 14–20 个 FAB，不再挤压搜索框）；详情页移除 FAB 切换，仅展示列表带入的当前 FAB 版本。
+- [x] mock 模式不再挂载 CopilotKit Provider（消除 `/api/copilotkit` 404 报错与错误提示）；对话 hook 按模式拆分为 mock/official 两条路径，页面渲染与发送链路不变。
 - [x] 非 zh-CN/en-US/zh-TW 的 15 种语言已人工翻译补齐；`dictionaries.test.ts` 守护 18 种语言的 key 集合与占位符一致；全量联网复核见 `task.md`，脚本 `scripts/verify-i18n.mjs` + `scripts/argos-translate-server.py`。
 - [x] 需求 Review / Code Review 已输出详细设计与缺口清单：见 `docs/agentdock/design/`（00-10：索引、端到端链路、AG-UI、A2UI、Registry、渲染矩阵、CopilotKit 接入、联调调试指南、最终架构决策、渲染投影层、逐行 Code Review）。
 - [ ] 浏览器逐页视觉验收（当前环境无浏览器驱动，已用 build/test + HTTP 冒烟代替）。

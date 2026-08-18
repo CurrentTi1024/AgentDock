@@ -1,7 +1,7 @@
 // Adapted from: src/routes/(main)/home/_layout/Header + useCreateMenuItems (LobeHub canary)
 import { ActionIcon, Avatar, Flexbox, Text } from '@lobehub/ui';
 import { DropdownMenu } from '@lobehub/ui/base-ui';
-import { MessageSquare, Plus, Store, Users } from 'lucide-react';
+import { MessageSquare, Plus, Users } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -10,10 +10,12 @@ import { hasExplicitLocalePreference, useI18n } from '@/i18n';
 import { normalizeLocale } from '@/i18n/locales';
 import { sessionHistoryService } from '@/api/session/sessionHistoryService';
 import { userService, type CurrentUserProfile } from '@/api/user/userService';
+import { useGroupCreateStore } from '@/stores/groupCreateStore';
 
 const Header = () => {
   const navigate = useNavigate();
   const { setLocale, t } = useI18n();
+  const openGroupCreate = useGroupCreateStore((s) => s.openModal);
   const [profile, setProfile] = useState<CurrentUserProfile>();
   const localeAppliedRef = useRef(false);
 
@@ -43,21 +45,6 @@ const Header = () => {
     navigate(`/chat/${session.id}`);
   };
 
-  const createGroupConversation = async () => {
-    const group = await sessionHistoryService.createSession({
-      agentId: 'group',
-      agentName: 'FlightAnalysis_Group',
-      fab: 'F15B',
-      id: `group-${crypto.randomUUID()}`,
-      pinned: false,
-      threadId: crypto.randomUUID(),
-      title: t('nav.newGroup'),
-      type: 'group',
-      version: '2.1.0',
-    });
-    navigate(`/group/${group.id}`);
-  };
-
   return (
     <SideBarHeaderLayout
       left={
@@ -84,14 +71,7 @@ const Header = () => {
               icon: Users,
               key: 'new-group-chat',
               label: t('nav.newGroup'),
-              onClick: () => void createGroupConversation(),
-            },
-            { type: 'divider' },
-            {
-              icon: Store,
-              key: 'market-agent',
-              label: t('market.agent'),
-              onClick: () => navigate('/market/agent'),
+              onClick: openGroupCreate,
             },
           ]}
         >

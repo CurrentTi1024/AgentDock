@@ -2,6 +2,8 @@
 // - proxy（生产）走官方 CopilotKit v2 headless（useAgent + useCopilotKit）
 // - mock / direct 走自研 SSE + reducer（runStore），direct 仅用于本地联调
 // 官方事件经 agent.subscribe 投影为 RuntimeRunState，并写入 IndexedDB 检查点。
+// mock 模式下不挂载 CopilotKit Provider，因此本 hook 按模式拆成两条互斥路径；
+// serviceMode 每次会话固定、transport 为编译期常量，页面内不会中途切换。
 import { useAgent, useCopilotKit } from '@copilotkit/react-core/v2';
 import type { Message } from '@ag-ui/client';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -11,7 +13,11 @@ import { createRunState, reduceRunEvent } from '@/api/runtime/runReducer';
 import type { AgUiEvent, RunAgentInput, RuntimeRunState } from '@/api/runtime/types';
 import { getServiceMode } from '@/api/core/serviceMode';
 import { runtimeConfig } from '@/api/runtimeConfig';
-import { flushRunCheckpoint, scheduleRunCheckpoint, sessionHistoryService } from '@/api/session/sessionHistoryService';
+import {
+  flushRunCheckpoint,
+  scheduleRunCheckpoint,
+  sessionHistoryService,
+} from '@/api/session/sessionHistoryService';
 import { useRunStore } from '@/stores/runStore';
 
 export interface AgentDockConversationOptions {
@@ -22,6 +28,21 @@ export interface AgentDockConversationOptions {
   threadId?: string;
 }
 
+export interface AgentDockConversationResult {
+  agent: unknown;
+  isReady: boolean;
+  respondToHitl: (
+    hitlResponse: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>,
+  ) => Promise<void>;
+  restore: () => Promise<void>;
+  run: RuntimeRunState | undefined;
+  send: (message: string) => Promise<void>;
+  sendA2uiAction: (
+    a2uiAction: NonNullable<RunAgentInput['forwardedProps']['a2uiAction']>,
+  ) => Promise<void>;
+  stop: () => Promise<void>;
+}
+
 const toStreamedEvent = (event: AgUiEvent) => ({
   event,
   streamId:
@@ -30,13 +51,63 @@ const toStreamedEvent = (event: AgUiEvent) => ({
       : undefined,
 });
 
-export const useAgentDockConversation = (options: AgentDockConversationOptions) => {
-  // 官方 CopilotKit 仅在生产 proxy 形态启用；direct 属本地联调，保留自研 transport。
-  const useOfficial = getServiceMode() === 'http' && runtimeConfig.transport === 'proxy';
+const useMockConversation = (options: AgentDockConversationOptions): AgentDockConversationResult => {
+  const mock = useRunStore();
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
+  const restore = useCallback(async () => {
+    await mock.restoreSession(optionsRef.current.sessionId);
+  }, [mock]);
+
+  useEffect(() => {
+    void restore();
+  }, [options.sessionId, restore]);
+
+  const send = useCallback(
+    async (message: string) => {
+      const { agentId, fab, group, sessionId } = optionsRef.current;
+      const threadId = optionsRef.current.threadId || `thread-${sessionId}`;
+      await mock.execute(createRunInput({ agentId, fab, group, message, sessionId, threadId }));
+    },
+    [mock],
+  );
+
+  const stop = useCallback(async () => {
+    await mock.stop();
+  }, [mock]);
+
+  const respondToHitl = useCallback(
+    async (hitlResponse: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>) => {
+      await mock.respondToHitl(hitlResponse);
+    },
+    [mock],
+  );
+
+  const sendA2uiAction = useCallback(
+    async (a2uiAction: NonNullable<RunAgentInput['forwardedProps']['a2uiAction']>) => {
+      await mock.sendA2uiAction(a2uiAction);
+    },
+    [mock],
+  );
+
+  return {
+    agent: undefined,
+    isReady: true,
+    respondToHitl,
+    restore,
+    run: mock.run,
+    send,
+    sendA2uiAction,
+    stop,
+  };
+};
+
+const useOfficialConversation = (
+  options: AgentDockConversationOptions,
+): AgentDockConversationResult => {
   const resolvedThreadId = options.threadId || `thread-${options.sessionId}`;
   const localAgentId = `agentdock-${options.sessionId}`;
-
-  const mock = useRunStore();
   const { agent, isReady } = useAgent({
     agentId: localAgentId,
     runtimeAgentId: 'orchestration',
@@ -50,7 +121,6 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
   optionsRef.current = options;
 
   const applyEvent = useCallback((event: AgUiEvent) => {
-    if (!useOfficial) return;
     const threadId = optionsRef.current.threadId || `thread-${optionsRef.current.sessionId}`;
     const current = runRef.current ?? createRunState(String(event.runId || crypto.randomUUID()), threadId);
     const next = reduceRunEvent(current, toStreamedEvent(event));
@@ -58,11 +128,13 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
     setHttpRun(next);
     const input = inputRef.current;
     if (input) scheduleRunCheckpoint(optionsRef.current.sessionId, input, next);
-    if (next.status === 'success' || next.status === 'error' || next.status === 'cancelled') void flushRunCheckpoint();
-  }, [useOfficial]);
+    if (next.status === 'success' || next.status === 'error' || next.status === 'cancelled') {
+      void flushRunCheckpoint();
+    }
+  }, []);
 
   useEffect(() => {
-    if (!useOfficial || !isReady) return;
+    if (!isReady) return;
     const subscription = agent.subscribe({
       onActivityDeltaEvent: ({ event }) => applyEvent(event),
       onActivitySnapshotEvent: ({ event }) => applyEvent(event),
@@ -114,13 +186,9 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
       onToolCallStartEvent: ({ event }) => applyEvent(event),
     });
     return () => subscription.unsubscribe();
-  }, [agent, applyEvent, isReady, useOfficial]);
+  }, [agent, applyEvent, isReady]);
 
   const restore = useCallback(async () => {
-    if (!useOfficial) {
-      await mock.restoreSession(optionsRef.current.sessionId);
-      return;
-    }
     const checkpoint = await sessionHistoryService.getLatestRun(optionsRef.current.sessionId);
     if (!checkpoint) return;
     runRef.current = checkpoint.snapshot;
@@ -136,7 +204,10 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
     if (restoredMessages.length) agent.setMessages(restoredMessages as Message[]);
     // 按 streamId 游标恢复（与后端冻结的方向）：running/paused 且有 latestStreamId 时，
     // 通过官方 agent/connect 携带 action=resume + resume.lastStreamId 补发缺失事件。
-    if ((checkpoint.status === 'running' || checkpoint.status === 'paused') && checkpoint.snapshot.latestStreamId) {
+    if (
+      (checkpoint.status === 'running' || checkpoint.status === 'paused') &&
+      checkpoint.snapshot.latestStreamId
+    ) {
       try {
         await agent.connectAgent({
           forwardedProps: {
@@ -150,7 +221,7 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
         console.warn('[AgentDock] connect resume failed', error);
       }
     }
-  }, [agent, mock, useOfficial]);
+  }, [agent]);
 
   useEffect(() => {
     void restore();
@@ -160,10 +231,6 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
     async (message: string) => {
       const { agentId, fab, group, sessionId } = optionsRef.current;
       const threadId = optionsRef.current.threadId || `thread-${sessionId}`;
-      if (!useOfficial) {
-        await mock.execute(createRunInput({ agentId, fab, group, message, sessionId, threadId }));
-        return;
-      }
       const runId = crypto.randomUUID();
       const input: RunAgentInput = {
         context: [],
@@ -184,14 +251,10 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
         runId,
       });
     },
-    [agent, copilotkit, mock, useOfficial],
+    [agent, copilotkit],
   );
 
   const stop = useCallback(async () => {
-    if (!useOfficial) {
-      await mock.stop();
-      return;
-    }
     copilotkit.stopAgent({ agent });
     if (runRef.current?.status === 'running' || runRef.current?.status === 'paused') {
       applyEvent({
@@ -202,14 +265,10 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
         type: 'RUN_ERROR',
       });
     }
-  }, [agent, applyEvent, copilotkit, mock, useOfficial]);
+  }, [agent, applyEvent, copilotkit]);
 
   const respondToHitl = useCallback(
     async (hitlResponse: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>) => {
-      if (!useOfficial) {
-        await mock.respondToHitl(hitlResponse);
-        return;
-      }
       const pending = agent.pendingInterrupts || [];
       if (pending.length > 0) {
         const interrupt = pending[0];
@@ -234,15 +293,11 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
         },
       });
     },
-    [agent, copilotkit, mock, useOfficial],
+    [agent, copilotkit],
   );
 
   const sendA2uiAction = useCallback(
     async (a2uiAction: NonNullable<RunAgentInput['forwardedProps']['a2uiAction']>) => {
-      if (!useOfficial) {
-        await mock.sendA2uiAction(a2uiAction);
-        return;
-      }
       const previous = inputRef.current;
       try {
         // 官方 A2UI middleware 读取 forwardedProps.a2uiAction.userAction
@@ -262,17 +317,24 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
         }
       }
     },
-    [agent, copilotkit, mock, useOfficial],
+    [agent, copilotkit],
   );
 
   return {
     agent,
-    isReady: useOfficial ? isReady : true,
+    isReady,
     respondToHitl,
     restore,
-    run: useOfficial ? httpRun : mock.run,
+    run: httpRun,
     send,
     sendA2uiAction,
     stop,
   };
+};
+
+export const useAgentDockConversation = (
+  options: AgentDockConversationOptions,
+): AgentDockConversationResult => {
+  const useOfficial = getServiceMode() === 'http' && runtimeConfig.transport === 'proxy';
+  return useOfficial ? useOfficialConversation(options) : useMockConversation(options);
 };

@@ -3,7 +3,7 @@ import { Avatar, Block, Button, Flexbox, Icon, Segmented, Tag, Text } from '@lob
 import { createStaticStyles, cssVar } from 'antd-style';
 import { Clock3, MoreHorizontal, Play, Plus, Users } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { agentGroupService } from '@/api/agent-group/agentGroupService';
 import { runtimeConfig } from '@/api/runtimeConfig';
@@ -47,31 +47,51 @@ const GROUP_MEMBERS: Array<[string, string, string]> = [
   ['📝', 'ReportWriter_Agent-F15B', 'workspace.group.role.report'],
 ];
 
+const DEFAULT_GROUP_MEMBERS = [
+  { agentId: 'flight-analysis', fab: 'F15B', version: '2.1.0' },
+  { agentId: 'data-check', fab: 'F15B' },
+  { agentId: 'report-writer', fab: 'F15B' },
+];
+
+interface StoredGroupConfig {
+  config?: { maxIterations?: number };
+  members?: Array<{ agentId: string; fab: string; version?: string }>;
+  orchestrationMode?: string;
+}
+
 const GroupChatPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useI18n();
   const sessionId = id || '';
   const showReasoning = useUiStore((s) => s.showReasoning);
 
-  const [session, setSession] = useState<SessionRecord>();
+  const pendingSession = (location.state as { pendingSession?: SessionRecord } | null)?.pendingSession;
+  const [session, setSession] = useState<SessionRecord | undefined>(
+    pendingSession?.id === sessionId ? pendingSession : undefined,
+  );
   const [history, setHistory] = useState<SessionMessageRecord[]>([]);
   const [input, setInput] = useState('');
   const [modes, setModes] = useState<Array<{ modeId: string; name: string }>>([]);
   const [mode, setMode] = useState('supervisor');
+
+  const groupConfig = useMemo<StoredGroupConfig | undefined>(() => {
+    const value = session?.group;
+    return value && typeof value === 'object'
+      ? (value as StoredGroupConfig)
+      : undefined;
+  }, [session?.group]);
+  const configuredMembers = groupConfig?.members?.length ? groupConfig.members : undefined;
 
   const fab = session?.fab || 'F15B';
   const { respondToHitl, restore, run, send, sendA2uiAction, stop } = useAgentDockConversation({
     agentId: 'group',
     fab,
     group: {
-      members: [
-        { agentId: 'flight-analysis', fab: 'F15B', version: '2.1.0' },
-        { agentId: 'data-check', fab: 'F15B' },
-        { agentId: 'report-writer', fab: 'F15B' },
-      ],
+      members: configuredMembers ?? DEFAULT_GROUP_MEMBERS,
       orchestrationMode: mode,
-      config: { maxIterations: 6 },
+      config: groupConfig?.config ?? { maxIterations: 6 },
     },
     sessionId,
     threadId: session?.threadId,
@@ -93,6 +113,10 @@ const GroupChatPage = () => {
     }
     void sessionHistoryService.getSession(sessionId).then((value) => {
       if (!value) {
+        if (pendingSession?.id === sessionId) {
+          setSession(pendingSession);
+          return;
+        }
         navigate('/group', { replace: true });
         return;
       }
@@ -100,7 +124,7 @@ const GroupChatPage = () => {
     });
     void sessionHistoryService.getMessages(sessionId).then(setHistory);
     void restore();
-  }, [navigate, restore, sessionId]);
+  }, [navigate, pendingSession?.id, restore, sessionId]);
 
   useEffect(() => {
     void agentGroupService
@@ -110,6 +134,15 @@ const GroupChatPage = () => {
         setMode(data.defaultModeId);
       });
   }, []);
+
+  useEffect(() => {
+    if (
+      groupConfig?.orchestrationMode &&
+      modes.some((item) => item.modeId === groupConfig.orchestrationMode)
+    ) {
+      setMode(groupConfig.orchestrationMode);
+    }
+  }, [groupConfig?.orchestrationMode, modes]);
 
   useEffect(() => {
     if (run && ['success', 'cancelled', 'error'].includes(run.status)) {
@@ -321,21 +354,39 @@ const GroupChatPage = () => {
             <Text weight={500}>{t('workspace.group.members')}</Text>
             <Tag color="success">{t('workspace.group.members')}</Tag>
           </Flexbox>
-          {GROUP_MEMBERS.map(([icon, name, role], index) => (
-            <Flexbox horizontal align="center" gap={12} key={name}>
-              <Avatar avatar={icon} shape="square" size={40} />
-              <Flexbox flex={1} style={{ minWidth: 0 }}>
-                <Text ellipsis weight={500}>
-                  {name}
-                </Text>
-                <Text fontSize={12} type="secondary">
-                  {t(role)}
-                </Text>
+          {configuredMembers ? (
+            configuredMembers.map((member, index) => (
+              <Flexbox horizontal align="center" gap={12} key={`${member.agentId}@${member.fab}`}>
+                <Avatar avatar="🤖" shape="square" size={40} />
+                <Flexbox flex={1} style={{ minWidth: 0 }}>
+                  <Text ellipsis weight={500}>
+                    {member.agentId}
+                  </Text>
+                  <Text fontSize={12} type="secondary">
+                    v{member.version || '—'} · {member.fab}
+                  </Text>
+                </Flexbox>
+                {index === 0 && <Tag color="info">Supervisor</Tag>}
+                <Button icon={MoreHorizontal} type="text" />
               </Flexbox>
-              {index === 0 && <Tag color="info">Supervisor</Tag>}
-              <Button icon={MoreHorizontal} type="text" />
-            </Flexbox>
-          ))}
+            ))
+          ) : (
+            GROUP_MEMBERS.map(([icon, name, role], index) => (
+              <Flexbox horizontal align="center" gap={12} key={name}>
+                <Avatar avatar={icon} shape="square" size={40} />
+                <Flexbox flex={1} style={{ minWidth: 0 }}>
+                  <Text ellipsis weight={500}>
+                    {name}
+                  </Text>
+                  <Text fontSize={12} type="secondary">
+                    {t(role)}
+                  </Text>
+                </Flexbox>
+                {index === 0 && <Tag color="info">Supervisor</Tag>}
+                <Button icon={MoreHorizontal} type="text" />
+              </Flexbox>
+            ))
+          )}
           <Button icon={Plus}>{t('workspace.group.addMember')}</Button>
         </Block>
       </Flexbox>

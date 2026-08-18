@@ -3,7 +3,7 @@ import { ActionIcon, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
 import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { Copy, FileBarChart, ThumbsDown, ThumbsUp, X } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 
 import ChatHeader from '@/features/chat/components/ChatHeader';
@@ -55,6 +55,26 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
   `,
 }));
 
+// 官方 runtime 的活动消息渲染依赖 CopilotKit Provider，仅在 http 模式下挂载。
+interface OfficialActivityMessage {
+  role: 'activity';
+  content: Record<string, unknown>;
+  id: string;
+  activityType: string;
+}
+
+const OfficialActivityMessages = memo<{ agent: { messages?: unknown[] } }>(({ agent }) => {
+  const { renderActivityMessage } = useRenderActivityMessage();
+  const activityMessages = (agent.messages || []).filter(
+    (message): message is OfficialActivityMessage =>
+      (message as { role?: string }).role === 'activity',
+  );
+  if (activityMessages.length === 0) return null;
+  return <>{activityMessages.map((message) => renderActivityMessage(message))}</>;
+});
+
+OfficialActivityMessages.displayName = 'OfficialActivityMessages';
+
 export default function ChatPage() {
   const { t } = useI18n();
   const { id = 'session-inbox' } = useParams();
@@ -85,11 +105,6 @@ export default function ChatPage() {
     threadId: session?.threadId,
   });
   const running = run?.status === 'running';
-  const { renderActivityMessage } = useRenderActivityMessage();
-  const activityMessages = useMemo(
-    () => (runtimeAgent?.messages || []).filter((message) => message.role === 'activity'),
-    [runtimeAgent?.messages],
-  );
   const answer = Object.values(run?.messages || {})
     .filter((message) => message.role === 'assistant')
     .at(-1)?.content;
@@ -117,31 +132,33 @@ export default function ChatPage() {
     }
   }, [mentions, searchParams]);
 
-  useEffect(() => {
-    void sessionHistoryService.getSession(sessionId).then((value) => {
-      setSession(value);
-      if (value) setAgent(`${value.agentName || value.title}-${value.fab}`.replace(/\s+/g, ''));
-      else {
-        void sessionHistoryService
-          .createSession({
-            agentId: 'flight-analysis',
-            agentName: 'FlightAnalysis_Agent',
-            fab: 'F15B',
-            pinned: false,
-            threadId: crypto.randomUUID(),
-            title: 'New session',
-            type: 'agent',
-            version: '2.1.0',
-          })
-          .then((created) => {
-            setSession(created);
-            setAgent(`${created.agentName || created.title}-${created.fab}`.replace(/\s+/g, ''));
-          });
-      }
+  const ensureSession = useCallback(async (): Promise<SessionRecord> => {
+    const existing = session ?? (await sessionHistoryService.getSession(sessionId));
+    if (existing) {
+      setSession(existing);
+      return existing;
+    }
+    const created = await sessionHistoryService.createSession({
+      agentId: selectedAgent?.agentId || 'flight-analysis',
+      agentName: selectedAgent?.agentFullName,
+      fab,
+      pinned: false,
+      threadId: crypto.randomUUID(),
+      title: 'New session',
+      type: 'agent',
+      version: selectedAgent?.version,
     });
+    setSession(created);
+    return created;
+  }, [fab, selectedAgent?.agentFullName, selectedAgent?.agentId, selectedAgent?.version, session, sessionId]);
+
+  useEffect(() => {
+    void ensureSession().then((value) =>
+      setAgent(`${value.agentName || value.title}-${value.fab}`.replace(/\s+/g, '')),
+    );
     void sessionHistoryService.getMessages(sessionId).then(setHistory);
     void restore();
-  }, [restore, sessionId]);
+  }, [ensureSession, restore, sessionId]);
 
   useEffect(() => {
     if (run && ['success', 'cancelled', 'error'].includes(run.status)) {
@@ -151,7 +168,7 @@ export default function ChatPage() {
 
   const sendMessage = async () => {
     setArtifactOpen(false);
-    const active = session;
+    const active = session ?? (await ensureSession());
     if (!active) return;
     await sessionHistoryService.updateSession(active.id, {
       agentId: selectedAgent?.agentId || active.agentId,
@@ -317,7 +334,9 @@ export default function ChatPage() {
                   time={t('chat.justNow')}
                 >
                   {blocks}
-                  {activityMessages.map((message) => renderActivityMessage(message))}
+                  {runtimeAgent ? (
+                    <OfficialActivityMessages agent={runtimeAgent as { messages?: unknown[] }} />
+                  ) : null}
                   {!running && answer && (
                     <Flexbox horizontal gap={8}>
                       <ActionIcon

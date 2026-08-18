@@ -45,28 +45,31 @@ export default function Providers({ children }: { children: ReactNode }) {
   const serviceMode = getServiceMode();
   const copilotEnabled = serviceMode === 'http';
 
+  const app = (
+    <ThemeProvider
+      className={styles.app}
+      appearance={appearance}
+      customTheme={{ neutralColor: 'slate', primaryColor: 'blue' }}
+      theme={{ cssVar: { key: 'agentdock-vars' } }}
+    >
+      <BrowserRouter>{children}</BrowserRouter>
+    </ThemeProvider>
+  );
+
   return (
     <I18nProvider>
+      {/* Provider 必须始终挂载：useAgent/useCopilotKit 无条件调用；
+          mock 模式不给 runtimeUrl/useSingleEndpoint，避免连接与 single-route 校验。 */}
       <CopilotKit
         a2ui={copilotEnabled ? { catalog: agentDockCatalog } : undefined}
         credentials="include"
         onError={(event) => {
-          // mock 模式下没有 /info 端点，连接失败属于预期，静默处理；http 模式才打印。
-          if (getServiceMode() === 'http') {
-            console.error('[CopilotKit]', event.error);
-          }
+          if (copilotEnabled) console.error('[CopilotKit]', event.error);
         }}
-        runtimeUrl={runtimeConfig.copilotRuntimeUrl}
-        useSingleEndpoint
+        runtimeUrl={copilotEnabled ? runtimeConfig.copilotRuntimeUrl : undefined}
+        useSingleEndpoint={copilotEnabled}
       >
-        <ThemeProvider
-          className={styles.app}
-          appearance={appearance}
-          customTheme={{ neutralColor: 'slate', primaryColor: 'blue' }}
-          theme={{ cssVar: { key: 'agentdock-vars' } }}
-        >
-          <BrowserRouter>{children}</BrowserRouter>
-        </ThemeProvider>
+        {app}
       </CopilotKit>
     </I18nProvider>
   );
