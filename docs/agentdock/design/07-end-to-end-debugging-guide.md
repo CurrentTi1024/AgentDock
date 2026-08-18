@@ -167,7 +167,7 @@ curl -sSN -X POST http://127.0.0.1:3000/api/copilotkit \
 
 刷新恢复逻辑：
 
-- http+proxy：`restore()` 读取最新 checkpoint → 回填 `agent.setMessages`（下一轮携带完整上下文），UI 从 snapshot 恢复；正在运行中的 run 不自动重放（联调确认 connect 语义）。
+- http+proxy：`restore()` 读取最新 checkpoint → 回填 `agent.setMessages` → 若 `running/paused` 且有 `latestStreamId`，自动 `agent.connectAgent` 携带 `action=resume + resume.lastStreamId`（按 streamId 游标恢复，方向已冻结；后端需按游标过滤）。
 - mock/direct：`runStore.restoreSession` → 若 `status === 'running'` 且 `latestStreamId` 存在 → `resume(lastStreamId)`。
 
 ## 5. A2UI 调试
@@ -229,6 +229,7 @@ console.table(s?.rawEvents?.map(e => [e.type, e.messageId || e.toolCallId || '',
 ## 9. 联调前与后端确认清单
 
 - [ ] HITL wire：标准 `RUN_FINISHED(outcome=interrupt) + RunAgentInput.resume[]`，还是 legacy `on_interrupt`（前端双路径已实现，需冻结一种）。
-- [ ] Orchestration `agent/connect` 语义：整场重放还是按 `lastStreamId` 游标恢复；Redis event TTL。
+- [x] 断线恢复方向：**按 `lastStreamId` 游标恢复**（已冻结）；后端需只返回游标之后的事件。
+- [ ] Redis event log TTL 与游标过期后的错误行为（`STREAM_EXPIRED`）。
 - [ ] A2UI：动态 schema（`injectA2UITool`）还是固定 schema（`a2ui_operations`）；提供一条真实 `render_a2ui` fixture。
 - [ ] `AGENT_ORCHESTRATION_BASE_URLS_JSON` 的 FAB → 域名映射与 SSO 透传方式（Cookie vs Authorization）。

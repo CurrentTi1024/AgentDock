@@ -219,7 +219,7 @@ src/
 | M4 详情页 | 已完成 | 三类市场详情 FAB 前置；Agent 展平单版本 Version 页；Skill/MCP 单版本 |
 | M5 Skill 创建页 | 已完成 | 表单/步骤/发布态，接入 createAndPublishSkill mock |
 | M6 隐藏模块占位与路由 | 已完成 | /channel /artifact /page 占位；本月模式不触发业务请求 |
-| M7 i18n 与最终验证 | 已完成（结构 + 全量 UI 文案） | 18 种 LobeHub 语言全部提供人工翻译词典（zh-CN/en-US/zh-TW 手写，其余 15 种也已人工翻译）；`dictionaries.test.ts` 守护 key/占位符一致；build/test 通过 |
+| M7 i18n 与最终验证 | 已完成（结构 + 全量 UI 文案 + 全量联网复核） | 18 种 LobeHub 语言全部提供人工翻译词典（zh-CN/en-US/zh-TW 手写，其余 15 种也已人工翻译）；`dictionaries.test.ts` 守护 key/占位符一致；15 种语言 × 257 key 全量与机器翻译比对（ar 走 DeepL oneshot，其余走本地 Argos），补齐 12 种语言 13 个漏译 key；build/test 通过 |
 | M8 设置页功能接线 | 已完成 | 主题模式（跟随系统/浅色/深色，参照 LobeHub `themeMode`）、显示推理摘要开关、开发预览环境运行时 Mock/HTTP 切换；偏好持久化 localStorage |
 | M9 全屏布局与群聊布局 | 已完成 | 修复 ThemeProvider 外层未撑满视口导致的内容区高度塌缩；对话输入区底部通栏 + 840 居中（参照 LobeHub）；侧边栏按路由切换；新增 `/group` 群聊首页与 `/group/:id` 群聊会话页，群组历史在群组侧边栏展示 |
 
@@ -229,7 +229,7 @@ src/
 - [x] 设置页开关接线：主题模式（跟随系统/浅色/深色）、显示推理摘要、开发预览环境（运行时 Mock/HTTP 切换）已实现并持久化。
 - [x] 布局修复与群聊：外层全屏（100dvh）、对话输入区锚定底部并 840 居中、侧边栏按路由切换、群聊首页/会话页与群组历史落地。
 - [x] 新增入口与 FAB 交互：侧边栏 + 改为下拉菜单（新建 Agent 对话 / 新建群聊 / 市场 Agent，参照 LobeHub `createTopLevelMenuItems`）；市场 FAB 切换改为 Select 下拉（适配 14–20 个 FAB，不再挤压搜索框）；详情页移除 FAB 切换，仅展示列表带入的当前 FAB 版本。
-- [x] 非 zh-CN/en-US/zh-TW 的 15 种语言已人工翻译补齐；`dictionaries.test.ts` 守护 18 种语言的 key 集合与占位符一致。
+- [x] 非 zh-CN/en-US/zh-TW 的 15 种语言已人工翻译补齐；`dictionaries.test.ts` 守护 18 种语言的 key 集合与占位符一致；全量联网复核见 `task.md`，脚本 `scripts/verify-i18n.mjs` + `scripts/argos-translate-server.py`。
 - [x] 需求 Review / Code Review 已输出详细设计与缺口清单：见 `docs/agentdock/design/`（00-10：索引、端到端链路、AG-UI、A2UI、Registry、渲染矩阵、CopilotKit 接入、联调调试指南、最终架构决策、渲染投影层、逐行 Code Review）。
 - [ ] 浏览器逐页视觉验收（当前环境无浏览器驱动，已用 build/test + HTTP 冒烟代替）。
 - [ ] 真实后端联调（`VITE_SERVICE_MODE=http` 时按新契约走通）。

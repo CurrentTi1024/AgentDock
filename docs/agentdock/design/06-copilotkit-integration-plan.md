@@ -120,7 +120,7 @@ const handler = createCopilotNodeHandler(fetchHandler);
 ## 7. 验收清单
 
 - [x] single-route `/info` 返回 agents + `a2uiEnabled`（已验证）。
-- [x] run/stop/HITL/a2uiAction 走同一条 single-route；connect 语义待联调确认。
-- [x] runId 由浏览器产生且全程不变；恢复回填 checkpoint 消息（lastStreamId 语义待后端确认）。
+- [x] run/stop/HITL/a2uiAction 走同一条 single-route；connect 按 `lastStreamId` 游标恢复（方向已冻结）。
+- [x] runId 由浏览器产生且全程不变；恢复回填 checkpoint 消息并 `connectAgent(lastStreamId)`。
 - [x] reasoning、tool、step、activity、A2UI 全部有渲染组件（`design/05` 矩阵）。
 - [ ] 与 DeepAgents 后端联调 Case 1-10 通过（`docs/agentdock/03`）。

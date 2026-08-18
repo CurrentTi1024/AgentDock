@@ -134,6 +134,22 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
       .filter((message) => message?.role === 'user' || message?.role === 'assistant')
       .map((message) => ({ content: message.content, id: message.id, role: message.role }));
     if (restoredMessages.length) agent.setMessages(restoredMessages as Message[]);
+    // 按 streamId 游标恢复（与后端冻结的方向）：running/paused 且有 latestStreamId 时，
+    // 通过官方 agent/connect 携带 action=resume + resume.lastStreamId 补发缺失事件。
+    if ((checkpoint.status === 'running' || checkpoint.status === 'paused') && checkpoint.snapshot.latestStreamId) {
+      try {
+        await agent.connectAgent({
+          forwardedProps: {
+            ...(checkpoint.input.forwardedProps as Record<string, unknown>),
+            action: 'resume',
+            resume: { lastStreamId: checkpoint.snapshot.latestStreamId },
+          },
+          runId: checkpoint.input.runId,
+        });
+      } catch (error) {
+        console.warn('[AgentDock] connect resume failed', error);
+      }
+    }
   }, [agent, mock, useOfficial]);
 
   useEffect(() => {

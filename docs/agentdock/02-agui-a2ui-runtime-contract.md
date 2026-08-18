@@ -421,7 +421,7 @@ Core/中间件必须形成：
 
 ### 10.1 Browser → Runtime
 
-官方路径：前端通过 Runtime 的 `agent/connect` 恢复（`@ag-ui/client` transport 自动处理）；`lastStreamId` 仅作为后端可选检查点语义保留，是否支持由 Orchestration 决定。
+官方路径：前端通过 `agent.connectAgent` 恢复，携带 `forwardedProps.action=resume` + `forwardedProps.resume.lastStreamId`，并沿用相同 `runId/threadId`；`@ag-ui/client` transport 走 Runtime `agent/connect`。**已与后端冻结方向：按 streamId 游标恢复**。
 
 自研路径（mock/direct）Browser 保存：
 
@@ -445,7 +445,7 @@ Core/中间件必须形成：
 
 ### 10.2 Runtime → Orchestration Service
 
-Runtime Adapter 使用相同 `runId` 请求 `/ag-ui`（官方 `agent/connect`）；若双方约定支持 `lastStreamId`，Service 只返回游标之后的事件。联调前必须确认 Orchestration 的 connect 语义（整场重放 vs 游标恢复）。
+Runtime Adapter 使用相同 `runId` 请求 `/ag-ui`（官方 `agent/connect`），透传 `lastStreamId`；**Service 必须只返回游标之后的事件**（按 streamId 游标恢复，已冻结）。Redis event TTL 到期后的错误行为见 10.4。
 
 ### 10.3 去重
 

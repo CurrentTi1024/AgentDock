@@ -83,7 +83,7 @@ flowchart LR
 | HITL 审批 | HITL 同意按钮 | `hitlResponse decision=approve` | `RunAgentInput.resume[] status=resolved` | `requestId / threadId / runId` |
 | HITL 拒绝（取消） | HITL 拒绝按钮 | `hitlResponse decision=reject` → `RUN_ERROR(CANCELLED)` | `resume[] status=cancelled` | `requestId / threadId / runId` |
 | A2UI Action | A2UI 组件点击 | `a2uiAction`（新 runId + parentRunId） | renderer bridge `forwardedProps.a2uiAction.userAction` | `surfaceId / actionName / context` |
-| 断线重连 | 页面刷新 / 重新进入 | ✅ 已实现：`restoreSession` + `resume` | ⚠️ 仅恢复 UI/checkpoint；官方 `agent/connect` 待后端确认后接入 | `sessionId / runId / threadId / lastStreamId` |
+| 断线重连 | 页面刷新 / 重新进入 | ✅ `restoreSession` + `resume(lastStreamId)` | ✅ `connectAgent` 携带 `action=resume` + `resume.lastStreamId`（后端需按游标过滤） | `sessionId / runId / threadId / lastStreamId` |
 
 消费的 AG-UI 事件（`runReducer` 支持矩阵）：
 
@@ -99,7 +99,7 @@ flowchart LR
 | `MESSAGES_SNAPSHOT` | messages 全量重建 | 恢复渲染 |
 | `CUSTOM / RAW` | rawEvents | 不阻塞渲染 |
 
-**断线重连现状**：mock / direct 路径已实现，恢复请求携带 `forwardedProps.sessionId` 与 `resume.lastStreamId`（streamId），并沿用相同 `runId / threadId`；http + proxy 官方路径刷新后恢复 UI 与 IndexedDB checkpoint，并用 checkpoint 回填 `agent.setMessages` 保证下一轮携带完整上下文，但**不会自动发起官方 `agent/connect` 重放**——该语义需要与 Orchestration 确认后接入。
+**断线重连现状（方向已冻结：按 streamId 游标恢复）**：mock / direct 路径 `restoreSession + resume(lastStreamId)`；http + proxy 路径刷新后恢复 UI/checkpoint、回填 `agent.setMessages`，并通过官方 `connectAgent` 携带 `action=resume` + `resume.lastStreamId` 请求游标后的缺失事件。两条路径都携带 `sessionId / runId / threadId / lastStreamId`；后端需按 `lastStreamId` 游标过滤（Redis TTL 与超时行为见 `design/07` §9）。
 
 ### 前端内部架构
 

@@ -129,7 +129,7 @@ threadId: session?.threadId || `thread-${sessionId}`
 | 逻辑动作 | `forwardedProps.action` | 关键字段 | 当前状态 |
 |---|---|---|---|
 | 发起执行 | `run` | `sessionId`、`agentId` 或 `group`、`fab`、当前 message | ✅ 官方 `agent/run`（proxy）/ 自研 SSE（direct） |
-| 断线恢复 | `resume` | `fab`、相同 `runId`、`resume.lastStreamId` | ⚠️ 官方 `agent/connect`；lastStreamId 语义待后端确认 |
+| 断线恢复 | `resume` | `fab`、相同 `runId`、`resume.lastStreamId` | ✅ mock/direct `resume(lastStreamId)`；http+proxy `connectAgent` 携带 `lastStreamId`（方向已冻结：按 streamId 游标恢复） |
 | 停止 | `stop` | `fab`、相同 `threadId/runId` | ✅ 官方 `agent/stop`（proxy）/ 本地 abort（direct） |
 | HITL 响应 | `hitlResponse` | `fab`、`requestId`、mode、decision/input 等 | ✅ 标准 `resume[]` + legacy 后备；wire 待冻结 |
 | A2UI Action | `a2uiAction` | `fab`、`surfaceId`、`actionName`、`context`、`sourceComponentId` | ✅ 官方 `a2uiAction.userAction`（renderer bridge）/ 自研后备 |

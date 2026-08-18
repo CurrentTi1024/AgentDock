@@ -156,7 +156,8 @@
 - `pnpm run test`：通过（runReducer 2 项、sse 1 项、i18n 3 项）。
 - `pnpm run build`：通过。
 - 全盘一致性核对（2026-08-19）：修正 `docs/agentdock/02/03/04/05/06` 与 `design/01/02/03/05/06/07/08/09` 中与代码不一致的内容；联调指南按官方 single-route envelope 重写，Registry 调试路径修正为 `/api/market/getFabOptions`，IndexedDB 名称修正为 v3。
-- i18n 联网复核：15 种新语言各抽样 24 条与 MyMemory 机器翻译比对，平均相似度 0.60–0.77；人工译文正确且多处优于机器翻译（机器存在错义/混语），仅微调保加利亚语 1 条措辞；核对脚本保留为 `scripts/verify-i18n.mjs`。
+- i18n 联网复核（全量）：15 种新语言 × 全部 257 个 key（共 3855 条）逐一与机器翻译比对。阿拉伯语走 DeepL oneshot，其余 14 种走本地 Argos Translate（模型约 1.5GB，首次需下载）；比对脚本保留为 `scripts/verify-i18n.mjs`（`I18N_BASE_URL` 可指向本地 `scripts/argos-translate-server.py`）。
+- i18n 复核修复：全量 flagged 逐条人工复核后，补齐 12 种语言中 13 个英文漏译 key（`nav.newGroup/recentGroups/emptyGroups`、`group.home.*`、`group.welcome.*`、`workspace.settings.mockDesc/themeMode*`），并修正阿拉伯语 `chat.mentionEmpty` 语法、德语 `skillCreate.branch`/`workspace.group.members` 用词；其余 flagged 均为机器错义/同义表达，人工译文保留（如 bg `Tool call` 机器误译为 `Name`、ko/fa/tr 旧模型大量乱译）。
 - 浏览器实测：Chat 流式、Group HITL、A2UI 折叠块、刷新恢复、市场/详情导航正常（此前记录）。
 
 ## 6. 下一步
