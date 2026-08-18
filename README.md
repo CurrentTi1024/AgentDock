@@ -74,6 +74,33 @@ flowchart LR
 - **HITL**：标准 `RUN_FINISHED(outcome=interrupt)` 与 legacy `on_interrupt` 双 wire 均投影为暂停块，approve/reject 回传 requestId。
 - **信息粒度渲染（fully copy LobeHub）**：文本（Markdown）、Reasoning 折叠卡、Tool 参数/结果卡、Workflow 步骤、Task/Delegation Activity、HITL 审批、A2UI 组件、错误卡，全部按事件顺序渲染（`orderedBlocks`）。
 
+### 前端动作与事件支持矩阵
+
+| 动作 | 入口 | mock / direct（自研 SSE） | http + proxy（官方 CopilotKit） | 携带 ID |
+|---|---|---|---|
+| 发送消息 | ChatInput 发送 | `forwardedProps.action=run` | envelope `agent/run` | `sessionId / agentId / fab / threadId / runId` |
+| 停止生成 | 输入框停止按钮 | `action=stop` + 本地 abort | `agent/stop` + 本地 CANCELLED 终态 | `threadId / runId / sessionId` |
+| HITL 审批 | HITL 同意按钮 | `hitlResponse decision=approve` | `RunAgentInput.resume[] status=resolved` | `requestId / threadId / runId` |
+| HITL 拒绝（取消） | HITL 拒绝按钮 | `hitlResponse decision=reject` → `RUN_ERROR(CANCELLED)` | `resume[] status=cancelled` | `requestId / threadId / runId` |
+| A2UI Action | A2UI 组件点击 | `a2uiAction`（新 runId + parentRunId） | renderer bridge `forwardedProps.a2uiAction.userAction` | `surfaceId / actionName / context` |
+| 断线重连 | 页面刷新 / 重新进入 | ✅ 已实现：`restoreSession` + `resume` | ⚠️ 仅恢复 UI/checkpoint；官方 `agent/connect` 待后端确认后接入 | `sessionId / runId / threadId / lastStreamId` |
+
+消费的 AG-UI 事件（`runReducer` 支持矩阵）：
+
+| 事件 | 投影 | 组件 |
+|---|---|---|
+| `RUN_STARTED / RUN_FINISHED / RUN_ERROR` | status / error | ChatHeader Tag / ErrorBlock |
+| `STEP_STARTED / STEP_FINISHED` | steps + orderedBlocks | WorkflowStepsBlock |
+| `REASONING_MESSAGE_START / CONTENT / CHUNK / END` | reasoning | ReasoningBlock |
+| `TEXT_MESSAGE_START / CONTENT / CHUNK / END` | messages | ChatItem + Markdown |
+| `TOOL_CALL_START / ARGS / END / RESULT` | toolCalls | ToolCallBlock |
+| `ACTIVITY_SNAPSHOT / ACTIVITY_DELTA` | activities / surfaces | HitlBlock / ActivityBlock / A2UI renderer |
+| `STATE_SNAPSHOT / STATE_DELTA` | state | 诊断预留（P2） |
+| `MESSAGES_SNAPSHOT` | messages 全量重建 | 恢复渲染 |
+| `CUSTOM / RAW` | rawEvents | 不阻塞渲染 |
+
+**断线重连现状**：mock / direct 路径已实现，恢复请求携带 `forwardedProps.sessionId` 与 `resume.lastStreamId`（streamId），并沿用相同 `runId / threadId`；http + proxy 官方路径刷新后恢复 UI 与 IndexedDB checkpoint，并用 checkpoint 回填 `agent.setMessages` 保证下一轮携带完整上下文，但**不会自动发起官方 `agent/connect` 重放**——该语义需要与 Orchestration 确认后接入。
+
 ### 前端内部架构
 
 ```text
