@@ -3,7 +3,7 @@ import { ActionIcon, Avatar, Block, Button, Flexbox, Icon, Segmented, Tag, Text 
 import { DropdownMenu } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { message } from 'antd';
-import { Clock3, Info, Play, Plus, Users, X } from 'lucide-react';
+import { ChevronLeft, Clock3, Info, Play, Plus, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
@@ -238,6 +238,12 @@ const GroupChatPage = () => {
         <NavHeader
           left={
             <Flexbox horizontal align="center" gap={10} style={{ minWidth: 0 }}>
+              <ActionIcon
+                aria-label={t('nav.chat')}
+                icon={ChevronLeft}
+                onClick={() => navigate('/chat/session-inbox')}
+                title={t('nav.chat')}
+              />
               <Avatar avatar="👥" shape="square" size={32} />
               <Flexbox style={{ minWidth: 0 }}>
                 <Flexbox horizontal align="center" gap={8}>

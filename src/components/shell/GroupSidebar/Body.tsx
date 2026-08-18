@@ -1,7 +1,7 @@
 // Adapted from: src/routes/(main)/group/_layout/Sidebar/Body + Topic (LobeHub canary, slim)
 import { Flexbox, SearchBar, Text } from '@lobehub/ui';
 import { createStaticStyles } from 'antd-style';
-import { Users } from 'lucide-react';
+import { MessageSquare, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -44,6 +44,13 @@ const GroupSidebarBody = () => {
 
   return (
     <Flexbox gap={2} paddingBlock={4}>
+      <NavItem
+        active={location.pathname.startsWith('/chat')}
+        icon={MessageSquare}
+        iconSize={15}
+        title={t('nav.chat')}
+        onClick={() => navigate('/chat/session-inbox')}
+      />
       <Flexbox gap={6} paddingBlock={8} paddingInline={10}>
         <SearchBar
           placeholder={t('nav.searchHistory')}

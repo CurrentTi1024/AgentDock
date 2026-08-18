@@ -155,7 +155,7 @@ export default function ChatPage() {
       id: sessionId,
       pinned: false,
       threadId: crypto.randomUUID(),
-      title: 'New session',
+      title: t('nav.newSessionTitle'),
       type: 'agent',
       version: selectedAgent?.version,
     });
@@ -185,7 +185,7 @@ export default function ChatPage() {
       agentId: selectedAgent?.agentId || active.agentId,
       agentName: selectedAgent?.agentFullName || active.agentName,
       fab,
-      title: active.title === 'New session' ? input.slice(0, 32) || active.title : active.title,
+      title: active.title === t('nav.newSessionTitle') ? input.slice(0, 32) || active.title : active.title,
       version: selectedAgent?.version || active.version,
     });
     await send(input);
