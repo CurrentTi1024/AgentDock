@@ -48,10 +48,13 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     grid-template-columns: minmax(0, 1fr) 360px;
     gap: 48px;
     align-items: start;
-    @media (max-width: 960px) {
+    @media (max-width: 1200px) {
       grid-template-columns: minmax(0, 1fr);
       gap: 24px;
     }
+  `,
+  tabsList: css`
+    overflow-x: auto;
   `,
   capabilityGrid: css`
     display: grid;
@@ -95,7 +98,7 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
   sidebar: css`
     position: sticky;
     top: 16px;
-    @media (max-width: 960px) {
+    @media (max-width: 1200px) {
       position: static;
     }
   `,
@@ -361,6 +364,7 @@ function AgentContent({ detail }: { detail: AgentDetail }) {
     <Flexbox gap={24}>
       <Tabs
         activeKey={active}
+        classNames={{ list: styles.tabsList }}
         items={tabs.map((tab) => ({ ...tab, icon: <Icon icon={tab.icon} size={16} /> }))}
         variant="square"
         onChange={(key) => setActive(String(key))}
@@ -607,6 +611,7 @@ function SkillMcpContent({ detail, kind }: { detail: SkillMcpDetail; kind: Marke
     <Flexbox gap={24}>
       <Tabs
         activeKey={active}
+        classNames={{ list: styles.tabsList }}
         items={commonTabs.map((tab) => ({ ...tab, icon: <Icon icon={tab.icon} size={16} /> }))}
         variant="square"
         onChange={(key) => setActive(String(key))}

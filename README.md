@@ -121,10 +121,16 @@ ChatPage / MessageBlocks / Markdown / A2UI renderer（只读投影，纯展示�
 
 | ID | 生成方式 | 管理位置 |
 |---|---|---|
-| `sessionId` | 路由 `/chat/:id`；新会话由 `sessionHistoryService.createSession` 生成 `crypto.randomUUID()`（`session-inbox` 是固定入口示例） | Dexie `sessions.id`；ChatPage `session` state；消息/checkpoint 按 sessionId 查询 |
+| `sessionId` | 路由 `/chat/:id`；会话主键 = 路由 id（默认入口固定 `session-inbox`，真实会话为 `crypto.randomUUID()`），`createSession({ id: sessionId })` 保证会话行与消息/checkpoint 同键 | Dexie `sessions.id`；ChatPage `session` state；消息/checkpoint 按 sessionId 查询 |
 | `threadId` | 创建会话时 `crypto.randomUUID()` 固化进会话记录；hook 仅防御性兜底 `thread-${sessionId}` | Dexie `sessions.threadId`；同一会话所有 run 共用（DeepAgents 上下文线程） |
 | `runId` | 每次发送 `crypto.randomUUID()`（mock 在 `createRunInput`，官方在 `send()`）；HITL 续跑沿用同一 run | Dexie `checkpoints.runId`（主键）+ `snapshot.runId`；后端必须原样回显，禁止二次生成 |
 | `streamId` | 后端 SSE `id:` 或 `rawEvent.streamId`，前端 `parseSseStream` 提取 | 每个 run 的 `RuntimeRunState` 独立维护 `latestStreamId + processedStreamIds[]`（去重上限 5000）；checkpoint 落盘 `latestStreamId` |
+
+**机制完备性说明**：
+
+- `threadId`：✅ 创建会话时 UUID 固化、持久化、同一会话所有 run 复用；切换 agent/fab 是否新建 threadId 待与后端确认。
+- `runId`：✅ 客户端生成、后端必须回显、checkpoint 持久化、HITL 与断线恢复沿用同一 runId；A2UI Action 官方路径暂不携带 `parentRunId`（官方 `runAgent` 参数不支持，mock 路径已带），如后端需要父子关联需在 `a2uiAction.userAction` 里显式传。
+- `streamId`：✅ 每个 run 独立维护 `latestStreamId + processedStreamIds[]`、checkpoint 落盘、mock/direct 与官方路径均按 `lastStreamId` 游标恢复；待后端按游标过滤（方向已冻结）；同页多会话并发时防抖槽需按 sessionId 分槽（当前产品形态不触发）。
 
 **streamId 维护的独立性**：
 

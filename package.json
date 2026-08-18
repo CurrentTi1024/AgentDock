@@ -9,7 +9,7 @@
     "server:dev": "node --experimental-strip-types --watch server/index.ts",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --experimental-strip-types --test src/api/runtime/*.test.ts src/i18n/*.test.ts src/features/chat/*.test.ts",
+    "test": "node --experimental-strip-types --test src/api/runtime/*.test.ts src/api/session/*.test.ts src/i18n/*.test.ts src/features/chat/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -38,6 +38,7 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.0.4",
+    "fake-indexeddb": "^6.2.5",
     "typescript": "^5.9.3",
     "vite": "8.0.16"
   },

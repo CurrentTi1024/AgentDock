@@ -57,7 +57,7 @@ type ConversationContext = {
 
 | ID | 产生方 | 生成方式（当前实现） | 语义 | 管理位置 |
 |---|---|---|---|---|
-| `sessionId` | AgentDock | 路由 `/chat/:id`；新会话 `sessionHistoryService.createSession` 生成 `crypto.randomUUID()`（`session-inbox` 是固定入口示例） | 用户可见的一段本地会话；IndexedDB sessions 主键 | Dexie `sessions.id`；ChatPage `session` state |
+| `sessionId` | AgentDock | 路由 `/chat/:id`；会话主键 = 路由 id（默认入口固定 `session-inbox`，真实会话 `crypto.randomUUID()`），`createSession({ id: sessionId })` 保证会话行、消息、checkpoint 同键 | 用户可见的一段本地会话；IndexedDB sessions 主键 | Dexie `sessions.id`；ChatPage `session` state |
 | `threadId` | AgentDock | 创建会话时 `crypto.randomUUID()` 固化进 `SessionRecord.threadId`；hook 兜底 `thread-${sessionId}` | DeepAgents 上下文线程；同一会话内所有 run 共用 | Dexie `sessions.threadId`；后端保存上下文 |
 | `runId` | AG-UI Client | 每次发送 `crypto.randomUUID()`（mock 在 `createRunInput`，官方在 `send()`） | 一次用户提问/Agent 执行；Orchestration 必须沿用，不得新建 | Dexie `checkpoints.runId`（主键）+ `snapshot.runId`；后端执行记录 |
 | `parentRunId` | AG-UI Client | A2UI Action 新 run 时指向产生 Surface 的 runId（mock 已设；官方 transport 暂不传，见 4.4） | 子执行（A2UI Action 新 run）的父 run | 按需 |

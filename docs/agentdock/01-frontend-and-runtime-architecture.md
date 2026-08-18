@@ -256,8 +256,20 @@ interface ToolRendererRegistration {
 ```text
 sessions
 messages
-sessionUiState
+checkpoints
 ```
+
+### 落库时机（单 Agent 与 Agent Group 一致）
+
+- 流式事件期间不逐条写库：`reduceRunEvent` 先把事件投影到内存 `RuntimeRunState`，每次事件后调用 `scheduleRunCheckpoint`（350ms 防抖，只保留最新快照，避免高频事件打满 IndexedDB）。
+- 运行终态（`success` / `error` / `cancelled`）显式 `flushRunCheckpoint` 落盘；异常路径直接 `saveRunCheckpoint`。
+- 一次落盘写入三处：
+  - `checkpoints`：`runId` + 完整快照 + `latestStreamId`（断线恢复游标）；
+  - `messages`：`persistRunSnapshot` 把快照中全部可见消息（text / reasoning / tool / activity / surface / step）`bulkPut`；
+  - `sessions.updatedAt` 刷新（驱动会话列表排序）。
+- 页面刷新恢复：会话列表与当前会话消息从 `getMessages` 读取；mock/direct 从 `getLatestRun` 恢复快照（`runStore.restoreSession`），http+proxy 走 `connectAgent(action=resume, resume.lastStreamId)`。
+- 失败策略：写入在后台 fire-and-forget，失败仅 `console.warn` 不阻断对话；`createSession` 超过 3s 未完成输出阻塞诊断；监听 Dexie `blocked`/`versionchange`，被旧标签页阻塞时提示关闭旧页。
+- 测试：`src/api/session/sessionHistoryService.test.ts` 用 `fake-indexeddb` 覆盖“创建会话 / 终态 flush 落库 / 防抖自动落盘 / 刷新后恢复一致”；浏览器验收按 `docs/agentdock/03` 刷新后回看。
 
 ### sessions
 

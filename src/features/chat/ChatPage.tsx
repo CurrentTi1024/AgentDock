@@ -144,6 +144,9 @@ export default function ChatPage() {
       agentId: selectedAgent?.agentId || 'flight-analysis',
       agentName: selectedAgent?.agentFullName,
       fab,
+      // 以路由 id 作为会话主键：默认入口固定为 session-inbox，真实会话为 UUID，
+      // 保证会话行、消息、checkpoint 使用同一个 sessionId。
+      id: sessionId,
       pinned: false,
       threadId: crypto.randomUUID(),
       title: 'New session',
