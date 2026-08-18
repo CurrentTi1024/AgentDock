@@ -168,7 +168,8 @@ const GroupChatPage = () => {
     const result: StoredTextMessage[] = [];
     for (let index = 0; index < history.length; index += 1) {
       const record = history[index];
-      if (record.kind !== 'text' || liveTextIds.has(record.id)) continue;
+      const rawTextId = record.id.replace(/^text:/, '');
+      if (record.kind !== 'text' || liveTextIds.has(rawTextId)) continue;
       const blocks: SessionMessageRecord[] = [];
       for (let next = index + 1; next < history.length; next += 1) {
         const candidate = history[next];

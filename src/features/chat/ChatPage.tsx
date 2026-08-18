@@ -136,7 +136,9 @@ export default function ChatPage() {
   }, [mentions, searchParams]);
 
   const ensureSession = useCallback(async (): Promise<SessionRecord> => {
-    const existing = session ?? (await sessionHistoryService.getSession(sessionId));
+    // 路由切换会复用同一组件实例，不能信任内存里旧会话的 session state。
+    if (session?.id === sessionId) return session;
+    const existing = await sessionHistoryService.getSession(sessionId);
     if (existing) {
       setSession(existing);
       return existing;
@@ -163,9 +165,10 @@ export default function ChatPage() {
   }, [fab, pendingSession, selectedAgent?.agentFullName, selectedAgent?.agentId, selectedAgent?.version, session, sessionId]);
 
   useEffect(() => {
-    void ensureSession().then((value) =>
-      setAgent(`${value.agentName || value.title}-${value.fab}`.replace(/\s+/g, '')),
-    );
+    void ensureSession().then((value) => {
+      // agentName 通常是 agentFullName（已含 FAB），不要再拼一次 -fab，避免双后缀。
+      setAgent(value.agentName || `${value.title}-${value.fab}`.replace(/\s+/g, ''));
+    });
     void sessionHistoryService.getMessages(sessionId).then(setHistory);
     void restore();
   }, [ensureSession, restore, sessionId]);
@@ -203,7 +206,9 @@ export default function ChatPage() {
     const result: StoredTextMessage[] = [];
     for (let index = 0; index < history.length; index += 1) {
       const record = history[index];
-      if (record.kind !== 'text' || liveTextIds.has(record.id)) continue;
+      // 落库 id 带 kind 前缀（text:xxx），run.messages 使用原始 id。
+      const rawTextId = record.id.replace(/^text:/, '');
+      if (record.kind !== 'text' || liveTextIds.has(rawTextId)) continue;
       const blocks: SessionMessageRecord[] = [];
       for (let next = index + 1; next < history.length; next += 1) {
         const candidate = history[next];
