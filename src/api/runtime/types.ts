@@ -1,5 +1,5 @@
 export type RunAction = 'a2uiAction' | 'hitlResponse' | 'resume' | 'run' | 'stop';
-export interface RuntimeMessage { content: string; id: string; role: 'assistant' | 'system' | 'tool' | 'user' }
+export interface RuntimeMessage { content: string; id: string; role: 'assistant' | 'system' | 'tool' | 'user'; streamId?: string }
 export interface AgentGroupInput { config?: Record<string, unknown>; members: Array<{ agentId: string; fab: string; version?: string }>; orchestrationMode: string }
 export interface RunAgentInput {
   context: unknown[]; messages: RuntimeMessage[]; parentRunId?: string; runId: string; state: unknown; threadId: string; tools: unknown[];

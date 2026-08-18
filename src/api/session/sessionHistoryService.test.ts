@@ -155,3 +155,81 @@ test('刷新后恢复：getMessages / getLatestRun 返回与落库时一致的�
   assert.equal(checkpoint?.snapshot.status, 'success');
   assert.equal(checkpoint?.snapshot.latestStreamId, snapshot.latestStreamId);
 });
+
+test('会话/线程/run/流游标一致性：checkpoint、消息与 sessions 同键同值', async () => {
+  const sessionId = 'session-invariants';
+  const runId = 'run-invariants';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: '一致性测试',
+    type: 'agent',
+    version: '2.1.0',
+  });
+  const { input, snapshot } = buildSingleAgentRun(sessionId, runId);
+  scheduleRunCheckpoint(sessionId, input, snapshot);
+  await flushRunCheckpoint();
+
+  const checkpoint = await sessionHistoryService.getLatestRun(sessionId);
+  assert.equal(checkpoint?.runId, runId);
+  assert.equal(checkpoint?.sessionId, sessionId);
+  assert.equal(checkpoint?.threadId, `thread-${sessionId}`);
+  assert.equal(checkpoint?.latestStreamId, snapshot.latestStreamId);
+  assert.equal(checkpoint?.snapshot.runId, runId);
+  assert.equal(checkpoint?.snapshot.threadId, `thread-${sessionId}`);
+  assert.ok(snapshot.processedStreamIds.includes(snapshot.latestStreamId!), 'latestStreamId 应已去重集合收录');
+
+  const messages = await sessionHistoryService.getMessages(sessionId);
+  assert.ok(messages.length > 0);
+  for (const record of messages) {
+    assert.equal(record.sessionId, sessionId);
+    assert.equal(record.runId, runId);
+    if (record.streamId) {
+      assert.ok(Number(record.streamId) <= Number(snapshot.latestStreamId), '消息游标不得晚于 run 终态游标');
+    }
+  }
+  const assistant = messages.find((record) => record.kind === 'text' && record.role === 'assistant');
+  assert.equal(assistant?.streamId, '12', '助手文本应记录其最后一次更新的 streamId（TEXT_MESSAGE_END）');
+
+  // 同一会话第二次 run：threadId 复用、runId 更新
+  const runId2 = 'run-invariants-2';
+  const second = buildSingleAgentRun(sessionId, runId2);
+  scheduleRunCheckpoint(sessionId, second.input, second.snapshot);
+  await flushRunCheckpoint();
+  const checkpoint2 = await sessionHistoryService.getLatestRun(sessionId);
+  assert.equal(checkpoint2?.runId, runId2);
+  assert.equal(checkpoint2?.threadId, `thread-${sessionId}`, '同一会话所有 run 共用 threadId');
+});
+
+test('多会话隔离：消息与 checkpoint 不串库', async () => {
+  const cases = [
+    ['session-iso-a', 'run-iso-a'],
+    ['session-iso-b', 'run-iso-b'],
+  ] as const;
+  for (const [sessionId, runId] of cases) {
+    await sessionHistoryService.createSession({
+      agentId: 'flight-analysis',
+      agentName: 'FlightAnalysis_Agent',
+      fab: 'F15B',
+      id: sessionId,
+      pinned: false,
+      threadId: `thread-${sessionId}`,
+      title: sessionId,
+      type: 'agent',
+      version: '2.1.0',
+    });
+    const { input, snapshot } = buildSingleAgentRun(sessionId, runId);
+    scheduleRunCheckpoint(sessionId, input, snapshot);
+    await flushRunCheckpoint();
+  }
+  for (const [sessionId, runId] of cases) {
+    const messages = await sessionHistoryService.getMessages(sessionId);
+    assert.ok(messages.length > 0);
+    assert.ok(messages.every((record) => record.sessionId === sessionId && record.runId === runId), `${sessionId} 不应混入其他会话数据`);
+    assert.equal((await sessionHistoryService.getLatestRun(sessionId))?.runId, runId);
+  }
+});

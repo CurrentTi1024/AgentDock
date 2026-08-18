@@ -29,3 +29,15 @@ test('tracks workflow step lifecycle from STEP events', () => {
   assert.equal(state.steps['plan'].status, 'completed');
   assert.ok(state.steps['plan'].finishedAt);
 });
+
+test('records per-message streamId and dedupes replay', () => {
+  let state = createRunState('run-4', 'thread-4');
+  state = reduceRunEvent(state, { streamId: '1', event: { type: 'TEXT_MESSAGE_START', messageId: 'assistant-4', role: 'assistant' } });
+  state = reduceRunEvent(state, { streamId: '2', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'assistant-4', delta: 'A' } });
+  assert.equal(state.messages['assistant-4'].streamId, '2');
+  // 重放同一 streamId 应被去重，不重复拼接
+  state = reduceRunEvent(state, { streamId: '2', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'assistant-4', delta: 'A' } });
+  assert.equal(state.messages['assistant-4'].content, 'A');
+  assert.equal(state.latestStreamId, '2');
+  assert.deepEqual(state.processedStreamIds, ['1', '2']);
+});

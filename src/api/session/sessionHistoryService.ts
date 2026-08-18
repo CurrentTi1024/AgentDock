@@ -66,7 +66,8 @@ export const sessionHistoryService = {
     const push = (kind: SessionMessageKind, id: string, value: Omit<SessionMessageRecord, 'createdAt' | 'id' | 'kind' | 'sequence' | 'sessionId'>) => records.push({ ...value, createdAt: new Date().toISOString(), id: `${kind}:${id}`, kind, sequence: nextSequence(), sessionId });
     for (const message of Object.values(snapshot.messages)) {
       if (!message || !message.id) continue;
-      push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, streamId: snapshot.latestStreamId });
+      // 文本消息记录自己最后一次更新时的 streamId；其余类型记录 run 当前游标。
+      push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, streamId: message.streamId ?? snapshot.latestStreamId });
     }
     for (const [id, content] of Object.entries(snapshot.reasoning || {})) push('reasoning', id, { content, runId: snapshot.runId, streamId: snapshot.latestStreamId });
     for (const [id, call] of Object.entries(snapshot.toolCalls || {})) push('tool', id, { content: call.args, payload: { args: call.args, name: call.name, result: call.result, status: call.status }, runId: snapshot.runId, streamId: snapshot.latestStreamId });

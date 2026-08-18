@@ -25,9 +25,10 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
     case 'RUN_STARTED': next.status = 'running'; break;
     case 'RUN_FINISHED': next.status = 'success'; break;
     case 'RUN_ERROR': next.status = event.code === 'CANCELLED' ? 'cancelled' : 'error'; next.error = { code: String(event.code || ''), message: String(event.message || 'Run failed') }; break;
-    case 'TEXT_MESSAGE_START': next.messages[id] = { id, role: String(event.role || 'assistant') as RuntimeMessage['role'], content: '' }; break;
-    case 'TEXT_MESSAGE_CONTENT': next.messages[id] ||= { id, role: 'assistant', content: '' }; next.messages[id].content += String(event.delta || ''); break;
-    case 'TEXT_MESSAGE_CHUNK': next.messages[id] ||= { id, role: 'assistant', content: '' }; next.messages[id].content += String(event.delta || event.content || ''); break;
+    case 'TEXT_MESSAGE_START': next.messages[id] = { id, role: String(event.role || 'assistant') as RuntimeMessage['role'], content: '', streamId: input.streamId }; break;
+    case 'TEXT_MESSAGE_CONTENT': next.messages[id] ||= { id, role: 'assistant', content: '' }; next.messages[id].content += String(event.delta || ''); if (input.streamId) next.messages[id].streamId = input.streamId; break;
+    case 'TEXT_MESSAGE_CHUNK': next.messages[id] ||= { id, role: 'assistant', content: '' }; next.messages[id].content += String(event.delta || event.content || ''); if (input.streamId) next.messages[id].streamId = input.streamId; break;
+    case 'TEXT_MESSAGE_END': if (input.streamId && next.messages[id]) next.messages[id].streamId = input.streamId; break;
     case 'REASONING_MESSAGE_START': next.reasoning[id] = ''; pushOrderedBlock(next, 'reasoning', id); break;
     case 'REASONING_MESSAGE_CONTENT': next.reasoning[id] = (next.reasoning[id] || '') + String(event.delta || ''); break;
     case 'REASONING_MESSAGE_CHUNK': next.reasoning[id] = (next.reasoning[id] || '') + String(event.delta || ''); break;

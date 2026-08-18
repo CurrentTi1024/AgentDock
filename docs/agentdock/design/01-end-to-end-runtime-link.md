@@ -100,6 +100,7 @@ AG-UI 规范中 `RunAgentInput.runId` 由 **调用方（Client/Application）提
 
 - `createSession({ id: sessionId })`：会话行主键与路由一致；默认入口固定 `session-inbox`，真实会话为 UUID。`ensureSession` 只在内存 `session.id === sessionId` 时复用，路由切换必须按新 id 重新加载。
 - 消息落库 id 带 kind 前缀（`text:` / `reasoning:` / `tool:` / `step:` / `activity:` / `surface:`）；渲染过滤时先去掉前缀再与 `run.messages`（原始 id）比对，避免刷新后历史与实时 run 重复渲染。
+- 文本消息记录自己的 `streamId`（该消息最后一次更新的游标，`TEXT_MESSAGE_*` 事件逐条更新，含 END）；其余消息类型记录 run 当前 `latestStreamId`。
 - 列表刷新：`createSession / updateSession / saveRunCheckpoint` 后派发 `agentdock:sessions-changed`；侧边栏对路由 `pendingSession` 乐观插入，并监听 focus / visibilitychange 兜底刷新。
 - 标题更新：发送首条消息后用消息前 32 字符更新会话标题（默认文案“新对话 / New chat”）。
 
