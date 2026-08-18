@@ -13,19 +13,15 @@ import {
   Plus,
   Settings,
   Sparkles,
-  Users,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { agentGroupService } from '@/api/agent-group/agentGroupService';
 import { documentService } from '@/api/document/documentService';
 import { getServiceMode, setServiceMode } from '@/api/core/serviceMode';
 import { memoryService } from '@/api/memory/memoryService';
-import { createRunInput } from '@/api/runtime/agentRuntimeService';
 import { scheduledTaskService } from '@/api/task/scheduledTaskService';
 import { useI18n } from '@/i18n';
 import { LOCALE_NAMES, SUPPORTED_LOCALES } from '@/i18n/locales';
-import { useRunStore } from '@/stores/runStore';
 import { useUiStore, type ThemeMode } from '@/stores/uiStore';
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
@@ -73,20 +69,19 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
   `,
 }));
 
-type WorkspaceType = 'artifact' | 'channel' | 'documents' | 'group' | 'memory' | 'page' | 'settings' | 'tasks';
+type WorkspaceType = 'artifact' | 'channel' | 'documents' | 'memory' | 'page' | 'settings' | 'tasks';
 
 const meta: Record<WorkspaceType, [string, string]> = {
   artifact: ['workspace.artifact.title', 'workspace.artifact.desc'],
   channel: ['workspace.channel.title', 'workspace.channel.desc'],
   documents: ['workspace.documents.title', 'workspace.documents.desc'],
-  group: ['workspace.group.title', 'workspace.group.desc'],
   memory: ['workspace.memory.title', 'workspace.memory.desc'],
   page: ['workspace.page.title', 'workspace.page.desc'],
   settings: ['workspace.settings.title', 'workspace.settings.desc'],
   tasks: ['workspace.tasks.title', 'workspace.tasks.desc'],
 };
 
-const monthHidden: WorkspaceType[] = ['artifact', 'channel', 'documents', 'group', 'memory', 'page', 'tasks'];
+const monthHidden: WorkspaceType[] = ['artifact', 'channel', 'documents', 'memory', 'page', 'tasks'];
 
 function PageTitle({ type }: { type: WorkspaceType }) {
   const { t } = useI18n();
@@ -98,147 +93,6 @@ function PageTitle({ type }: { type: WorkspaceType }) {
       </Text>
       <Text type="secondary">{t(descriptionKey)}</Text>
     </Flexbox>
-  );
-}
-
-function GroupPage() {
-  const { t } = useI18n();
-  const agents = [
-    ['🛩️', 'FlightAnalysis_Agent-F15B', 'workspace.group.role.supervisor'],
-    ['📊', 'DataCheck_Agent-F15B', 'workspace.group.role.dataCheck'],
-    ['📝', 'ReportWriter_Agent-F15B', 'workspace.group.role.report'],
-  ];
-  const [modes, setModes] = useState<Array<{ modeId: string; name: string }>>([]);
-  const [mode, setMode] = useState('supervisor');
-  const { execute, respondToHitl, run, stop } = useRunStore();
-  useEffect(() => {
-    void agentGroupService
-      .getSupportedAgentGroupOrchestrationModes({ locale: 'zh-CN' })
-      .then((data) => {
-        setModes(data.modes);
-        setMode(data.defaultModeId);
-      });
-  }, []);
-  const hitl = Object.values(run?.activities || {}).find(
-    (activity): activity is { requestId: string } =>
-      typeof activity === 'object' && activity !== null && 'requestId' in activity,
-  );
-  const startGroup = () =>
-    void execute(
-      createRunInput({
-        fab: 'F15B',
-        message: t('workspace.group.sampleMessage'),
-        sessionId: 'session-group-flight',
-        threadId: 'thread-group-flight',
-        group: {
-          members: [
-            { agentId: 'flight-analysis', fab: 'F15B', version: '2.1.0' },
-            { agentId: 'data-check', fab: 'F15B' },
-            { agentId: 'report-writer', fab: 'F15B' },
-          ],
-          orchestrationMode: mode,
-          config: { maxIterations: 6 },
-        },
-      }),
-    );
-  return (
-    <>
-      <PageTitle type="group" />
-      <div className={styles.split}>
-        <Flexbox gap={16}>
-          <Block gap={16} padding={18} variant="outlined">
-            <Flexbox horizontal align="center" justify="space-between">
-              <Flexbox>
-                <Text weight={500}>{t('workspace.group.name')}</Text>
-                <Text type="secondary">{t('workspace.group.temp')}</Text>
-              </Flexbox>
-              <Tag color="success">{t('workspace.group.members')}</Tag>
-            </Flexbox>
-          </Block>
-          {agents.map(([icon, name, role], index) => (
-            <Flexbox horizontal align="center" gap={12} key={name}>
-              <Avatar avatar={icon} shape="square" size={40} />
-              <Flexbox flex={1}>
-                <Text weight={500}>{name}</Text>
-                <Text fontSize={12} type="secondary">
-                  {t(role)}
-                </Text>
-              </Flexbox>
-              {index === 0 && <Tag color="info">Supervisor</Tag>}
-              <Button icon={MoreHorizontal} type="text" />
-            </Flexbox>
-          ))}
-          <Button icon={Plus}>{t('workspace.group.addMember')}</Button>
-          <Block gap={14} padding={18} variant="outlined">
-            <Text weight={500}>{t('workspace.group.task')}</Text>
-            <Text style={{ lineHeight: 1.7 }}>{t('workspace.group.taskDesc')}</Text>
-            <Flexbox horizontal gap={8}>
-              <Tag>maxIterations: 6</Tag>
-              <Tag>{t('workspace.group.timeout')}</Tag>
-              {run && <Tag color="info">{run.status}</Tag>}
-            </Flexbox>
-            {run?.status === 'paused' && hitl?.requestId && (
-              <Block gap={10} padding={12} variant="filled">
-                <Text weight={500}>{t('workspace.group.hitlTitle')}</Text>
-                <Text fontSize={12} type="secondary">
-                  {t('workspace.group.hitlDesc')}
-                </Text>
-                <Flexbox horizontal gap={8}>
-                  <Button
-                    size="small"
-                    type="primary"
-                    onClick={() =>
-                      void respondToHitl({
-                        requestId: hitl.requestId,
-                        mode: 'toolAuthorization',
-                        decision: 'approve',
-                      })
-                    }
-                  >
-                    {t('chat.hitl.approve')}
-                  </Button>
-                  <Button
-                    size="small"
-                    onClick={() =>
-                      void respondToHitl({
-                        requestId: hitl.requestId,
-                        mode: 'toolAuthorization',
-                        decision: 'reject',
-                      })
-                    }
-                  >
-                    {t('chat.hitl.reject')}
-                  </Button>
-                </Flexbox>
-              </Block>
-            )}
-          </Block>
-        </Flexbox>
-        <Flexbox gap={16}>
-          <Block gap={14} padding={18} variant="outlined">
-            <Text weight={500}>{t('workspace.group.mode')}</Text>
-            <Segmented
-              block
-              options={modes.map((item) => ({ label: item.name, value: item.modeId }))}
-              value={mode}
-              onChange={(value) => setMode(String(value))}
-            />
-            <Text fontSize={12} type="secondary">
-              {t('workspace.group.modeHint')}
-            </Text>
-          </Block>
-          {run?.status === 'running' ? (
-            <Button block icon={Clock3} size="large" onClick={() => void stop()}>
-              {t('workspace.group.stop')}
-            </Button>
-          ) : (
-            <Button block icon={Play} size="large" type="primary" onClick={startGroup}>
-              {t('workspace.group.start')}
-            </Button>
-          )}
-        </Flexbox>
-      </div>
-    </>
   );
 }
 
@@ -501,7 +355,6 @@ export default function WorkspacePage({ type }: { type: WorkspaceType }) {
           <MonthHiddenPlaceholder type={type} />
         ) : (
           <>
-            {type === 'group' && <GroupPage />}
             {type === 'tasks' && <TasksPage />}
             {type === 'documents' && <DocumentsPage />}
             {type === 'memory' && <MemoryPage />}

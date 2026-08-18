@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 const ChatPage = lazy(() => import('@/features/chat/ChatPage'));
 const DetailPage = lazy(() => import('@/features/market/DetailPage'));
+const GroupChatPage = lazy(() => import('@/features/group/GroupChatPage'));
+const GroupHomePage = lazy(() => import('@/features/group/GroupHomePage'));
 const MarketPage = lazy(() => import('@/features/market/MarketPage'));
 const SkillCreatePage = lazy(() => import('@/features/skill/CreateSkillPage'));
 const WorkspacePage = lazy(() => import('@/features/workspace/WorkspacePage'));
@@ -14,7 +16,8 @@ export default function AppRoutes() {
         <Route path="/" element={<Navigate replace to="/chat/session-inbox" />} />
         <Route path="/chat" element={<Navigate replace to="/chat/session-inbox" />} />
         <Route path="/chat/:id" element={<ChatPage />} />
-        <Route path="/group/*" element={<WorkspacePage type="group" />} />
+        <Route path="/group" element={<GroupHomePage />} />
+        <Route path="/group/:id" element={<GroupChatPage />} />
         <Route path="/tasks/*" element={<WorkspacePage type="tasks" />} />
         <Route path="/documents/*" element={<WorkspacePage type="documents" />} />
         <Route path="/memory/*" element={<WorkspacePage type="memory" />} />

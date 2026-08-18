@@ -24,6 +24,7 @@ test('tracks workflow step lifecycle from STEP events', () => {
   state = reduceRunEvent(state, { streamId: '1', event: { type: 'STEP_STARTED', stepId: 'plan', stepName: '规划' } });
   assert.equal(state.steps['plan'].status, 'running');
   assert.equal(state.steps['plan'].name, '规划');
+  assert.deepEqual(state.orderedBlocks, [{ id: 'plan', kind: 'step' }]);
   state = reduceRunEvent(state, { streamId: '2', event: { type: 'STEP_FINISHED', stepId: 'plan' } });
   assert.equal(state.steps['plan'].status, 'completed');
   assert.ok(state.steps['plan'].finishedAt);

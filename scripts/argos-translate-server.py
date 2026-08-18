@@ -17,11 +17,60 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
+import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from argostranslate import translate
+import requests
+
+
+DEEPL_FREE_ENDPOINT = "https://oneshot-free.www.deepl.com/v1/translate"
+DEEPL_UA = "DeepL/26.42 CFNetwork/3826.600.41 Darwin/25.0.0"
+
+
+def translate_with_deepl(lines, target):
+    """Translate a list of lines through the DeepL iOS oneshot endpoint."""
+    instance_id = str(uuid.uuid4())
+    session_id = str(uuid.uuid4())
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "None",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "x-app-os-version": "26.0",
+        "x-app-instance-id": instance_id,
+        "x-app-session-id": session_id,
+        "User-Agent": DEEPL_UA,
+    }
+    payload = {
+        "text": lines,
+        "target_lang": target,
+        "source_lang": "en",
+        "usage_type": "translate",
+        "app_information": {
+            "os": "iOS",
+            "os_version": "26.0",
+            "app_version": "26.42",
+            "app_build": "5443737",
+            "instance_id": instance_id,
+        },
+    }
+    response = requests.post(
+        DEEPL_FREE_ENDPOINT, headers=headers, json=payload, timeout=30
+    )
+    response.raise_for_status()
+    data = response.json()
+    translations = data.get("translations") or []
+    if len(translations) != len(lines):
+        raise RuntimeError(
+            f"DeepL returned {len(translations)} results for {len(lines)} lines"
+        )
+    return [item["text"] for item in translations]
 
 
 class TranslateServer(BaseHTTPRequestHandler):
@@ -41,22 +90,30 @@ class TranslateServer(BaseHTTPRequestHandler):
         source = source.strip().lower()
         target = target.strip().lower()
 
-        try:
-            from_lang = next(
-                lang for lang in translate.get_installed_languages() if lang.code == source
-            )
-            translation = next(
-                t for t in from_lang.translations_from if t.to_lang.code == target
-            )
-        except StopIteration:
-            self.send_error(400, f"language pair not installed: {source}->{target}")
-            return
+        # Arabic's official Argos package is a legacy v1 model that returns
+        # English for many inputs; always route it through the DeepL oneshot
+        # pool for reliable reference translations.
+        translation = None
+        if target != "ar":
+            try:
+                from_lang = next(
+                    lang for lang in translate.get_installed_languages() if lang.code == source
+                )
+                translation = next(
+                    t for t in from_lang.translations_from if t.to_lang.code == target
+                )
+            except StopIteration:
+                self.send_error(400, f"language pair not installed: {source}->{target}")
+                return
 
         lines = q.split("\n")
-        try:
-            translated = translation.translate_batch(lines)
-        except (AttributeError, TypeError):
-            translated = [translation.translate(line) for line in lines]
+        if translation is None:
+            translated = translate_with_deepl(lines, target)
+        else:
+            try:
+                translated = translation.translate_batch(lines)
+            except (AttributeError, TypeError):
+                translated = [translation.translate(line) for line in lines]
         body = json.dumps(
             {
                 "responseData": {"translatedText": "\n".join(translated)},

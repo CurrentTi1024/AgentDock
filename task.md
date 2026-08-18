@@ -169,3 +169,19 @@
 5. ⏳ 联调项（需后端配合）：HITL wire 冻结（标准 resume[] vs legacy on_interrupt）、A2UI fixture 验证、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证。
 6. P1：市场/详情请求竞态与 locale、Skill 跳转、SSE 边界健壮性、构建产物体积优化（CopilotKit 依赖导致 bundle 增大）。
 7. P2：mention 空态、静态样例数据、Settings 开关。
+
+## 7. 深度 Code Review（2026-08-19，详见 `design/10-end-to-end-code-review.md`）
+
+Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 headless、R5 页面装配、R6 信息粒度渲染、R7 持久化、R8 A2UI Pipeline、R9 HITL wire。
+
+本轮已修复：
+
+- 事件顺序渲染：`RuntimeRunState.orderedBlocks` + `renderRunBlocks` 按事件到达顺序渲染（reasoning/tool/step/activity 交错时不再按 map 分组错序）。
+- 官方 HITL：标准 `RUN_FINISHED(outcome=interrupt)` 与 legacy `on_interrupt` 均投影为 `agentDock.hitl` 暂停块，requestId 正确回传。
+- 刷新恢复：http 路径用 checkpoint 回填 `agent.setMessages`，下一轮 run 携带完整上下文。
+- 模式边界：`useOfficial` 仅 proxy 生效；http+direct 回退自研 SSE（官方直连需 Enterprise）。
+- A2UI action 按官方 `forwardedProps.a2uiAction.userAction` 嵌套；http 下关闭 raw JSON surface 双渲染。
+- `chat.steps` 改为 `{completed}/{total}` 占位符并同步 18 语言。
+- 服务端：静态目录穿越边界修复、`/api/copilotkit` 精确匹配。
+
+待联调项：HITL wire 冻结、A2UI fixture、FAB HTTPS 校验、历史 surface 用 catalog 重建、构建体积优化。

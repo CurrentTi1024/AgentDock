@@ -28,6 +28,7 @@
 | [07-end-to-end-debugging-guide.md](07-end-to-end-debugging-guide.md) | 公司内无缝调试 Agent Registry + Orchestration、AG-UI/A2UI 对话与事件消费回显 | 前后端联调工程师 |
 | [08-final-architecture-decision.md](08-final-architecture-decision.md) | 最终架构决策：官方 CopilotKit + Copilot Runtime、状态冲突解法、A2UI 渲染、FAB/SSO 分工 | 前端架构 + 联调 |
 | [09-agui-lobehub-rendering-adapter.md](09-agui-lobehub-rendering-adapter.md) | AG-UI/A2UI → LobeHub 渲染适配层：投影层方案、ViewModel 定义、组件 props 化迁移 | 前端 |
+| [10-end-to-end-code-review.md](10-end-to-end-code-review.md) | 端到端逐行 Code Review：AG-UI/A2UI/流式回显/信息粒度渲染，review 模块、发现与修复、待办清单 | 前端 + 联调 |
 
 ## 3. 与权威文档的关系
 

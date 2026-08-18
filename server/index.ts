@@ -3,7 +3,7 @@
 // 职责：single-route 官方 Runtime handler + FabRoutingAgent（按 fab 选上游）+ 可选静态资源托管。
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, normalize, sep } from 'node:path';
 
 import { CopilotRuntime, createCopilotRuntimeHandler } from '@copilotkit/runtime/v2';
 import { createCopilotNodeHandler } from '@copilotkit/runtime/v2/node';
@@ -44,7 +44,8 @@ const serveStatic = (req: IncomingMessage, res: ServerResponse, distDir: string)
   const urlPath = decodeURIComponent((req.url || '/').split('?')[0] || '/');
   let filePath = normalize(join(distDir, urlPath === '/' ? 'index.html' : urlPath));
   // 防目录穿越：必须仍位于 distDir 内
-  if (!filePath.startsWith(normalize(distDir))) {
+  const normalizedDist = normalize(distDir);
+  if (filePath !== normalizedDist && !filePath.startsWith(`${normalizedDist}${sep}`)) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('Forbidden');
     return;
@@ -86,7 +87,7 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ status: 'ok' }));
       return;
     }
-    if (req.url?.startsWith('/api/copilotkit')) {
+    if (req.url === '/api/copilotkit' || req.url?.startsWith('/api/copilotkit/')) {
       await nodeHandler(req, res);
       return;
     }

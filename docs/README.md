@@ -35,6 +35,7 @@
 | [design/07-end-to-end-debugging-guide.md](agentdock/design/07-end-to-end-debugging-guide.md) | 公司内联调指南：Registry + Orchestration + AG-UI/A2UI 事件消费回显 |
 | [design/08-final-architecture-decision.md](agentdock/design/08-final-architecture-decision.md) | 最终架构决策：官方 CopilotKit + Copilot Runtime、OAuth2 Proxy 分工、状态冲突解法 |
 | [design/09-agui-lobehub-rendering-adapter.md](agentdock/design/09-agui-lobehub-rendering-adapter.md) | AG-UI/A2UI → LobeHub 渲染适配层：投影层方案（不做事件 Adapter） |
+| [design/10-end-to-end-code-review.md](agentdock/design/10-end-to-end-code-review.md) | 端到端逐行 Code Review：AG-UI/A2UI/流式回显/信息粒度渲染与待办清单 |
 
 ## 阅读顺序
 
@@ -44,7 +45,7 @@
 4. `02-agui-a2ui-runtime-contract.md` + `04-frontend-backend-api.md`（两端契约）
 5. `05-lobehub-source-migration.md` + `06-frontend-migration-todo.md`（迁移现状）
 6. `03-integration-and-acceptance.md`（联调前对照）
-7. `agentdock/design/*`（实现细节、Review 结论与调试指南；联调前必读 01/02/03/07/08/09）
+7. `agentdock/design/*`（实现细节、Review 结论与调试指南；联调前必读 01/02/03/07/08/09/10）
 
 ## 文档变更规则
 

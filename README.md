@@ -105,6 +105,7 @@ src/
 - [docs/agentdock/design/07-end-to-end-debugging-guide.md](docs/agentdock/design/07-end-to-end-debugging-guide.md)：公司内联调与事件消费回显调试指南
 - [docs/agentdock/design/08-final-architecture-decision.md](docs/agentdock/design/08-final-architecture-decision.md)：最终架构决策（CopilotKit × LobeHub × OAuth2 Proxy）
 - [docs/agentdock/design/09-agui-lobehub-rendering-adapter.md](docs/agentdock/design/09-agui-lobehub-rendering-adapter.md)：AG-UI/A2UI → LobeHub 渲染投影层方案
+- [docs/agentdock/design/10-end-to-end-code-review.md](docs/agentdock/design/10-end-to-end-code-review.md)：端到端逐行 Code Review（AG-UI/A2UI/流式回显/信息粒度渲染）
 - [AGENTS.md](AGENTS.md)：AI Coding Agent 开发规范
 - [DESIGN.md](DESIGN.md) / [DESIGN.dark.md](DESIGN.dark.md)：LobeHub 设计价值参考
 - [task.md](task.md)：当前进度与验证记录

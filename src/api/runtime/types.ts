@@ -8,5 +8,7 @@ export interface RunAgentInput {
 export interface AgUiEvent { type: string; rawEvent?: { runId?: string; streamId?: string }; [key: string]: unknown }
 export interface StreamedEvent { event: AgUiEvent; streamId?: string }
 export type RunStatus = 'cancelled' | 'error' | 'idle' | 'paused' | 'running' | 'success';
+export type RuntimeBlockKind = 'activity' | 'error' | 'reasoning' | 'step' | 'surface' | 'tool';
+export interface RuntimeBlockRef { id: string; kind: RuntimeBlockKind }
 export interface RuntimeStep { finishedAt?: number; id: string; name?: string; startedAt?: number; status: 'completed' | 'error' | 'running' }
-export interface RuntimeRunState { activities: Record<string, unknown>; error?: { code?: string; message: string }; latestStreamId?: string; messages: Record<string, RuntimeMessage>; processedStreamIds: string[]; rawEvents: AgUiEvent[]; reasoning: Record<string, string>; runId: string; state: unknown; status: RunStatus; steps: Record<string, RuntimeStep>; surfaces: Record<string, unknown>; threadId: string; toolCalls: Record<string, { args: string; name?: string; result?: unknown; status: string }> }
+export interface RuntimeRunState { activities: Record<string, unknown>; error?: { code?: string; message: string }; latestStreamId?: string; messages: Record<string, RuntimeMessage>; orderedBlocks: RuntimeBlockRef[]; processedStreamIds: string[]; rawEvents: AgUiEvent[]; reasoning: Record<string, string>; runId: string; state: unknown; status: RunStatus; steps: Record<string, RuntimeStep>; surfaces: Record<string, unknown>; threadId: string; toolCalls: Record<string, { args: string; name?: string; result?: unknown; status: string }> }

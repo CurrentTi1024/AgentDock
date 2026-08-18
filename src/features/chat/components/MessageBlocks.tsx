@@ -6,6 +6,7 @@ import { useState } from 'react';
 
 import { useI18n } from '@/i18n';
 import type { RuntimeRunState, RuntimeStep } from '@/api/runtime/types';
+import type { SessionMessageRecord } from '@/api/session/sessionHistoryService';
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
   block: css`
@@ -102,7 +103,7 @@ export const WorkflowStepsBlock = ({ steps }: { steps: RuntimeStep[] }) => {
       <div className={styles.header} onClick={() => setOpen((value) => !value)}>
         <Icon color={cssVar.colorTextDescription} icon={ListTodo} size={15} />
         <Text fontSize={12} weight={500} style={{ flex: 1 }}>
-          {t('chat.steps')}（{completed}/{steps.length}）
+          {t('chat.steps', { completed, total: steps.length })}
         </Text>
         <Icon icon={ChevronDown} size={14} />
       </div>
@@ -235,6 +236,93 @@ const ErrorBlockInner = ({ message }: { message: string }) => {
   );
 };
 
+export interface StoredTextMessage {
+  blocks: SessionMessageRecord[];
+  record: SessionMessageRecord;
+}
+
+export const renderStoredBlocks = (
+  blocks: SessionMessageRecord[],
+  handlers: {
+    onApproveHitl: (requestId: string) => void;
+    onRejectHitl: (requestId: string) => void;
+    onSurfaceAction: (surfaceId: string) => void;
+  },
+  options: { showReasoning?: boolean; showSurfaces?: boolean } = {},
+): React.ReactNode[] => {
+  const nodes: React.ReactNode[] = [];
+  const stepRecords: SessionMessageRecord[] = [];
+  const flushSteps = () => {
+    if (!stepRecords.length) return;
+    const steps: RuntimeStep[] = stepRecords.map((record) => {
+      const payload = (record.payload || {}) as Record<string, unknown>;
+      return {
+        finishedAt: typeof payload.finishedAt === 'number' ? payload.finishedAt : undefined,
+        id: record.id,
+        name: typeof payload.name === 'string' ? payload.name : undefined,
+        startedAt: typeof payload.startedAt === 'number' ? payload.startedAt : undefined,
+        status: payload.status === 'error' ? 'error' : payload.status === 'completed' ? 'completed' : 'running',
+      };
+    });
+    nodes.push(<WorkflowStepsBlock key={`steps-${stepRecords[0].id}`} steps={steps} />);
+    stepRecords.length = 0;
+  };
+
+  for (const record of blocks) {
+    if (record.kind === 'step') {
+      stepRecords.push(record);
+      continue;
+    }
+    flushSteps();
+    const payload = (record.payload || {}) as Record<string, unknown>;
+    if (record.kind === 'reasoning') {
+      if (options.showReasoning !== false) {
+        nodes.push(<ReasoningBlock id={record.id} key={record.id} text={record.content || ''} />);
+      }
+    } else if (record.kind === 'tool') {
+      nodes.push(
+        <ToolCallBlock
+          call={{
+            args: record.content || String(payload.args || ''),
+            name: typeof payload.name === 'string' ? payload.name : undefined,
+            result: payload.result,
+            status: String(payload.status || 'completed'),
+          }}
+          key={record.id}
+        />,
+      );
+    } else if (record.kind === 'activity') {
+      if (payload.activityType === 'a2ui.surface' || payload.activityType === 'a2ui-surface') continue;
+      const requestId = typeof payload.requestId === 'string' ? payload.requestId : '';
+      if (requestId) {
+        nodes.push(
+          <HitlBlock
+            description={typeof payload.description === 'string' ? payload.description : undefined}
+            key={record.id}
+            onApprove={handlers.onApproveHitl}
+            onReject={handlers.onRejectHitl}
+            requestId={requestId}
+          />,
+        );
+      } else {
+        nodes.push(<ActivityBlock activity={payload} key={record.id} />);
+      }
+    } else if (record.kind === 'surface') {
+      if (options.showSurfaces === false) continue;
+      const surfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : record.id;
+      nodes.push(
+        <A2uiSurfaceBlock
+          key={record.id}
+          onAction={() => handlers.onSurfaceAction(surfaceId)}
+          payload={{ ...payload, surfaceId }}
+        />,
+      );
+    }
+  }
+  flushSteps();
+  return nodes;
+};
+
 export const renderRunBlocks = (
   run: RuntimeRunState | undefined,
   handlers: {
@@ -242,50 +330,62 @@ export const renderRunBlocks = (
     onRejectHitl: (requestId: string) => void;
     onSurfaceAction: () => void;
   },
-  options: { showReasoning?: boolean } = {},
+  options: { showReasoning?: boolean; showSurfaces?: boolean } = {},
 ) => {
   if (!run) return null;
   const blocks: React.ReactNode[] = [];
-  if (options.showReasoning !== false) {
-    for (const [id, text] of Object.entries(run.reasoning)) {
-      blocks.push(<ReasoningBlock id={id} key={`reasoning-${id}`} text={text} />);
+  const stepBuffer: RuntimeStep[] = [];
+  const flushSteps = () => {
+    if (!stepBuffer.length) return;
+    blocks.push(<WorkflowStepsBlock key={`steps-${stepBuffer[0].id}`} steps={[...stepBuffer]} />);
+    stepBuffer.length = 0;
+  };
+  const ordered = run.orderedBlocks?.length ? run.orderedBlocks : [];
+  if (ordered.length === 0) {
+    // 旧检查点兼容：按 map 分组渲染
+    if (options.showReasoning !== false) {
+      for (const [id, text] of Object.entries(run.reasoning || {})) blocks.push(<ReasoningBlock id={id} key={`reasoning-${id}`} text={text} />);
     }
-  }
-  for (const [id, call] of Object.entries(run.toolCalls)) blocks.push(<ToolCallBlock call={call} key={`tool-${id}`} />);
-  const steps = Object.values(run.steps || {}).sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0));
-  if (steps.length) blocks.push(<WorkflowStepsBlock key="steps" steps={steps} />);
-  const hitl = Object.values(run.activities || {}).find(
-    (activity): activity is { description?: string; requestId: string } =>
-      typeof activity === 'object' && activity !== null && 'requestId' in activity,
-  );
-  if (hitl?.requestId) {
-    blocks.push(
-      <HitlBlock
-        description={hitl.description}
-        key="hitl"
-        onApprove={handlers.onApproveHitl}
-        onReject={handlers.onRejectHitl}
-        requestId={hitl.requestId}
-      />,
-    );
-  }
-  for (const activity of Object.values(run.activities || {})) {
-    if (!activity || typeof activity !== 'object' || 'requestId' in activity) continue;
-    const value = activity as { activityType?: string; description?: string };
-    if (value.activityType === 'agentDock.agentDelegation' || value.activityType === 'agentDock.task') {
-      blocks.push(<ActivityBlock activity={value} key={`activity-${(activity as { messageId?: string }).messageId ?? Object.values(run.activities).indexOf(activity)}`} />);
+    for (const [id, call] of Object.entries(run.toolCalls || {})) blocks.push(<ToolCallBlock call={call} key={`tool-${id}`} />);
+    const steps = Object.values(run.steps || {}).sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0));
+    if (steps.length) blocks.push(<WorkflowStepsBlock key="steps" steps={steps} />);
+    if (options.showSurfaces !== false) {
+      for (const [surfaceId, payload] of Object.entries(run.surfaces || {})) {
+        if (typeof payload === 'object' && payload !== null) blocks.push(<A2uiSurfaceBlock key={`surface-${surfaceId}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId }} />);
+      }
     }
-  }
-  for (const [surfaceId, payload] of Object.entries(run.surfaces || {})) {
-    if (typeof payload === 'object' && payload !== null) {
-      blocks.push(
-        <A2uiSurfaceBlock
-          key={`surface-${surfaceId}`}
-          onAction={handlers.onSurfaceAction}
-          payload={{ ...(payload as Record<string, unknown>), surfaceId }}
-        />,
-      );
+  } else {
+    for (const ref of ordered) {
+      if (ref.kind === 'reasoning') {
+        if (options.showReasoning === false) continue;
+        const text = run.reasoning?.[ref.id];
+        if (text !== undefined) blocks.push(<ReasoningBlock id={ref.id} key={`reasoning-${ref.id}`} text={text} />);
+      } else if (ref.kind === 'step') {
+        const step = run.steps?.[ref.id];
+        if (step) stepBuffer.push(step);
+      } else if (ref.kind === 'tool') {
+        flushSteps();
+        const call = run.toolCalls?.[ref.id];
+        if (call) blocks.push(<ToolCallBlock call={call} key={`tool-${ref.id}`} />);
+      } else if (ref.kind === 'activity') {
+        flushSteps();
+        const activity = run.activities?.[ref.id];
+        if (!activity || typeof activity !== 'object') continue;
+        const value = activity as { activityType?: string; description?: string; requestId?: string; [key: string]: unknown };
+        if (value.activityType === 'a2ui.surface' || value.activityType === 'a2ui-surface') continue;
+        if (value.requestId) {
+          blocks.push(<HitlBlock description={value.description} key={`hitl-${ref.id}`} onApprove={handlers.onApproveHitl} onReject={handlers.onRejectHitl} requestId={value.requestId} />);
+        } else if (value.activityType === 'agentDock.agentDelegation' || value.activityType === 'agentDock.task') {
+          blocks.push(<ActivityBlock activity={value} key={`activity-${ref.id}`} />);
+        }
+      } else if (ref.kind === 'surface') {
+        flushSteps();
+        if (options.showSurfaces === false) continue;
+        const payload = run.surfaces?.[ref.id];
+        if (typeof payload === 'object' && payload !== null) blocks.push(<A2uiSurfaceBlock key={`surface-${ref.id}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId: ref.id }} />);
+      }
     }
+    flushSteps();
   }
   if (run.error) blocks.push(<ErrorBlock key="error" message={run.error.message} />);
   return blocks;

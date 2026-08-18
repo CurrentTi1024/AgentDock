@@ -1,15 +1,17 @@
-// AgentDock 对话 hook：mock 模式走自研 SSE/reducer，http 模式走官方 CopilotKit v2 headless。
-// 官方路径：useAgent(thread-scoped) + useCopilotKit().runAgent，事件经 agent.subscribe 投影为 RuntimeRunState。
+// AgentDock 对话 hook：
+// - proxy（生产）走官方 CopilotKit v2 headless（useAgent + useCopilotKit）
+// - mock / direct 走自研 SSE + reducer（runStore），direct 仅用于本地联调
+// 官方事件经 agent.subscribe 投影为 RuntimeRunState，并写入 IndexedDB 检查点。
 import { useAgent, useCopilotKit } from '@copilotkit/react-core/v2';
+import type { Message } from '@ag-ui/client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { createRunInput } from '@/api/runtime/agentRuntimeService';
 import { createRunState, reduceRunEvent } from '@/api/runtime/runReducer';
 import type { AgUiEvent, RunAgentInput, RuntimeRunState } from '@/api/runtime/types';
 import { getServiceMode } from '@/api/core/serviceMode';
-import {
-  sessionHistoryService,
-} from '@/api/session/sessionHistoryService';
+import { runtimeConfig } from '@/api/runtimeConfig';
+import { sessionHistoryService } from '@/api/session/sessionHistoryService';
 import { useRunStore } from '@/stores/runStore';
 
 export interface AgentDockConversationOptions {
@@ -29,17 +31,16 @@ const toStreamedEvent = (event: AgUiEvent) => ({
 });
 
 export const useAgentDockConversation = (options: AgentDockConversationOptions) => {
-  const isHttp = getServiceMode() === 'http';
-  const threadId = options.threadId || `thread-${options.sessionId}`;
+  // 官方 CopilotKit 仅在生产 proxy 形态启用；direct 属本地联调，保留自研 transport。
+  const useOfficial = getServiceMode() === 'http' && runtimeConfig.transport === 'proxy';
+  const resolvedThreadId = options.threadId || `thread-${options.sessionId}`;
   const localAgentId = `agentdock-${options.sessionId}`;
 
-  // mock 路径：沿用自研 runStore（SSE + reducer + checkpoint）
   const mock = useRunStore();
-  // http 路径：官方 CopilotKit
   const { agent, isReady } = useAgent({
     agentId: localAgentId,
     runtimeAgentId: 'orchestration',
-    threadId,
+    threadId: resolvedThreadId,
   });
   const { copilotkit } = useCopilotKit();
   const [httpRun, setHttpRun] = useState<RuntimeRunState>();
@@ -48,31 +49,56 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
-  const applyEvent = useCallback(
-    (event: AgUiEvent) => {
-      if (getServiceMode() !== 'http') return;
-      const current = runRef.current ?? createRunState(String(event.runId || crypto.randomUUID()), threadId);
-      const next = reduceRunEvent(current, toStreamedEvent(event));
-      runRef.current = next;
-      setHttpRun(next);
-      const input = inputRef.current;
-      if (input) void sessionHistoryService.saveRunCheckpoint(optionsRef.current.sessionId, input, next);
-    },
-    [threadId],
-  );
+  const applyEvent = useCallback((event: AgUiEvent) => {
+    if (!useOfficial) return;
+    const threadId = optionsRef.current.threadId || `thread-${optionsRef.current.sessionId}`;
+    const current = runRef.current ?? createRunState(String(event.runId || crypto.randomUUID()), threadId);
+    const next = reduceRunEvent(current, toStreamedEvent(event));
+    runRef.current = next;
+    setHttpRun(next);
+    const input = inputRef.current;
+    if (input) void sessionHistoryService.saveRunCheckpoint(optionsRef.current.sessionId, input, next);
+  }, [useOfficial]);
 
   useEffect(() => {
-    if (!isHttp || !isReady) return;
+    if (!useOfficial || !isReady) return;
     const subscription = agent.subscribe({
       onActivityDeltaEvent: ({ event }) => applyEvent(event),
       onActivitySnapshotEvent: ({ event }) => applyEvent(event),
+      onCustomEvent: ({ event }) => {
+        applyEvent(event);
+        // legacy HITL wire：CustomEvent(name=on_interrupt)
+        const custom = event as { name?: string; value?: { id?: string; message?: string } };
+        if (custom.name === 'on_interrupt') {
+          const requestId = custom.value?.id ?? '';
+          applyEvent({
+            activityType: 'agentDock.hitl',
+            content: { description: custom.value?.message ?? 'Agent requests your confirmation.', requestId },
+            messageId: `hitl-${requestId || Date.now()}`,
+            type: 'ACTIVITY_SNAPSHOT',
+          });
+        }
+      },
       onMessagesSnapshotEvent: ({ event }) => applyEvent(event),
       onRawEvent: ({ event }) => applyEvent(event),
       onReasoningMessageContentEvent: ({ event }) => applyEvent(event),
       onReasoningMessageEndEvent: ({ event }) => applyEvent(event),
       onReasoningMessageStartEvent: ({ event }) => applyEvent(event),
       onRunErrorEvent: ({ event }) => applyEvent(event),
-      onRunFinishedEvent: ({ event }) => applyEvent(event),
+      onRunFinishedEvent: (params) => {
+        applyEvent(params.event);
+        // 标准 AG-UI HITL：RUN_FINISHED outcome=interrupt → 投影为暂停活动块
+        if (params.outcome === 'interrupt') {
+          for (const interrupt of params.interrupts) {
+            applyEvent({
+              activityType: 'agentDock.hitl',
+              content: { description: interrupt.message ?? 'Agent requests your confirmation.', requestId: interrupt.id },
+              messageId: `hitl-${interrupt.id}`,
+              type: 'ACTIVITY_SNAPSHOT',
+            });
+          }
+        }
+      },
       onRunStartedEvent: ({ event }) => applyEvent(event),
       onStateDeltaEvent: ({ event }) => applyEvent(event),
       onStateSnapshotEvent: ({ event }) => applyEvent(event),
@@ -87,10 +113,10 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
       onToolCallStartEvent: ({ event }) => applyEvent(event),
     });
     return () => subscription.unsubscribe();
-  }, [agent, applyEvent, isHttp, isReady]);
+  }, [agent, applyEvent, isReady, useOfficial]);
 
   const restore = useCallback(async () => {
-    if (getServiceMode() !== 'http') {
+    if (!useOfficial) {
       await mock.restoreSession(optionsRef.current.sessionId);
       return;
     }
@@ -99,7 +125,15 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
     runRef.current = checkpoint.snapshot;
     inputRef.current = checkpoint.input;
     setHttpRun(checkpoint.snapshot);
-  }, [mock]);
+    // 回填 agent 可见消息，保证下一次 run 携带完整上下文（与 LobeHub 本地历史一致）
+    const restoredMessages = [
+      ...(checkpoint.input.messages || []),
+      ...Object.values(checkpoint.snapshot.messages || {}),
+    ]
+      .filter((message) => message?.role === 'user' || message?.role === 'assistant')
+      .map((message) => ({ content: message.content, id: message.id, role: message.role }));
+    if (restoredMessages.length) agent.setMessages(restoredMessages as Message[]);
+  }, [agent, mock, useOfficial]);
 
   useEffect(() => {
     void restore();
@@ -108,9 +142,9 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
   const send = useCallback(
     async (message: string) => {
       const { agentId, fab, group, sessionId } = optionsRef.current;
-      const resolvedThreadId = optionsRef.current.threadId || `thread-${sessionId}`;
-      if (getServiceMode() !== 'http') {
-        await mock.execute(createRunInput({ agentId, fab, group, message, sessionId, threadId: resolvedThreadId }));
+      const threadId = optionsRef.current.threadId || `thread-${sessionId}`;
+      if (!useOfficial) {
+        await mock.execute(createRunInput({ agentId, fab, group, message, sessionId, threadId }));
         return;
       }
       const runId = crypto.randomUUID();
@@ -120,11 +154,11 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
         messages: [{ content: message, id: crypto.randomUUID(), role: 'user' }],
         runId,
         state: {},
-        threadId: resolvedThreadId,
+        threadId,
         tools: [],
       };
       inputRef.current = input;
-      runRef.current = createRunState(runId, resolvedThreadId);
+      runRef.current = createRunState(runId, threadId);
       setHttpRun(runRef.current);
       agent.addMessage({ content: message, id: input.messages[0].id, role: 'user' });
       await copilotkit.runAgent({
@@ -133,20 +167,29 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
         runId,
       });
     },
-    [agent, copilotkit, mock],
+    [agent, copilotkit, mock, useOfficial],
   );
 
   const stop = useCallback(async () => {
-    if (getServiceMode() !== 'http') {
+    if (!useOfficial) {
       await mock.stop();
       return;
     }
     copilotkit.stopAgent({ agent });
-  }, [agent, copilotkit, mock]);
+    if (runRef.current?.status === 'running' || runRef.current?.status === 'paused') {
+      applyEvent({
+        code: 'CANCELLED',
+        message: 'Run cancelled by user.',
+        runId: runRef.current.runId,
+        threadId: optionsRef.current.threadId || `thread-${optionsRef.current.sessionId}`,
+        type: 'RUN_ERROR',
+      });
+    }
+  }, [agent, applyEvent, copilotkit, mock, useOfficial]);
 
   const respondToHitl = useCallback(
     async (hitlResponse: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>) => {
-      if (getServiceMode() !== 'http') {
+      if (!useOfficial) {
         await mock.respondToHitl(hitlResponse);
         return;
       }
@@ -174,18 +217,19 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
         },
       });
     },
-    [agent, copilotkit, mock],
+    [agent, copilotkit, mock, useOfficial],
   );
 
   const sendA2uiAction = useCallback(
     async (a2uiAction: NonNullable<RunAgentInput['forwardedProps']['a2uiAction']>) => {
-      if (getServiceMode() !== 'http') {
+      if (!useOfficial) {
         await mock.sendA2uiAction(a2uiAction);
         return;
       }
       const previous = inputRef.current;
       try {
-        copilotkit.setProperties({ ...copilotkit.properties, a2uiAction });
+        // 官方 A2UI middleware 读取 forwardedProps.a2uiAction.userAction
+        copilotkit.setProperties({ ...copilotkit.properties, a2uiAction: { userAction: a2uiAction } });
         await copilotkit.runAgent({
           agent,
           forwardedProps: {
@@ -201,15 +245,15 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
         }
       }
     },
-    [agent, copilotkit, mock],
+    [agent, copilotkit, mock, useOfficial],
   );
 
   return {
     agent,
-    isReady: isHttp ? isReady : true,
+    isReady: useOfficial ? isReady : true,
     respondToHitl,
     restore,
-    run: isHttp ? httpRun : mock.run,
+    run: useOfficial ? httpRun : mock.run,
     send,
     sendA2uiAction,
     stop,

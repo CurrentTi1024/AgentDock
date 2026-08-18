@@ -15,11 +15,14 @@ import {
   A2uiSurfaceBlock,
   HitlBlock,
   ReasoningBlock,
+  renderStoredBlocks,
   renderRunBlocks,
   ToolCallBlock,
   WorkflowStepsBlock,
+  type StoredTextMessage,
 } from '@/features/chat/components/MessageBlocks';
 import { messageFeedbackService } from '@/api/conversation/messageFeedbackService';
+import { getServiceMode } from '@/api/core/serviceMode';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
 import type { RuntimeStep } from '@/api/runtime/types';
 import { runtimeConfig } from '@/api/runtimeConfig';
@@ -51,88 +54,6 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     background: linear-gradient(transparent, ${token.colorBgContainer} 24%);
   `,
 }));
-
-interface StoredTextMessage {
-  blocks: SessionMessageRecord[];
-  record: SessionMessageRecord;
-}
-
-const renderStoredBlocks = (
-  blocks: SessionMessageRecord[],
-  handlers: {
-    onApproveHitl: (requestId: string) => void;
-    onRejectHitl: (requestId: string) => void;
-    onSurfaceAction: (surfaceId: string) => void;
-  },
-): ReactNode[] => {
-  const nodes: ReactNode[] = [];
-  const stepRecords: SessionMessageRecord[] = [];
-  const flushSteps = () => {
-    if (!stepRecords.length) return;
-    const steps: RuntimeStep[] = stepRecords.map((record) => {
-      const payload = (record.payload || {}) as Record<string, unknown>;
-      return {
-        finishedAt: typeof payload.finishedAt === 'number' ? payload.finishedAt : undefined,
-        id: record.id,
-        name: typeof payload.name === 'string' ? payload.name : undefined,
-        startedAt: typeof payload.startedAt === 'number' ? payload.startedAt : undefined,
-        status: payload.status === 'error' ? 'error' : payload.status === 'completed' ? 'completed' : 'running',
-      };
-    });
-    nodes.push(<WorkflowStepsBlock key={`steps-${stepRecords[0].id}`} steps={steps} />);
-    stepRecords.length = 0;
-  };
-
-  for (const record of blocks) {
-    if (record.kind === 'step') {
-      stepRecords.push(record);
-      continue;
-    }
-    flushSteps();
-    const payload = (record.payload || {}) as Record<string, unknown>;
-    if (record.kind === 'reasoning') {
-      nodes.push(<ReasoningBlock id={record.id} key={record.id} text={record.content || ''} />);
-    } else if (record.kind === 'tool') {
-      nodes.push(
-        <ToolCallBlock
-          call={{
-            args: record.content || String(payload.args || ''),
-            name: typeof payload.name === 'string' ? payload.name : undefined,
-            result: payload.result,
-            status: String(payload.status || 'completed'),
-          }}
-          key={record.id}
-        />,
-      );
-    } else if (record.kind === 'activity') {
-      const requestId = typeof payload.requestId === 'string' ? payload.requestId : '';
-      if (requestId) {
-        nodes.push(
-          <HitlBlock
-            description={typeof payload.description === 'string' ? payload.description : undefined}
-            key={record.id}
-            onApprove={handlers.onApproveHitl}
-            onReject={handlers.onRejectHitl}
-            requestId={requestId}
-          />,
-        );
-      } else {
-        nodes.push(<ActivityBlock activity={payload} key={record.id} />);
-      }
-    } else if (record.kind === 'surface') {
-      const surfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : record.id;
-      nodes.push(
-        <A2uiSurfaceBlock
-          key={record.id}
-          onAction={() => handlers.onSurfaceAction(surfaceId)}
-          payload={{ ...payload, surfaceId }}
-        />,
-      );
-    }
-  }
-  flushSteps();
-  return nodes;
-};
 
 export default function ChatPage() {
   const { t } = useI18n();
@@ -240,6 +161,7 @@ export default function ChatPage() {
       version: selectedAgent?.version || active.version,
     });
     await send(input);
+    setInput('');
   };
 
   const selectMention = (mention: MentionAgent) => {
@@ -279,7 +201,7 @@ export default function ChatPage() {
         sourceComponentId: 'open',
         surfaceId: surface[0],
       }),
-  }, { showReasoning });
+  }, { showReasoning, showSurfaces: getServiceMode() !== 'http' });
 
   const lastLiveMessageId = Object.keys(run?.messages || {}).at(-1) || '';
   const feedbackTarget = {
@@ -337,7 +259,7 @@ export default function ChatPage() {
                         sourceComponentId: 'open',
                         surfaceId,
                       }),
-                  })}
+                  }, { showReasoning, showSurfaces: getServiceMode() !== 'http' })}
                 </ChatItem>
               ),
             )}
