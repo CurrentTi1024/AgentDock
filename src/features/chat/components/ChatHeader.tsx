@@ -6,8 +6,10 @@ import { useNavigate } from 'react-router-dom';
 
 import NavHeader from '@/components/shell/NavHeader';
 import { useI18n } from '@/i18n';
+import { buildAgentDetailPath } from '@/features/chat/agentDetail';
 
 interface ChatHeaderProps {
+  agentId: string;
   agentName: string;
   artifactOpen: boolean;
   endpoint: string;
@@ -17,7 +19,7 @@ interface ChatHeaderProps {
 }
 
 const ChatHeader = memo<ChatHeaderProps>(
-  ({ agentName, artifactOpen, endpoint, fab, onToggleArtifact, status }) => {
+  ({ agentId, agentName, artifactOpen, endpoint, fab, onToggleArtifact, status }) => {
     const navigate = useNavigate();
     const { t } = useI18n();
     return (
@@ -51,7 +53,7 @@ const ChatHeader = memo<ChatHeaderProps>(
               <ActionIcon
                 aria-label={t('chat.agentInfo')}
                 icon={Info}
-                onClick={() => navigate(`/market/agent/${encodeURIComponent(agentName.split('-')[0])}?fab=${fab}`)}
+                onClick={() => navigate(buildAgentDetailPath(agentId, fab))}
               />
             </Tooltip>
             <Tooltip title={artifactOpen ? t('chat.workPanel.close') : t('chat.workPanel.open')}>

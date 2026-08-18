@@ -9,7 +9,7 @@
     "server:dev": "node --experimental-strip-types --watch server/index.ts",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --experimental-strip-types --test src/api/runtime/*.test.ts src/i18n/*.test.ts",
+    "test": "node --experimental-strip-types --test src/api/runtime/*.test.ts src/i18n/*.test.ts src/features/chat/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

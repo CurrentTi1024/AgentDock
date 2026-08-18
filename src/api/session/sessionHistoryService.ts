@@ -9,13 +9,38 @@ class SessionDatabase extends Dexie {
   constructor() { super('agentdock-session-v3'); this.version(1).stores({ sessions: 'id,threadId,updatedAt,pinned,type', messages: 'id,sessionId,runId,createdAt,sequence', checkpoints: 'runId,sessionId,threadId,status,updatedAt' }); }
 }
 const db = new SessionDatabase();
+
+db.on('blocked', () => {
+  console.warn('[AgentDock] IndexedDB 升级被其他标签页阻塞，请关闭旧标签页后刷新。');
+  window.dispatchEvent(new CustomEvent('agentdock:indexeddb-blocked'));
+});
+db.on('versionchange', () => {
+  // 其他标签页升级/删除数据库时主动释放连接，避免反过来阻塞对方。
+  void db.close();
+});
+
 let sequenceSeed = 0;
 const nextSequence = () => Date.now() * 1000 + (sequenceSeed = (sequenceSeed + 1) % 1000);
 let pendingCheckpoint: { input: RunAgentInput; sessionId: string; snapshot: RuntimeRunState } | undefined;
 let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
 const CHECKPOINT_DEBOUNCE_MS = 350;
+
+const BLOCKED_WARN_MS = 3000;
+const withBlockedDiagnostic = async <T>(label: string, task: Promise<T>): Promise<T> => {
+  const timer = setTimeout(() => {
+    console.warn(
+      `[AgentDock] ${label} 超过 ${BLOCKED_WARN_MS / 1000}s 未完成，IndexedDB 可能被旧标签页阻塞或存储异常，请关闭旧标签页后刷新重试。`,
+    );
+  }, BLOCKED_WARN_MS);
+  try {
+    return await task;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 export const sessionHistoryService = {
-  async createSession(input: Omit<SessionRecord, 'createdAt' | 'id' | 'updatedAt'> & { id?: string }) { const now = new Date().toISOString(); const record = { ...input, id: input.id ?? crypto.randomUUID(), createdAt: now, updatedAt: now }; await db.sessions.put(record); return record; },
+  async createSession(input: Omit<SessionRecord, 'createdAt' | 'id' | 'updatedAt'> & { id?: string }) { const now = new Date().toISOString(); const record = { ...input, id: input.id ?? crypto.randomUUID(), createdAt: now, updatedAt: now }; await withBlockedDiagnostic('createSession', db.sessions.put(record)); return record; },
   async getSession(id: string) { return db.sessions.get(id); },
   async listSessions() { return db.sessions.orderBy('updatedAt').reverse().toArray(); },
   async searchSessions(keyword: string) { const sessions = await this.listSessions(); const query = keyword.toLowerCase(); return sessions.filter((session) => `${session.title}${session.agentName || ''}`.toLowerCase().includes(query)); },

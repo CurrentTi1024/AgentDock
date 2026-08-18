@@ -58,19 +58,21 @@ export default function Providers({ children }: { children: ReactNode }) {
 
   return (
     <I18nProvider>
-      {/* Provider 必须始终挂载：useAgent/useCopilotKit 无条件调用；
-          mock 模式不给 runtimeUrl/useSingleEndpoint，避免连接与 single-route 校验。 */}
-      <CopilotKit
-        a2ui={copilotEnabled ? { catalog: agentDockCatalog } : undefined}
-        credentials="include"
-        onError={(event) => {
-          if (copilotEnabled) console.error('[CopilotKit]', event.error);
-        }}
-        runtimeUrl={copilotEnabled ? runtimeConfig.copilotRuntimeUrl : undefined}
-        useSingleEndpoint={copilotEnabled}
-      >
-        {app}
-      </CopilotKit>
+      {copilotEnabled ? (
+        <CopilotKit
+          a2ui={{ catalog: agentDockCatalog }}
+          credentials="include"
+          onError={(event) => {
+            console.error('[CopilotKit]', event.error);
+          }}
+          runtimeUrl={runtimeConfig.copilotRuntimeUrl}
+          useSingleEndpoint
+        >
+          {app}
+        </CopilotKit>
+      ) : (
+        app
+      )}
     </I18nProvider>
   );
 }

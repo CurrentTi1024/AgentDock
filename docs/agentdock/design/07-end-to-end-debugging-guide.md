@@ -233,3 +233,20 @@ console.table(s?.rawEvents?.map(e => [e.type, e.messageId || e.toolCallId || '',
 - [ ] Redis event log TTL 与游标过期后的错误行为（`STREAM_EXPIRED`）。
 - [ ] A2UI：动态 schema（`injectA2UITool`）还是固定 schema（`a2ui_operations`）；提供一条真实 `render_a2ui` fixture。
 - [ ] `AGENT_ORCHESTRATION_BASE_URLS_JSON` 的 FAB → 域名映射与 SSO 透传方式（Cookie vs Authorization）。
+
+## 10. UI 自动化测试稳定选择器
+
+`@lobehub/ui` 的 ActionIcon 渲染为 `div[role="button"]`，**不是 `<button>` 标签**；aria-label 随界面语言变化（如中文为“发送消息”）。UI 测试应使用固定 testid，不要按标签或硬编码英文文案定位：
+
+| 控件 | 选择器 |
+|---|---|
+| 消息输入框 | `[data-testid="chat-input"]` |
+| 发送 | `[data-testid="chat-send"]`（role=button） |
+| 停止 | `[data-testid="chat-stop"]`（role=button） |
+
+示例（Playwright）：
+
+```ts
+await page.fill('[data-testid="chat-input"]', '你好');
+await page.click('[data-testid="chat-send"]');
+```

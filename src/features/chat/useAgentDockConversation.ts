@@ -52,13 +52,12 @@ const toStreamedEvent = (event: AgUiEvent) => ({
 });
 
 const useMockConversation = (options: AgentDockConversationOptions): AgentDockConversationResult => {
-  const mock = useRunStore();
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
   const restore = useCallback(async () => {
-    await mock.restoreSession(optionsRef.current.sessionId);
-  }, [mock]);
+    await useRunStore.getState().restoreSession(optionsRef.current.sessionId);
+  }, []);
 
   useEffect(() => {
     void restore();
@@ -68,27 +67,29 @@ const useMockConversation = (options: AgentDockConversationOptions): AgentDockCo
     async (message: string) => {
       const { agentId, fab, group, sessionId } = optionsRef.current;
       const threadId = optionsRef.current.threadId || `thread-${sessionId}`;
-      await mock.execute(createRunInput({ agentId, fab, group, message, sessionId, threadId }));
+      await useRunStore
+        .getState()
+        .execute(createRunInput({ agentId, fab, group, message, sessionId, threadId }));
     },
-    [mock],
+    [],
   );
 
   const stop = useCallback(async () => {
-    await mock.stop();
-  }, [mock]);
+    await useRunStore.getState().stop();
+  }, []);
 
   const respondToHitl = useCallback(
     async (hitlResponse: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>) => {
-      await mock.respondToHitl(hitlResponse);
+      await useRunStore.getState().respondToHitl(hitlResponse);
     },
-    [mock],
+    [],
   );
 
   const sendA2uiAction = useCallback(
     async (a2uiAction: NonNullable<RunAgentInput['forwardedProps']['a2uiAction']>) => {
-      await mock.sendA2uiAction(a2uiAction);
+      await useRunStore.getState().sendA2uiAction(a2uiAction);
     },
-    [mock],
+    [],
   );
 
   return {
@@ -96,7 +97,7 @@ const useMockConversation = (options: AgentDockConversationOptions): AgentDockCo
     isReady: true,
     respondToHitl,
     restore,
-    run: mock.run,
+    run: useRunStore((state) => state.run),
     send,
     sendA2uiAction,
     stop,

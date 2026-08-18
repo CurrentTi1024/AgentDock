@@ -103,6 +103,7 @@ const ChatInput = memo<ChatInputProps>(
         )}
         <TextArea
           autoSize={{ minRows: 2, maxRows: 6 }}
+          data-testid="chat-input"
           onKeyDown={handleKeyDown}
           placeholder={t('chat.placeholder')}
           value={value}
@@ -129,10 +130,17 @@ const ChatInput = memo<ChatInputProps>(
             </Button>
           </Flexbox>
           {running ? (
-            <ActionIcon aria-label={t('chat.stop')} icon={Square} title={t('chat.stop')} onClick={onStop} />
+            <ActionIcon
+              aria-label={t('chat.stop')}
+              data-testid="chat-stop"
+              icon={Square}
+              title={t('chat.stop')}
+              onClick={onStop}
+            />
           ) : (
             <ActionIcon
               aria-label={t('chat.send')}
+              data-testid="chat-send"
               icon={Send}
               title={t('chat.send')}
               onClick={onSend}

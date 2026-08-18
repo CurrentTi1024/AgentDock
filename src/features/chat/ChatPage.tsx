@@ -6,6 +6,7 @@ import { Copy, FileBarChart, ThumbsDown, ThumbsUp, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 
+import { resolveChatAgentId } from '@/features/chat/agentDetail';
 import ChatHeader from '@/features/chat/components/ChatHeader';
 import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
@@ -90,6 +91,7 @@ export default function ChatPage() {
   const [artifactOpen, setArtifactOpen] = useState(false);
 
   const fab = selectedAgent?.fab || session?.fab || agent.split('-').at(-1) || 'F15B';
+  const agentId = resolveChatAgentId(selectedAgent?.agentId, session?.agentId);
   const {
     agent: runtimeAgent,
     respondToHitl,
@@ -99,7 +101,7 @@ export default function ChatPage() {
     sendA2uiAction,
     stop,
   } = useAgentDockConversation({
-    agentId: selectedAgent?.agentId || session?.agentId || 'flight-analysis',
+    agentId,
     fab,
     sessionId,
     threadId: session?.threadId,
@@ -233,6 +235,7 @@ export default function ChatPage() {
     <Flexbox horizontal height="100%">
       <Flexbox flex={1} height="100%" style={{ minWidth: 0, position: 'relative' }}>
         <ChatHeader
+          agentId={agentId}
           agentName={agent}
           artifactOpen={artifactOpen}
           endpoint={runtimeConfig.resolveAgentRuntimeUrl(fab)}
