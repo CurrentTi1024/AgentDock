@@ -1,11 +1,14 @@
 // Group conversation — LobeHub group Conversation + Portal adaptation (slim)
-import { Avatar, Block, Button, Flexbox, Icon, Segmented, Tag, Text } from '@lobehub/ui';
+import { ActionIcon, Avatar, Block, Button, Flexbox, Icon, Segmented, Tag, Text } from '@lobehub/ui';
+import { DropdownMenu } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Clock3, MoreHorizontal, Play, Plus, Users } from 'lucide-react';
+import { message } from 'antd';
+import { Clock3, Info, Play, Plus, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { agentGroupService } from '@/api/agent-group/agentGroupService';
+import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
 import { runtimeConfig } from '@/api/runtimeConfig';
 import {
   sessionHistoryService,
@@ -41,12 +44,6 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
   `,
 }));
 
-const GROUP_MEMBERS: Array<[string, string, string]> = [
-  ['🛩️', 'FlightAnalysis_Agent-F15B', 'workspace.group.role.supervisor'],
-  ['📊', 'DataCheck_Agent-F15B', 'workspace.group.role.dataCheck'],
-  ['📝', 'ReportWriter_Agent-F15B', 'workspace.group.role.report'],
-];
-
 const DEFAULT_GROUP_MEMBERS = [
   { agentId: 'flight-analysis', fab: 'F15B', version: '2.1.0' },
   { agentId: 'data-check', fab: 'F15B' },
@@ -75,6 +72,8 @@ const GroupChatPage = () => {
   const [input, setInput] = useState('');
   const [modes, setModes] = useState<Array<{ modeId: string; name: string }>>([]);
   const [mode, setMode] = useState('supervisor');
+  const [members, setMembers] = useState(DEFAULT_GROUP_MEMBERS);
+  const [mentions, setMentions] = useState<MentionAgent[]>([]);
 
   const groupConfig = useMemo<StoredGroupConfig | undefined>(() => {
     const value = session?.group;
@@ -84,12 +83,18 @@ const GroupChatPage = () => {
   }, [session?.group]);
   const configuredMembers = groupConfig?.members?.length ? groupConfig.members : undefined;
 
+  const mentionByMember = (member: { agentId: string; fab: string }) =>
+    mentions.find((item) => item.agentId === member.agentId && item.fab === member.fab);
+  const availableMentions = mentions.filter(
+    (item) => !members.some((member) => member.agentId === item.agentId && member.fab === item.fab),
+  );
+
   const fab = session?.fab || 'F15B';
   const { respondToHitl, restore, run, send, sendA2uiAction, stop } = useAgentDockConversation({
     agentId: 'group',
     fab,
     group: {
-      members: configuredMembers ?? DEFAULT_GROUP_MEMBERS,
+      members,
       orchestrationMode: mode,
       config: groupConfig?.config ?? { maxIterations: 6 },
     },
@@ -134,6 +139,14 @@ const GroupChatPage = () => {
         setMode(data.defaultModeId);
       });
   }, []);
+
+  useEffect(() => {
+    void agentMarketService.getMentionAgentsList({ locale: 'zh-CN' }).then(({ items }) => setMentions(items));
+  }, []);
+
+  useEffect(() => {
+    if (configuredMembers?.length) setMembers(configuredMembers);
+  }, [configuredMembers]);
 
   useEffect(() => {
     if (
@@ -192,6 +205,33 @@ const GroupChatPage = () => {
     await send(message);
   };
 
+  const commitMembers = (next: typeof members) => {
+    setMembers(next);
+    if (!session) return;
+    void sessionHistoryService
+      .updateSession(session.id, {
+        group: {
+          members: next,
+          orchestrationMode: mode,
+          config: groupConfig?.config ?? { maxIterations: 6 },
+        },
+      })
+      .catch((reason) => console.warn('[AgentDock] group members persist failed', reason));
+  };
+
+  const addMember = (mention: MentionAgent) => {
+    if (members.some((member) => member.agentId === mention.agentId && member.fab === mention.fab)) return;
+    commitMembers([...members, { agentId: mention.agentId, fab: mention.fab, version: mention.version }]);
+  };
+
+  const removeMember = (member: { agentId: string; fab: string }) => {
+    if (members.length <= 2) {
+      message.warning(t('group.chat.needAtLeastTwo'));
+      return;
+    }
+    commitMembers(members.filter((item) => !(item.agentId === member.agentId && item.fab === member.fab)));
+  };
+
   return (
     <Flexbox horizontal height="100%">
       <Flexbox flex={1} height="100%" style={{ minWidth: 0, position: 'relative' }}>
@@ -219,7 +259,58 @@ const GroupChatPage = () => {
               </Flexbox>
             </Flexbox>
           }
+          right={
+            <Flexbox horizontal align="center" gap={4}>
+              {run && (
+                <Tag color={run.status === 'running' ? 'processing' : run.status === 'error' ? 'error' : 'success'} size="small">
+                  {run.status}
+                </Tag>
+              )}
+              <ActionIcon
+                aria-label={t('workspace.group.title')}
+                icon={Info}
+                onClick={() => navigate('/group')}
+                title={t('workspace.group.title')}
+              />
+            </Flexbox>
+          }
         />
+        <Flexbox
+          horizontal
+          align="center"
+          gap={6}
+          paddingBlock={8}
+          paddingInline={16}
+          style={{ borderBlockEnd: `1px solid ${cssVar.colorBorderSecondary}` }}
+        >
+          {members.map((member) => {
+            const mention = mentionByMember(member);
+            return (
+              <Tag
+                closable
+                key={`${member.agentId}@${member.fab}`}
+                onClose={(event) => {
+                  event.preventDefault();
+                  removeMember(member);
+                }}
+              >
+                {mention?.icon ?? '🤖'} {mention?.agentFullName ?? member.agentId} · {member.fab}
+              </Tag>
+            );
+          })}
+          <DropdownMenu
+            items={availableMentions.map((mention) => ({
+              key: `${mention.agentId}@${mention.fab}`,
+              label: `${mention.icon} ${mention.agentFullName} · ${mention.fab}`,
+              onClick: () => addMember(mention),
+            }))}
+            placement="bottomLeft"
+          >
+            <Button icon={Plus} size="small">
+              {t('group.chat.addMember')}
+            </Button>
+          </DropdownMenu>
+        </Flexbox>
         <Flexbox className={styles.scroll}>
           <Flexbox
             gap={24}
@@ -354,39 +445,29 @@ const GroupChatPage = () => {
             <Text weight={500}>{t('workspace.group.members')}</Text>
             <Tag color="success">{t('workspace.group.members')}</Tag>
           </Flexbox>
-          {configuredMembers ? (
-            configuredMembers.map((member, index) => (
+          {members.map((member, index) => {
+            const mention = mentionByMember(member);
+            return (
               <Flexbox horizontal align="center" gap={12} key={`${member.agentId}@${member.fab}`}>
-                <Avatar avatar="🤖" shape="square" size={40} />
+                <Avatar avatar={mention?.icon ?? '🤖'} shape="square" size={40} />
                 <Flexbox flex={1} style={{ minWidth: 0 }}>
                   <Text ellipsis weight={500}>
-                    {member.agentId}
+                    {mention?.agentFullName ?? member.agentId}
                   </Text>
                   <Text fontSize={12} type="secondary">
                     v{member.version || '—'} · {member.fab}
                   </Text>
                 </Flexbox>
                 {index === 0 && <Tag color="info">Supervisor</Tag>}
-                <Button icon={MoreHorizontal} type="text" />
+                <ActionIcon
+                  aria-label={t('group.chat.removeMember')}
+                  icon={X}
+                  onClick={() => removeMember(member)}
+                  title={t('group.chat.removeMember')}
+                />
               </Flexbox>
-            ))
-          ) : (
-            GROUP_MEMBERS.map(([icon, name, role], index) => (
-              <Flexbox horizontal align="center" gap={12} key={name}>
-                <Avatar avatar={icon} shape="square" size={40} />
-                <Flexbox flex={1} style={{ minWidth: 0 }}>
-                  <Text ellipsis weight={500}>
-                    {name}
-                  </Text>
-                  <Text fontSize={12} type="secondary">
-                    {t(role)}
-                  </Text>
-                </Flexbox>
-                {index === 0 && <Tag color="info">Supervisor</Tag>}
-                <Button icon={MoreHorizontal} type="text" />
-              </Flexbox>
-            ))
-          )}
+            );
+          })}
           <Button icon={Plus}>{t('workspace.group.addMember')}</Button>
         </Block>
       </Flexbox>

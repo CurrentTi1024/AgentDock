@@ -26,7 +26,12 @@ const GroupSidebarBody = () => {
   const [keyword, setKeyword] = useState('');
 
   useEffect(() => {
-    void sessionHistoryService.listSessions().then(setGroups);
+    const load = () => {
+      void sessionHistoryService.listSessions().then(setGroups);
+    };
+    load();
+    window.addEventListener('agentdock:sessions-changed', load);
+    return () => window.removeEventListener('agentdock:sessions-changed', load);
   }, [location.pathname]);
 
   const visibleGroups = useMemo(() => {

@@ -31,18 +31,24 @@ const Header = () => {
     }
   }, [profile?.preferredLocale, setLocale]);
 
-  const createConversation = async () => {
-    const session = await sessionHistoryService.createSession({
+  const createConversation = () => {
+    const id = `session-${crypto.randomUUID()}`;
+    const record = {
       agentId: 'flight-analysis',
       agentName: 'FlightAnalysis_Agent',
       fab: 'F15B',
+      id,
       pinned: false,
       threadId: crypto.randomUUID(),
       title: t('nav.newSessionTitle'),
-      type: 'agent',
+      type: 'agent' as const,
       version: '2.1.0',
+    };
+    // 先跳转、配置随路由状态携带；会话后台异步落库，不等待本地写入。
+    navigate(`/chat/${id}`, { state: { pendingSession: record } });
+    void sessionHistoryService.createSession(record).catch((reason) => {
+      console.warn('[AgentDock] agent session persist failed', reason);
     });
-    navigate(`/chat/${session.id}`);
   };
 
   return (

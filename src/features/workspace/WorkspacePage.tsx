@@ -66,6 +66,28 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     &:last-child {
       border-block-end: 0;
     }
+    @media (max-width: 960px) {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-rows: auto auto;
+      row-gap: 6px;
+      & > *:nth-child(1) {
+        grid-column: 1;
+        grid-row: 1;
+        min-width: 0;
+      }
+      & > *:nth-child(2) {
+        grid-column: 2;
+        grid-row: 1;
+      }
+      & > *:nth-child(3) {
+        grid-column: 1;
+        grid-row: 2;
+      }
+      & > *:nth-child(4) {
+        grid-column: 2;
+        grid-row: 2;
+      }
+    }
   `,
 }));
 
@@ -124,10 +146,10 @@ function TasksPage() {
           {t('workspace.tasks.new')}
         </Button>
       </Flexbox>
-      <Block variant="outlined" style={{ overflow: 'hidden' }}>
+      <Block variant="outlined" style={{ overflowX: 'auto' }}>
         {tasks.map((task) => (
           <div className={styles.tableRow} key={task.id}>
-            <Flexbox horizontal align="center" gap={12}>
+            <Flexbox horizontal align="center" gap={12} style={{ minWidth: 0 }}>
               <Avatar
                 avatar={
                   <Icon
@@ -136,9 +158,11 @@ function TasksPage() {
                 }
                 size={38}
               />
-              <Flexbox>
-                <Text weight={500}>{task.title}</Text>
-                <Text fontSize={12} type="secondary">
+              <Flexbox style={{ minWidth: 0 }}>
+                <Text ellipsis weight={500}>
+                  {task.title}
+                </Text>
+                <Text ellipsis fontSize={12} type="secondary">
                   {task.agentName}
                 </Text>
               </Flexbox>
@@ -179,14 +203,16 @@ function DocumentsPage() {
           {t('workspace.documents.new')}
         </Button>
       </Flexbox>
-      <Block variant="outlined" style={{ overflow: 'hidden' }}>
+      <Block variant="outlined" style={{ overflowX: 'auto' }}>
         {documents.map((document) => (
           <div className={styles.tableRow} key={document.id}>
-            <Flexbox horizontal align="center" gap={12}>
+            <Flexbox horizontal align="center" gap={12} style={{ minWidth: 0 }}>
               <Avatar avatar={<Icon icon={FileText} />} size={38} />
-              <Flexbox>
-                <Text weight={500}>{document.title}</Text>
-                <Text fontSize={12} type="secondary">
+              <Flexbox style={{ minWidth: 0 }}>
+                <Text ellipsis weight={500}>
+                  {document.title}
+                </Text>
+                <Text ellipsis fontSize={12} type="secondary">
                   {document.mediaType.split('/').at(-1)} · {formatSize(document.size)}
                 </Text>
               </Flexbox>

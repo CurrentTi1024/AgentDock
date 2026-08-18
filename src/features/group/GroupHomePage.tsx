@@ -23,24 +23,34 @@ const GroupHomePage = () => {
   const [groups, setGroups] = useState<SessionRecord[]>([]);
 
   useEffect(() => {
-    void sessionHistoryService.listSessions().then(setGroups);
+    const load = () => {
+      void sessionHistoryService.listSessions().then(setGroups);
+    };
+    load();
+    window.addEventListener('agentdock:sessions-changed', load);
+    return () => window.removeEventListener('agentdock:sessions-changed', load);
   }, []);
 
   const visibleGroups = groups.filter((session) => session.type === 'group').slice(0, 10);
 
-  const createGroup = async () => {
-    const group = await sessionHistoryService.createSession({
+  const createGroup = () => {
+    const id = `group-${crypto.randomUUID()}`;
+    const record = {
       agentId: 'group',
       agentName: 'FlightAnalysis_Group',
       fab: 'F15B',
-      id: `group-${crypto.randomUUID()}`,
+      id,
       pinned: false,
       threadId: crypto.randomUUID(),
       title: t('nav.newGroup'),
-      type: 'group',
+      type: 'group' as const,
       version: '2.1.0',
+    };
+    // 与创建向导一致：先跳转、配置随路由状态携带；会话后台异步落库。
+    navigate(`/group/${id}`, { state: { pendingSession: record } });
+    void sessionHistoryService.createSession(record).catch((reason) => {
+      console.warn('[AgentDock] group session persist failed', reason);
     });
-    navigate(`/group/${group.id}`);
   };
 
   return (

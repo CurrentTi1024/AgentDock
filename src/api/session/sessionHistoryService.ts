@@ -26,6 +26,10 @@ let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
 const CHECKPOINT_DEBOUNCE_MS = 350;
 
 const BLOCKED_WARN_MS = 3000;
+const notifySessionsChanged = () => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('agentdock:sessions-changed'));
+};
 const withBlockedDiagnostic = async <T>(label: string, task: Promise<T>): Promise<T> => {
   const timer = setTimeout(() => {
     console.warn(
@@ -40,11 +44,11 @@ const withBlockedDiagnostic = async <T>(label: string, task: Promise<T>): Promis
 };
 
 export const sessionHistoryService = {
-  async createSession(input: Omit<SessionRecord, 'createdAt' | 'id' | 'updatedAt'> & { id?: string }) { const now = new Date().toISOString(); const record = { ...input, id: input.id ?? crypto.randomUUID(), createdAt: now, updatedAt: now }; await withBlockedDiagnostic('createSession', db.sessions.put(record)); return record; },
+  async createSession(input: Omit<SessionRecord, 'createdAt' | 'id' | 'updatedAt'> & { id?: string }) { const now = new Date().toISOString(); const record = { ...input, id: input.id ?? crypto.randomUUID(), createdAt: now, updatedAt: now }; await withBlockedDiagnostic('createSession', db.sessions.put(record)); notifySessionsChanged(); return record; },
   async getSession(id: string) { return db.sessions.get(id); },
   async listSessions() { return db.sessions.orderBy('updatedAt').reverse().toArray(); },
   async searchSessions(keyword: string) { const sessions = await this.listSessions(); const query = keyword.toLowerCase(); return sessions.filter((session) => `${session.title}${session.agentName || ''}`.toLowerCase().includes(query)); },
-  async updateSession(id: string, value: Partial<SessionRecord>) { await db.sessions.update(id, { ...value, updatedAt: new Date().toISOString() }); return db.sessions.get(id); },
+  async updateSession(id: string, value: Partial<SessionRecord>) { await db.sessions.update(id, { ...value, updatedAt: new Date().toISOString() }); notifySessionsChanged(); return db.sessions.get(id); },
   async removeSession(id: string) { await db.transaction('rw', db.sessions, db.messages, db.checkpoints, async () => { await db.sessions.delete(id); await db.messages.where('sessionId').equals(id).delete(); await db.checkpoints.where('sessionId').equals(id).delete(); }); },
   async appendMessages(records: SessionMessageRecord[]) { await db.messages.bulkPut(records); },
   async getMessages(sessionId: string) { return db.messages.where('sessionId').equals(sessionId).sortBy('sequence'); },
@@ -54,6 +58,7 @@ export const sessionHistoryService = {
     await db.checkpoints.put(record);
     await this.persistRunSnapshot(sessionId, snapshot);
     await db.sessions.update(sessionId, { updatedAt });
+    notifySessionsChanged();
     return record;
   },
   async persistRunSnapshot(sessionId: string, snapshot: RuntimeRunState) {

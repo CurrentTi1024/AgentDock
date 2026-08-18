@@ -268,7 +268,8 @@ checkpoints
   - `messages`：`persistRunSnapshot` 把快照中全部可见消息（text / reasoning / tool / activity / surface / step）`bulkPut`；
   - `sessions.updatedAt` 刷新（驱动会话列表排序）。
 - 页面刷新恢复：会话列表与当前会话消息从 `getMessages` 读取；mock/direct 从 `getLatestRun` 恢复快照（`runStore.restoreSession`），http+proxy 走 `connectAgent(action=resume, resume.lastStreamId)`。
-- 失败策略：写入在后台 fire-and-forget，失败仅 `console.warn` 不阻断对话；`createSession` 超过 3s 未完成输出阻塞诊断；监听 Dexie `blocked`/`versionchange`，被旧标签页阻塞时提示关闭旧页。
+- 失败策略：新建会话/群聊统一“先跳转、路由携带 `pendingSession`、后台异步落库”，写入失败仅 `console.warn` 不阻断对话；`createSession` 超过 3s 未完成输出阻塞诊断；监听 Dexie `blocked`/`versionchange`，被旧标签页阻塞时提示关闭旧页。
+- 列表刷新：`createSession`/`updateSession`/`saveRunCheckpoint` 成功后广播 `agentdock:sessions-changed`，HomeSidebar/GroupSidebar/群聊首页监听后重新拉取会话列表，新会话无需手动刷新即可出现在“最近对话/最近群聊”。
 - 测试：`src/api/session/sessionHistoryService.test.ts` 用 `fake-indexeddb` 覆盖“创建会话 / 终态 flush 落库 / 防抖自动落盘 / 刷新后恢复一致”；浏览器验收按 `docs/agentdock/03` 刷新后回看。
 
 ### sessions

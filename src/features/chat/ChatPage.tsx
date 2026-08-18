@@ -4,7 +4,7 @@ import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { Copy, FileBarChart, ThumbsDown, ThumbsUp, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useParams, useSearchParams } from 'react-router-dom';
 
 import { resolveChatAgentId } from '@/features/chat/agentDetail';
 import ChatHeader from '@/features/chat/components/ChatHeader';
@@ -79,8 +79,10 @@ OfficialActivityMessages.displayName = 'OfficialActivityMessages';
 export default function ChatPage() {
   const { t } = useI18n();
   const { id = 'session-inbox' } = useParams();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const sessionId = id === 'inbox' ? 'session-inbox' : id;
+  const pendingSession = (location.state as { pendingSession?: SessionRecord } | null)?.pendingSession;
 
   const [input, setInput] = useState('');
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
@@ -140,6 +142,10 @@ export default function ChatPage() {
       setSession(existing);
       return existing;
     }
+    if (pendingSession?.id === sessionId) {
+      setSession(pendingSession);
+      return pendingSession;
+    }
     const created = await sessionHistoryService.createSession({
       agentId: selectedAgent?.agentId || 'flight-analysis',
       agentName: selectedAgent?.agentFullName,
@@ -155,7 +161,7 @@ export default function ChatPage() {
     });
     setSession(created);
     return created;
-  }, [fab, selectedAgent?.agentFullName, selectedAgent?.agentId, selectedAgent?.version, session, sessionId]);
+  }, [fab, pendingSession, selectedAgent?.agentFullName, selectedAgent?.agentId, selectedAgent?.version, session, sessionId]);
 
   useEffect(() => {
     void ensureSession().then((value) =>

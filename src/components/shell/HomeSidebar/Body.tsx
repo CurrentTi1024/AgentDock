@@ -65,9 +65,14 @@ const Body = () => {
   const [keyword, setKeyword] = useState('');
 
   useEffect(() => {
-    if (!thisMonthOnly || isActive(location.pathname, '/chat')) {
-      void sessionHistoryService.listSessions().then(setSessions);
-    }
+    const load = () => {
+      if (!thisMonthOnly || isActive(location.pathname, '/chat')) {
+        void sessionHistoryService.listSessions().then(setSessions);
+      }
+    };
+    load();
+    window.addEventListener('agentdock:sessions-changed', load);
+    return () => window.removeEventListener('agentdock:sessions-changed', load);
   }, [location.pathname, thisMonthOnly]);
 
   const visibleSessions = useMemo(() => {
