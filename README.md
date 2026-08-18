@@ -21,6 +21,77 @@ AgentDock 是公司内部使用的 Agent 前端工作台：复用 LobeHub 打磨
 - Zustand（页面/UI 状态）、Dexie（IndexedDB）
 - Node 内置 `node:test`（运行时 reducer/SSE 单元测试）
 
+## 系统架构
+
+### 生产拓扑（方案 A：官方 CopilotKit + Copilot Runtime）
+
+```mermaid
+flowchart LR
+  B[Browser<br/>LobeHub 风格 SPA]
+  P[OAuth2 Proxy<br/>SSO 登录 + token 注入<br/>固定 path 转发]
+  R[Copilot Runtime<br/>server/index.ts<br/>同前端仓库/进程]
+  F[FabRoutingAgent<br/>按 forwardedProps.fab 选上游]
+  O[Orchestration Service<br/>/ag-ui]
+  C[Core<br/>DeepAgents + CopilotKitMiddleware]
+  A[Agent Registry<br/>市场/详情/授权]
+
+  B -->|普通 REST /api/*| P
+  B -->|实时 /api/copilotkit| P
+  P -->|/api/market/* 等| A
+  P -->|/api/copilotkit| R
+  R --> F
+  F -->|AGENT_ORCHESTRATION_BASE_URLS_JSON[fab]| O
+  O --> C
+```
+
+### 组件职责
+
+| 组件 | 职责 |
+|---|---|
+| Browser SPA | LobeHub 风格 UI；`CopilotKit Provider + useAgent + useCopilotKit`；事件投影为 LobeHub ViewModel；IndexedDB 本地历史 |
+| OAuth2 Proxy | SSO 登录态注入；固定 path 转发（`/api/*` → Registry、`/api/copilotkit` → Runtime）；不具备按 FAB 动态路由能力 |
+| Copilot Runtime（`server/index.ts`） | single-route envelope（`{method, params, body}`）；`FabRoutingAgent` 按 FAB 选择上游；A2UI Middleware；HITL bridge；认证透传；可选静态托管 |
+| Agent Registry | Agent/Skill/MCP 市场、FAB 前置查询、授权与详情 |
+| Orchestration Service | `/ag-ui`（AG-UI SSE）；沿用客户端 `runId`；按 FAB 部署 |
+| Core | DeepAgents + `CopilotKitMiddleware`；`render_a2ui`、HITL interrupt、流式事件 |
+
+### 实时链路（AG-UI / A2UI / 流式回显）
+
+```text
+浏览器
+  → POST /api/copilotkit（single-route envelope）
+  → Copilot Runtime
+      └─ FabRoutingAgent.run(input) → HttpAgent → POST {fab}/ag-ui
+  → Orchestration（ag-ui-langgraph + CopilotKitMiddleware + DeepAgents）
+  → AG-UI SSE 事件流原样返回
+  → Runtime 编码回 SSE → 前端 transport 解析
+  → agent.subscribe 回调 → reduceRunEvent 投影（RuntimeRunState）
+  → LobeHub 组件按 orderedBlocks 顺序渲染
+```
+
+- **AG-UI**：run/connect/stop/info 全走 single-route envelope；`RUN_STARTED / STEP_* / REASONING_* / TEXT_* / TOOL_CALL_* / ACTIVITY_* / STATE_* / MESSAGES_SNAPSHOT / RUN_FINISHED` 逐类投影到对应组件。
+- **A2UI**：Runtime `a2ui` middleware 把 `render_a2ui` 流式参数转成 `a2ui-surface` activity（`createSurface → updateComponents → updateDataModel`）；前端 Provider `a2ui={{ catalog }}` + 官方 renderer 渲染 catalog 组件；action 以 `forwardedProps.a2uiAction.userAction` 回传。
+- **HITL**：标准 `RUN_FINISHED(outcome=interrupt)` 与 legacy `on_interrupt` 双 wire 均投影为暂停块，approve/reject 回传 requestId。
+- **信息粒度渲染（fully copy LobeHub）**：文本（Markdown）、Reasoning 折叠卡、Tool 参数/结果卡、Workflow 步骤、Task/Delegation Activity、HITL 审批、A2UI 组件、错误卡，全部按事件顺序渲染（`orderedBlocks`）。
+
+### 前端内部架构
+
+```text
+CopilotKit Agent（http+proxy 唯一状态源）
+        │ agent.subscribe / useAgent
+        ▼
+useAgentDockConversation（投影 + 持久化 facade）
+        ├─ RuntimeRunState（LobeHub ViewModel：messages/reasoning/toolCalls/steps/surfaces/activities）
+        ├─ IndexedDB（sessionHistoryService v3：全量消息 + checkpoint）
+        └─ mock 模式回退自研 SSE + runStore（direct 联调同理）
+        ▼
+ChatPage / MessageBlocks / Markdown / A2UI renderer（只读投影，纯展示）
+```
+
+对话历史：全部会话消息（单 Agent 与 Agent Group 的文本/reasoning/tool/activity/HITL/A2UI/step）保存在 IndexedDB（`agentdock-session-v3`），每次打开从本地恢复；清空浏览器存储后历史为空。
+
+详细决策与实现见 [design/08](docs/agentdock/design/08-final-architecture-decision.md)、[design/09](docs/agentdock/design/09-agui-lobehub-rendering-adapter.md)、[design/10](docs/agentdock/design/10-end-to-end-code-review.md)。
+
 ## 快速开始
 
 ### 环境要求
@@ -64,9 +135,7 @@ pnpm run server
 | `VITE_AGENT_RUNTIME_TRANSPORT` | `proxy` | `proxy` 固定走 `/api/copilotkit`；`direct` 为本地联调直连 FAB `/ag-ui` |
 | `VITE_AGENT_ORCHESTRATION_ENDPOINTS_JSON` | `{}` | 仅 `direct` 模式使用：FAB → Orchestration Base URL 映射 |
 
-生产默认拓扑：浏览器只访问同源 `/api/*`；SSO 登录与 token 注入由 **OAuth2 Proxy** 统一处理——普通 `/api/*` 按 path 路由到 Agent Registry，`/api/copilotkit` 路由到 Copilot Runtime（`server/index.ts`，按 `forwardedProps.fab` 选择上游 Orchestration `/ag-ui`）。FAB 地址通过服务端环境变量注入，不写入前端构建产物；仓库不自建反向代理。
-
-对话历史：全部会话消息（单 Agent 与 Agent Group 的文本/reasoning/tool/activity/HITL/A2UI/step）保存在 IndexedDB（`agentdock-session-v3`），每次打开从本地恢复；清空浏览器存储后历史为空。
+生产默认拓扑见上方「系统架构」：浏览器只访问同源 `/api/*`；SSO 与固定 path 转发由 OAuth2 Proxy 负责；FAB 地址通过服务端环境变量 `AGENT_ORCHESTRATION_BASE_URLS_JSON` 注入，不写入前端构建产物；仓库不自建反向代理。
 
 ## 目录结构
 
