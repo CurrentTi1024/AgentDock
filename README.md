@@ -35,12 +35,12 @@ flowchart LR
   C[Core<br/>DeepAgents + CopilotKitMiddleware]
   A[Agent Registry<br/>市场/详情/授权]
 
-  B -->|普通 REST /api/*| P
-  B -->|实时 /api/copilotkit| P
-  P -->|/api/market/* 等| A
-  P -->|/api/copilotkit| R
+  B -->|"普通 REST /api/*"| P
+  B -->|"实时 /api/copilotkit"| P
+  P -->|"/api/market/* 等"| A
+  P -->|"/api/copilotkit"| R
   R --> F
-  F -->|AGENT_ORCHESTRATION_BASE_URLS_JSON[fab]| O
+  F -->|"AGENT_ORCHESTRATION_BASE_URLS_JSON[fab]"| O
   O --> C
 ```
 
