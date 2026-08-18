@@ -1,0 +1,31 @@
+import type { AgUiEvent, RunAgentInput } from '@/services/runtime/types';
+const delay = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => { const timer = setTimeout(resolve, ms); signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); }, { once: true }); });
+export async function* createAgentRuntimeMockEvents(input: RunAgentInput, signal?: AbortSignal): AsyncGenerator<AgUiEvent> {
+  const assistantId = `assistant-${input.runId}`; const fab = input.forwardedProps.fab; let sequence = 0;
+  const event = (value: AgUiEvent) => ({ ...value, rawEvent: { runId: input.runId, streamId: `${Date.now()}-${sequence++}` } });
+  if (input.forwardedProps.action === 'stop') { yield event({ type: 'RUN_ERROR', threadId: input.threadId, runId: input.runId, code: 'CANCELLED', message: 'Run cancelled by user.' }); return; }
+  if (input.forwardedProps.action === 'run' || input.forwardedProps.action === 'a2uiAction') yield event({ type: 'RUN_STARTED', threadId: input.threadId, runId: input.runId });
+  yield event({ type: 'STEP_STARTED', stepName: 'plan' }); await delay(80, signal);
+  yield event({ type: 'REASONING_MESSAGE_START', messageId: `reasoning-${input.runId}` });
+  yield event({ type: 'REASONING_MESSAGE_CONTENT', messageId: `reasoning-${input.runId}`, delta: '校验输入、权限和数据范围；规划只读工具调用。' });
+  yield event({ type: 'REASONING_MESSAGE_END', messageId: `reasoning-${input.runId}` });
+  if (input.forwardedProps.action === 'run') {
+    yield event({ type: 'ACTIVITY_SNAPSHOT', messageId: `hitl-${input.runId}`, activityType: 'agentDock.hitl', content: { requestId: `hitl-${input.runId}`, mode: 'toolAuthorization', title: '允许读取飞行测试指标', description: '只读操作，不会修改源数据。' } });
+    return;
+  }
+  if (input.forwardedProps.action === 'hitlResponse' && input.forwardedProps.hitlResponse?.decision === 'reject') {
+    yield event({ type: 'RUN_ERROR', threadId: input.threadId, runId: input.runId, code: 'CANCELLED', message: 'The requested tool call was rejected.' });
+    return;
+  }
+  yield event({ type: 'TOOL_CALL_START', toolCallId: `tool-${input.runId}`, toolCallName: 'flightData.queryMetrics' });
+  yield event({ type: 'TOOL_CALL_ARGS', toolCallId: `tool-${input.runId}`, delta: `{"fab":"${fab}","date":"2026-08-18"}` });
+  yield event({ type: 'TOOL_CALL_END', toolCallId: `tool-${input.runId}` }); await delay(100, signal);
+  yield event({ type: 'TOOL_CALL_RESULT', toolCallId: `tool-${input.runId}`, content: { anomalies: 2, status: 'ok' } });
+  yield event({ type: 'ACTIVITY_SNAPSHOT', messageId: `activity-${input.runId}`, activityType: input.forwardedProps.group ? 'agentDock.agentDelegation' : 'agentDock.task', content: { status: 'completed', fab } });
+  yield event({ type: 'TEXT_MESSAGE_START', messageId: assistantId, role: 'assistant' });
+  const text = '今天的飞行测试整体稳定。发现 09:42 振动峰值和 10:17 温度跃升两处短时异常，建议复核原始传感器数据并加入下一次试飞检查清单。';
+  for (const token of text.match(/.{1,3}/g) || []) { await delay(24, signal); yield event({ type: 'TEXT_MESSAGE_CONTENT', messageId: assistantId, delta: token }); }
+  yield event({ type: 'TEXT_MESSAGE_END', messageId: assistantId });
+  yield event({ type: 'ACTIVITY_SNAPSHOT', messageId: `surface-${input.runId}`, activityType: 'a2ui.surface', surfaceId: `surface-${input.runId}`, content: { catalogId: 'agentdock://catalog', components: [{ id: 'summary', type: 'metricCard', props: { label: '异常数量', value: 2 } }, { id: 'open', type: 'button', props: { label: '打开报告', actionName: 'open_report' } }] } });
+  yield event({ type: 'RUN_FINISHED', threadId: input.threadId, runId: input.runId });
+}

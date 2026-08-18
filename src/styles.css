@@ -1,0 +1,6 @@
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { min-width: 0; overflow: hidden; }
+button, input, textarea { font: inherit; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 10px; background: var(--lobe-colorFill); background-clip: content-box; }

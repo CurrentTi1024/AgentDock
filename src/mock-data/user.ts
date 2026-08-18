@@ -1,0 +1,1 @@
+export const currentUserProfileMockData = { userId: 'u-10001', displayName: 'Alex Chen', avatarUrl: '', email: 'alex.chen@company.example', roles: ['user', 'skill_creator'] as Array<'skill_creator' | 'user'>, preferredLocale: 'zh-CN' };
