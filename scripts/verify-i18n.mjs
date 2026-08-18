@@ -175,6 +175,7 @@ for (const [locale, target] of Object.entries(LOCALE_TO_CODE)) {
     flaggedCount: flagged.length,
     flagged,
   };
+  writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2));
   console.log(
     `== ${locale} | avg ${(totalScore / Math.max(1, entries.length)).toFixed(2)} | flagged ${flagged.length}/${entries.length}`,
   );

@@ -106,26 +106,44 @@ class TranslateServer(BaseHTTPRequestHandler):
                 self.send_error(400, f"language pair not installed: {source}->{target}")
                 return
 
-        lines = q.split("\n")
-        if translation is None:
-            translated = translate_with_deepl(lines, target)
-        else:
+        try:
+            lines = q.split("\n")
+            if translation is None:
+                translated = translate_with_deepl(lines, target)
+            else:
+                try:
+                    translated = translation.translate_batch(lines)
+                except (AttributeError, TypeError):
+                    translated = [translation.translate(line) for line in lines]
+            body = json.dumps(
+                {
+                    "responseData": {"translatedText": "\n".join(translated)},
+                    "responseStatus": 200,
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as error:  # noqa: BLE001 - keep the HTTP bridge alive
+            body = json.dumps(
+                {
+                    "responseData": {"translatedText": ""},
+                    "responseStatus": 500,
+                    "responseDetails": repr(error),
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
             try:
-                translated = translation.translate_batch(lines)
-            except (AttributeError, TypeError):
-                translated = [translation.translate(line) for line in lines]
-        body = json.dumps(
-            {
-                "responseData": {"translatedText": "\n".join(translated)},
-                "responseStatus": 200,
-            },
-            ensure_ascii=False,
-        ).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     def log_message(self, fmt, *args):
         print("[%s] %s" % (self.log_date_time_string(), fmt % args), file=sys.stderr)

@@ -176,5 +176,5 @@ console.table(s?.rawEvents?.map(e => [e.type, e.messageId || e.toolCallId || '',
 - [ ] CD `deployment.yml` 注入 `AGENT_ORCHESTRATION_BASE_URLS_JSON` + `AGENT_REGISTRY_BASE_URL`。
 - [ ] OAuth2 Proxy 将 `/api/*` 路由到 Registry、`/api/copilotkit` 路由到 Runtime（不自行实现反向代理）。
 - [ ] `/api/copilotkit` 挂载 Runtime handler（single-route）。
-- [ ] 生产只允许 HTTPS FAB URL。
+- [ ] FAB URL 协议按公司内网规范（代码不强制 http/https）。
 - [ ] 日志脱敏：不记录 SSO Token、完整用户问题与工具敏感结果。

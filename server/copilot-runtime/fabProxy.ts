@@ -11,10 +11,7 @@ const getServerEnv = () => (globalThis as typeof globalThis & { process?: { env?
 
 export function parseFabEndpoints(serialized = getServerEnv().AGENT_ORCHESTRATION_BASE_URLS_JSON || ''): Record<string, string> {
   const endpoints = JSON.parse(serialized) as Record<string, string>;
-  for (const [fab, value] of Object.entries(endpoints)) {
-    const url = new URL(value);
-    if (url.protocol !== 'https:' && getServerEnv().NODE_ENV === 'production') throw new Error(`FAB endpoint ${fab} must use HTTPS`);
-  }
+  // 协议（http/https）由公司内网部署规范决定，代码不做强制校验。
   return endpoints;
 }
 

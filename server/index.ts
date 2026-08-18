@@ -22,12 +22,7 @@ const parseFabEndpoints = (): Record<string, string> => {
   } catch {
     throw new Error('AGENT_ORCHESTRATION_BASE_URLS_JSON is not valid JSON');
   }
-  if (process.env.NODE_ENV === 'production') {
-    for (const [fab, value] of Object.entries(endpoints)) {
-      const url = new URL(value);
-      if (url.protocol !== 'https:') throw new Error(`FAB endpoint ${fab} must use HTTPS in production`);
-    }
-  }
+  // 协议（http/https）由公司内网部署规范决定，代码不做强制校验。
   return endpoints;
 };
 

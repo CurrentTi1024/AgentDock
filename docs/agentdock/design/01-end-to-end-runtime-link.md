@@ -120,7 +120,7 @@ threadId: session?.threadId || `thread-${sessionId}`
 `server/copilot-runtime/fabProxy.ts`：
 
 1. 校验 body：`forwardedProps.fab/sessionId/action`、`runId`、`threadId` 必须存在，action 必须在 `run/resume/stop/hitlResponse/a2uiAction` 集合内。
-2. `AGENT_ORCHESTRATION_BASE_URLS_JSON` 解析 fab → base URL；生产环境强制 HTTPS。
+2. `AGENT_ORCHESTRATION_BASE_URLS_JSON` 解析 fab → base URL；协议（http/https）由公司内网部署规范决定，代码不做强制校验。
 3. 拼接 `${base}/ag-ui`，透传 `authorization/cookie/x-request-id/traceparent`。
 4. 流式返回上游 SSE；非 2xx 或上游不可达返回 `FAB_ENDPOINT_UNAVAILABLE`；取消返回 `CANCELLED`。
 

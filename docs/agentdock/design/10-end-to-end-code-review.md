@@ -85,7 +85,7 @@ Browser（CopilotKit transport）
 | 静态托管目录穿越：`startsWith(normalize(distDir))` 会把 `/dist2` 误判为合法 | P1(安全) | ✅ 改为 `distDir + sep` 边界判断 |
 | `/api/copilotkit-other` 也被路由到 Runtime | P2 | ✅ 精确匹配 `/api/copilotkit` 与 `/api/copilotkit/` |
 | `fabProxy.ts`（旧自研转发）仍留在仓库 | P2 | 保留作 legacy 参考，标注 deprecated，不再被生产引用 |
-| 生产未强制 HTTPS（旧 fabProxy 有校验，新 FabRoutingAgent 没有） | P1 | ⏳ 联调前补 `AGENT_ORCHESTRATION_BASE_URLS_JSON` HTTPS 校验（见清单） |
+| FAB URL 协议不强制 | - | ✅ 按公司内网规范；代码不校验 http/https |
 
 ### 4.2 `sse.ts` / `agentRuntimeService.ts`（R2）
 
@@ -156,7 +156,7 @@ Browser（CopilotKit transport）
 
 ### P1（联调前建议完成）
 
-- [ ] `FabRoutingAgent` 补 HTTPS 校验（与旧 fabProxy 行为一致）
+- [x] FAB URL 协议由公司内网规范决定，代码不强制 HTTPS
 - [ ] HITL wire 与后端冻结（标准 `resume[]` vs legacy `on_interrupt`）
 - [ ] A2UI：后端 fixture 验证 `render_a2ui` 流式解析与 surface 事件；恢复历史 surface 用 catalog 重建（替代 raw JSON）
 - [x] 市场/详情请求竞态、locale 硬编码、Skill 跳转（Mock 注册新详情）
@@ -164,7 +164,7 @@ Browser（CopilotKit transport）
 - [x] runStore / applyEvent 的 IndexedDB 写入 debounce
 - [x] 恢复历史 surface 用 `A2uiStoredSurface` 组件化重建（未知组件回退 raw JSON）
 - [x] 复制按钮、mention 空态、Settings 开关（已生效）、文档/记忆日期 locale
-- [x] FAB HTTPS 校验（生产强制 https）
+- [x] FAB URL 协议不强制（按公司内网实际协议）
 
 ### P2
 

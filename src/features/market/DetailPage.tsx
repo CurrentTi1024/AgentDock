@@ -28,11 +28,9 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import NavHeader from '@/components/shell/NavHeader';
 import WideScreenContainer from '@/components/shell/WideScreenContainer';
-import FabSelector from '@/features/market/components/FabSelector';
 import MarketItem from '@/features/market/components/MarketItem';
 import { useI18n } from '@/i18n';
 import { agentMarketService } from '@/api/market/agentMarketService';
-import { marketService } from '@/api/market/marketService';
 import { mcpMarketService } from '@/api/market/mcpMarketService';
 import { skillMarketService } from '@/api/market/skillMarketService';
 import type {
@@ -624,31 +622,12 @@ export default function DetailPage({ kind }: { kind: MarketKind }) {
   const { t, locale } = useI18n();
   const { id = '' } = useParams();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [fabs, setFabs] = useState<string[]>([]);
-  const [fab, setFab] = useState(searchParams.get('fab') || '');
+  const [searchParams] = useSearchParams();
+  // 详情页只展示当前 FAB 的版本：以列表页带入的 fab 为准，不再查询/切换其他 FAB。
+  const fab = searchParams.get('fab') || 'F15B';
   const [detail, setDetail] = useState<MarketDetail>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setError(undefined);
-    void Promise.all([
-      marketService.getFabOptions({ locale, mode: 'all', type: kind }, { signal: controller.signal }),
-      marketService.getFabOptions({ locale, mode: 'permissioned', type: kind }, { signal: controller.signal }),
-    ]).then(([all, permissioned]) => {
-      setFabs(all.fabs);
-      const initial = searchParams.get('fab') || permissioned.fabs[0] || all.fabs[0] || '';
-      setFab(initial);
-      if (!searchParams.get('fab') && initial) setSearchParams({ fab: initial }, { replace: true });
-    }).catch((reason: unknown) => {
-      if ((reason as DOMException).name !== 'AbortError') setError(reason instanceof Error ? reason.message : String(reason));
-    });
-    return () => {
-      controller.abort();
-    };
-  }, [kind, locale, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (!fab || !id) return;
@@ -670,18 +649,12 @@ export default function DetailPage({ kind }: { kind: MarketKind }) {
     return () => controller.abort();
   }, [fab, id, kind, locale]);
 
-  const selectFab = (next: string) => {
-    setFab(next);
-    setSearchParams({ fab: next }, { replace: true });
-  };
-
   return (
     <Flexbox height="100%" style={{ overflowY: 'auto' }}>
       <NavHeader
         left={
           <Flexbox horizontal align="center" gap={10} style={{ minWidth: 0 }}>
             <ActionIcon aria-label={t('detail.backToMarket')} icon={ChevronLeft} onClick={() => navigate(`/market/${kind}`)} />
-            <FabSelector fabs={fabs} value={fab} onChange={selectFab} />
           </Flexbox>
         }
       />
