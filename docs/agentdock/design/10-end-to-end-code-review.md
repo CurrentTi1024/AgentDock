@@ -1,6 +1,6 @@
 # 端到端 Code Review：AG-UI 通信 / A2UI Pipeline / 流式回显 / 信息粒度渲染
 
-> 状态：2026-08-19 完成第一轮逐行 review，P0 已修复，P1/P2 见文末清单
+> 状态：2026-08-19 完成两轮 review；P0 与无需联调的前端/服务端项已全部修复，剩余为联调项与拆包优化
 > 关联：`design/08`（架构决策）、`design/09`（投影层）、`01`（链路）、`02`（协议）
 
 ## 1. Review 模块划分（TodoList）
@@ -102,7 +102,7 @@ Browser（CopilotKit transport）
 | 渲染按 map 分组（先全部 reasoning 再全部 tool），与真实事件顺序不一致 | P1（LobeHub 视觉） | ✅ 新增 `orderedBlocks`，按事件顺序渲染；旧检查点兼容 fallback |
 | 缺少 `REASONING_MESSAGE_CHUNK` | P1 | ✅ 已补 |
 | `a2ui.surface` / `a2ui-surface` 两种 activityType 不统一 | P1 | ✅ reducer 同时识别，http 下官方 renderer 负责、raw JSON fallback 关闭 |
-| `saveRunCheckpoint` 每个事件都全量写 IndexedDB | P2(性能) | 保留，联调后评估 debounce |
+| ~~`saveRunCheckpoint` 每个事件都全量写 IndexedDB~~ | P2(性能) | ✅ 350ms 防抖 + 终态 flush |
 | mock stop 后无上游确认直接置 cancelled | P2 | 保留（mock 语义） |
 
 ### 4.4 `useAgentDockConversation.ts`（R4）
@@ -115,7 +115,7 @@ Browser（CopilotKit transport）
 | 刷新恢复后 agent.messages 为空，下一轮丢上下文 | P0 | ✅ `restore` 用 checkpoint 回填 `agent.setMessages` |
 | A2UI action 未按官方 `a2uiAction.userAction` 嵌套 | P1 | ✅ 已改为嵌套 shape |
 | stop 后可能长期停留在 running | P1 | ✅ 已补 CANCELLED 终态 |
-| `applyEvent` 每事件 await IndexedDB（无 debounce） | P2 | 保留 |
+| ~~`applyEvent` 每事件 await IndexedDB（无 debounce）~~ | P2 | ✅ scheduleRunCheckpoint + 终态 flush |
 
 ### 4.5 `ChatPage.tsx` / `providers.tsx`（R5）
 
@@ -123,7 +123,7 @@ Browser（CopilotKit transport）
 |---|---|---|
 | 发送后输入框不清空 | P1(体验) | ✅ 已 `setInput('')` |
 | http 下 raw JSON surface 与官方 renderer 双渲染 | P1 | ✅ `showSurfaces: getServiceMode() !== 'http'` |
-| mock 下 Provider 仍会尝试 `/info` | P2 | onError 静默；联调后可改为按模式懒挂载 |
+| ~~mock 下 Provider 仍会尝试 `/info`~~ | P2 | ✅ mock 模式不传 runtimeUrl/a2ui，不发 /info |
 | `selectedAgent` 默认选中 `items[0]` | P2 | 保留（需求 P2） |
 
 ### 4.6 `MessageBlocks.tsx` / `Markdown.tsx` / `ChatItem.tsx`（R6）
@@ -133,14 +133,14 @@ Browser（CopilotKit transport）
 | `chat.steps` 文案硬编码全角括号、无占位符 | P1(i18n) | ✅ 改为 `{completed}/{total}` 占位符并同步 18 语言 |
 | steps 按事件顺序分组渲染 | P1 | ✅ orderedBlocks 顺序 + 连续 step 合并 |
 | 助手消息无 Markdown | P0（此前） | ✅ Markdown.tsx |
-| 复制按钮无 onClick | P2 | 保留 |
+| ~~复制按钮无 onClick~~ | P2 | ✅ 接入 clipboard |
 
 ### 4.7 `sessionHistoryService.ts`（R7）
 
 | 发现 | 级别 | 处理 |
 |---|---|---|
 | 全量消息类型持久化、恢复、清空即空 | ✅ 已实现 | - |
-| sequence 用 `Date.now()+index`，同毫秒跨 run 可能乱序 | P2 | 联调后改单调计数器 |
+| ~~sequence 用 `Date.now()+index`，同毫秒跨 run 可能乱序~~ | P2 | ✅ 改 `Date.now()*1000 + 自增序列` |
 | 恢复后的 A2UI surface 只渲染 raw JSON | P1 | 联调后按 catalog 渲染器重建（见清单） |
 
 ## 5. 待办清单
@@ -159,15 +159,18 @@ Browser（CopilotKit transport）
 - [ ] `FabRoutingAgent` 补 HTTPS 校验（与旧 fabProxy 行为一致）
 - [ ] HITL wire 与后端冻结（标准 `resume[]` vs legacy `on_interrupt`）
 - [ ] A2UI：后端 fixture 验证 `render_a2ui` 流式解析与 surface 事件；恢复历史 surface 用 catalog 重建（替代 raw JSON）
-- [ ] 市场/详情请求竞态、locale 硬编码、Skill 跳转
+- [x] 市场/详情请求竞态、locale 硬编码、Skill 跳转（Mock 注册新详情）
 - [ ] 构建产物体积优化（CopilotKit 依赖引入 katex/mermaid/shiki，当前主 chunk ~1.9MB）
-- [ ] runStore / applyEvent 的 IndexedDB 写入 debounce
+- [x] runStore / applyEvent 的 IndexedDB 写入 debounce
+- [x] 恢复历史 surface 用 `A2uiStoredSurface` 组件化重建（未知组件回退 raw JSON）
+- [x] 复制按钮、mention 空态、Settings 开关（已生效）、文档/记忆日期 locale
+- [x] FAB HTTPS 校验（生产强制 https）
 
 ### P2
 
-- [ ] 复制按钮、mention 空态、静态样例、Settings 开关
-- [ ] `sequence` 单调计数器
-- [ ] mock 模式 Provider 懒挂载
+- [ ] 静态样例（Reviews/Security/Info 等待真实数据）
+- [x] `sequence` 单调计数器
+- [x] mock 模式 Provider 不发起 Runtime 连接
 
 ## 6. 联调验证入口（代码侧自检）
 

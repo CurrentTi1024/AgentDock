@@ -29,6 +29,7 @@ export default {
   'chat.like': '点赞',
   'chat.mentionButton': 'Agent-FAB',
   'chat.mentionHint': '可调用的 Agent-FAB',
+  'chat.mentionEmpty': '暂无可用的 Agent-FAB',
   'chat.openReport': '打开分析报告',
   'chat.placeholder': '发送消息，输入 @ 选择 Agent-FAB',
   'chat.reasoning': '推理过程',

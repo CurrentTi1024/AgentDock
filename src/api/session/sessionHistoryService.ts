@@ -9,6 +9,11 @@ class SessionDatabase extends Dexie {
   constructor() { super('agentdock-session-v3'); this.version(1).stores({ sessions: 'id,threadId,updatedAt,pinned,type', messages: 'id,sessionId,runId,createdAt,sequence', checkpoints: 'runId,sessionId,threadId,status,updatedAt' }); }
 }
 const db = new SessionDatabase();
+let sequenceSeed = 0;
+const nextSequence = () => Date.now() * 1000 + (sequenceSeed = (sequenceSeed + 1) % 1000);
+let pendingCheckpoint: { input: RunAgentInput; sessionId: string; snapshot: RuntimeRunState } | undefined;
+let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
+const CHECKPOINT_DEBOUNCE_MS = 350;
 export const sessionHistoryService = {
   async createSession(input: Omit<SessionRecord, 'createdAt' | 'id' | 'updatedAt'> & { id?: string }) { const now = new Date().toISOString(); const record = { ...input, id: input.id ?? crypto.randomUUID(), createdAt: now, updatedAt: now }; await db.sessions.put(record); return record; },
   async getSession(id: string) { return db.sessions.get(id); },
@@ -27,10 +32,8 @@ export const sessionHistoryService = {
     return record;
   },
   async persistRunSnapshot(sessionId: string, snapshot: RuntimeRunState) {
-    const base = Date.now();
     const records: SessionMessageRecord[] = [];
-    let index = 0;
-    const push = (kind: SessionMessageKind, id: string, value: Omit<SessionMessageRecord, 'createdAt' | 'id' | 'kind' | 'sequence' | 'sessionId'>) => records.push({ ...value, createdAt: new Date().toISOString(), id: `${kind}:${id}`, kind, sequence: base + index++, sessionId });
+    const push = (kind: SessionMessageKind, id: string, value: Omit<SessionMessageRecord, 'createdAt' | 'id' | 'kind' | 'sequence' | 'sessionId'>) => records.push({ ...value, createdAt: new Date().toISOString(), id: `${kind}:${id}`, kind, sequence: nextSequence(), sessionId });
     for (const message of Object.values(snapshot.messages)) {
       if (!message || !message.id) continue;
       push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, streamId: snapshot.latestStreamId });
@@ -52,4 +55,24 @@ export const sessionHistoryService = {
   },
   async getLatestRun(sessionId: string) { const records = await db.checkpoints.where('sessionId').equals(sessionId).sortBy('updatedAt'); return records.at(-1); },
   async getLatestRecoverableRun(sessionId: string) { const records = await db.checkpoints.where('sessionId').equals(sessionId).sortBy('updatedAt'); return records.reverse().find((record) => ['running', 'paused'].includes(record.status)); },
+};
+
+/** 防抖写入：高频流式事件只保留最新快照，空闲 350ms 后落盘；终态时手动 flush。 */
+export const scheduleRunCheckpoint = (sessionId: string, input: RunAgentInput, snapshot: RuntimeRunState) => {
+  pendingCheckpoint = { input, sessionId, snapshot };
+  if (checkpointTimer) clearTimeout(checkpointTimer);
+  checkpointTimer = setTimeout(() => {
+    void flushRunCheckpoint();
+  }, CHECKPOINT_DEBOUNCE_MS);
+};
+
+export const flushRunCheckpoint = async () => {
+  if (checkpointTimer) {
+    clearTimeout(checkpointTimer);
+    checkpointTimer = undefined;
+  }
+  if (!pendingCheckpoint) return;
+  const job = pendingCheckpoint;
+  pendingCheckpoint = undefined;
+  await sessionHistoryService.saveRunCheckpoint(job.sessionId, job.input, job.snapshot);
 };

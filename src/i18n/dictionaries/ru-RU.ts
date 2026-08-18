@@ -29,6 +29,7 @@ export default {
   'chat.like': 'Полезно',
   'chat.mentionButton': 'Agent-FAB',
   'chat.mentionHint': 'Доступные Agent-FAB',
+  'chat.mentionEmpty': 'Нет доступных агентов',
   'chat.openReport': 'Открыть отчёт об анализе',
   'chat.placeholder': 'Отправьте сообщение, введите @, чтобы выбрать Agent-FAB',
   'chat.reasoning': 'Рассуждение',

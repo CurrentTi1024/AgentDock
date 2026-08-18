@@ -29,6 +29,7 @@ export default {
   'chat.like': '도움이 됨',
   'chat.mentionButton': 'Agent-FAB',
   'chat.mentionHint': '사용 가능한 Agent-FAB',
+  'chat.mentionEmpty': '사용 가능한 에이전트가 없습니다',
   'chat.openReport': '분석 보고서 열기',
   'chat.placeholder': '메시지 보내기, @를 입력해 Agent-FAB 선택',
   'chat.reasoning': '추론',

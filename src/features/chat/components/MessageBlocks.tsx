@@ -219,6 +219,61 @@ export const A2uiSurfaceBlock = ({
   );
 };
 
+// 恢复历史 / Mock 场景的 A2UI Surface 组件化渲染：按 payload.components 重建 catalog 组件，
+// 未知组件回退 raw JSON（http 实时路径由官方 renderer 渲染，不走这里）。
+export const A2uiStoredSurface = ({
+  onAction,
+  payload,
+}: {
+  onAction: (actionName: string) => void;
+  payload: Record<string, unknown>;
+}) => {
+  const components = Array.isArray(payload.components)
+    ? (payload.components as Array<Record<string, unknown>>)
+    : [];
+  const nodes = components.flatMap((component, index) => {
+    const name = String(component.type || component.component || '');
+    const props = (component.props ?? component) as Record<string, unknown>;
+    if (name === 'metricCard') {
+      return [(
+        <Flexbox
+          gap={2}
+          key={`metric-${index}`}
+          padding={12}
+          style={{
+            background: cssVar.colorFillQuaternary,
+            border: `1px solid ${cssVar.colorBorderSecondary}`,
+            borderRadius: cssVar.borderRadiusLG,
+            minWidth: 160,
+          }}
+        >
+          <Text fontSize={12} type="secondary">
+            {String(props.label ?? '')}
+          </Text>
+          <Text fontSize={24} weight={600}>
+            {String(props.value ?? '')}
+          </Text>
+        </Flexbox>
+      )];
+    }
+    if (name === 'actionButton' || name === 'button') {
+      return [(
+        <Button
+          key={`action-${index}`}
+          size="small"
+          type="primary"
+          onClick={() => onAction(String(props.actionName ?? ''))}
+        >
+          {String(props.label ?? '')}
+        </Button>
+      )];
+    }
+    return [];
+  });
+  if (!nodes.length) return <A2uiSurfaceBlock payload={payload} />;
+  return <Flexbox gap={8} wrap="wrap">{nodes}</Flexbox>;
+};
+
 export const ErrorBlock = ({ message }: { message: string }) => (
   <ErrorBlockInner message={message} />
 );
@@ -246,7 +301,7 @@ export const renderStoredBlocks = (
   handlers: {
     onApproveHitl: (requestId: string) => void;
     onRejectHitl: (requestId: string) => void;
-    onSurfaceAction: (surfaceId: string) => void;
+    onSurfaceAction: (actionName: string, surfaceId: string) => void;
   },
   options: { showReasoning?: boolean; showSurfaces?: boolean } = {},
 ): React.ReactNode[] => {
@@ -311,9 +366,9 @@ export const renderStoredBlocks = (
       if (options.showSurfaces === false) continue;
       const surfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : record.id;
       nodes.push(
-        <A2uiSurfaceBlock
+        <A2uiStoredSurface
           key={record.id}
-          onAction={() => handlers.onSurfaceAction(surfaceId)}
+          onAction={(actionName) => handlers.onSurfaceAction(actionName, surfaceId)}
           payload={{ ...payload, surfaceId }}
         />,
       );
@@ -328,7 +383,7 @@ export const renderRunBlocks = (
   handlers: {
     onApproveHitl: (requestId: string) => void;
     onRejectHitl: (requestId: string) => void;
-    onSurfaceAction: () => void;
+    onSurfaceAction: (actionName: string) => void;
   },
   options: { showReasoning?: boolean; showSurfaces?: boolean } = {},
 ) => {
@@ -351,7 +406,7 @@ export const renderRunBlocks = (
     if (steps.length) blocks.push(<WorkflowStepsBlock key="steps" steps={steps} />);
     if (options.showSurfaces !== false) {
       for (const [surfaceId, payload] of Object.entries(run.surfaces || {})) {
-        if (typeof payload === 'object' && payload !== null) blocks.push(<A2uiSurfaceBlock key={`surface-${surfaceId}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId }} />);
+        if (typeof payload === 'object' && payload !== null) blocks.push(<A2uiStoredSurface key={`surface-${surfaceId}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId }} />);
       }
     }
   } else {
@@ -382,7 +437,7 @@ export const renderRunBlocks = (
         flushSteps();
         if (options.showSurfaces === false) continue;
         const payload = run.surfaces?.[ref.id];
-        if (typeof payload === 'object' && payload !== null) blocks.push(<A2uiSurfaceBlock key={`surface-${ref.id}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId: ref.id }} />);
+        if (typeof payload === 'object' && payload !== null) blocks.push(<A2uiStoredSurface key={`surface-${ref.id}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId: ref.id }} />);
       }
     }
     flushSteps();

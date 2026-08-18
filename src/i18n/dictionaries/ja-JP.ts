@@ -29,6 +29,7 @@ export default {
   'chat.like': '役に立つ',
   'chat.mentionButton': 'Agent-FAB',
   'chat.mentionHint': '利用可能な Agent-FAB',
+  'chat.mentionEmpty': '利用可能なエージェントがありません',
   'chat.openReport': '分析レポートを開く',
   'chat.placeholder': 'メッセージを送信、@ で Agent-FAB を選択',
   'chat.reasoning': '推論',

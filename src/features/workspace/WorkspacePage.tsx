@@ -156,7 +156,7 @@ function TasksPage() {
 }
 
 function DocumentsPage() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [documents, setDocuments] = useState<Awaited<ReturnType<typeof documentService.getDocumentsListByKW>>>([]);
   useEffect(() => {
     void documentService.getDocumentsListByKW().then(setDocuments);
@@ -192,7 +192,7 @@ function DocumentsPage() {
               </Flexbox>
             </Flexbox>
             <Text type="secondary">{document.owner}</Text>
-            <Text type="secondary">{new Date(document.updatedAt).toLocaleDateString('zh-CN')}</Text>
+            <Text type="secondary">{new Date(document.updatedAt).toLocaleDateString(locale)}</Text>
             <Button icon={MoreHorizontal} type="text" />
           </div>
         ))}
@@ -202,7 +202,7 @@ function DocumentsPage() {
 }
 
 function MemoryPage() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [memories, setMemories] = useState<Awaited<ReturnType<typeof memoryService.getMemoryItems>>>([]);
   const [autoInject, setAutoInject] = useState(true);
   useEffect(() => {
@@ -236,7 +236,7 @@ function MemoryPage() {
               <Text type="secondary">{memory.content}</Text>
             </Flexbox>
             <Text fontSize={12} type="secondary">
-              {new Date(memory.updatedAt).toLocaleDateString('zh-CN')}
+              {new Date(memory.updatedAt).toLocaleDateString(locale)}
             </Text>
             <Button icon={MoreHorizontal} type="text" />
           </Block>

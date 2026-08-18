@@ -167,8 +167,9 @@
 3. ✅ P0：A2UI catalog/renderer、HITL requestId、Markdown、STEP UI。
 4. ✅ P0：IndexedDB 全量会话历史（含 Group 消息类型）。
 5. ⏳ 联调项（需后端配合）：HITL wire 冻结（标准 resume[] vs legacy on_interrupt）、A2UI fixture 验证、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证。
-6. P1：市场/详情请求竞态与 locale、Skill 跳转、SSE 边界健壮性、构建产物体积优化（CopilotKit 依赖导致 bundle 增大）。
-7. P2：mention 空态、静态样例数据、Settings 开关。
+6. ✅ 无需联调项已全部完成：市场/详情竞态与 locale、Skill 跳转（Mock 注册新详情）、复制按钮、mention 空态、IndexedDB 防抖与单调序列、恢复历史 A2UI 组件化渲染、FAB HTTPS 校验、Provider mock 下不连 Runtime。
+7. P1（保留）：构建产物体积优化（CopilotKit 依赖引入 katex/mermaid/shiki，需拆包重构）。
+8. P2：静态样例数据（等真实数据）；Settings 开关已实际生效。
 
 ## 7. 深度 Code Review（2026-08-19，详见 `design/10-end-to-end-code-review.md`）
 
@@ -184,4 +185,14 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - `chat.steps` 改为 `{completed}/{total}` 占位符并同步 18 语言。
 - 服务端：静态目录穿越边界修复、`/api/copilotkit` 精确匹配。
 
-待联调项：HITL wire 冻结、A2UI fixture、FAB HTTPS 校验、历史 surface 用 catalog 重建、构建体积优化。
+第二轮（2026-08-19，无需联调项全部完成）：
+
+- 市场页/详情页：AbortController 竞态保护、loading/error 展示、locale 使用用户设置。
+- Skill 创建：受控表单收集用户输入、错误展示、按返回 `detailUrl` 跳转，Mock 注册新创建详情。
+- IndexedDB：`nextSequence()` 单调序列 + `scheduleRunCheckpoint/flushRunCheckpoint` 350ms 防抖。
+- A2UI：恢复历史/Mock surface 用 `A2uiStoredSurface` 按组件渲染，actionName 由 payload 驱动。
+- Chat：复制按钮接入 clipboard、`@` 菜单空态（`chat.mentionEmpty` 18 语言）。
+- 文档/记忆页日期使用用户 locale；Provider 在 mock 模式下不发起 Runtime `/info`。
+- 服务端：`AGENT_ORCHESTRATION_BASE_URLS_JSON` 生产环境强制 HTTPS。
+
+待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。

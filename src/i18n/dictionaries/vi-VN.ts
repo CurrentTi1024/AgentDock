@@ -29,6 +29,7 @@ export default {
   'chat.like': 'Hữu ích',
   'chat.mentionButton': 'Agent-FAB',
   'chat.mentionHint': 'Agent-FAB khả dụng',
+  'chat.mentionEmpty': 'Không có đại lý khả dụng',
   'chat.openReport': 'Mở báo cáo phân tích',
   'chat.placeholder': 'Gửi tin nhắn, gõ @ để chọn Agent-FAB',
   'chat.reasoning': 'Lập luận',

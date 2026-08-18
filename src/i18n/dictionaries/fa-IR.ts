@@ -29,6 +29,7 @@ export default {
   'chat.like': 'مفید',
   'chat.mentionButton': 'Agent-FAB',
   'chat.mentionHint': 'Agent-FAB های موجود',
+  'chat.mentionEmpty': 'عاملی در دسترس نیست',
   'chat.openReport': 'باز کردن گزارش تحلیل',
   'chat.placeholder': 'پیام بفرستید، برای انتخاب Agent-FAB علامت @ را تایپ کنید',
   'chat.reasoning': 'استدلال',

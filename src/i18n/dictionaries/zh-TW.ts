@@ -29,6 +29,7 @@ export default {
   'chat.like': '點讚',
   'chat.mentionButton': 'Agent-FAB',
   'chat.mentionHint': '可呼叫的 Agent-FAB',
+  'chat.mentionEmpty': '暫無可用的 Agent-FAB',
   'chat.openReport': '開啟分析報告',
   'chat.placeholder': '傳送訊息，輸入 @ 選擇 Agent-FAB',
   'chat.reasoning': '推理過程',

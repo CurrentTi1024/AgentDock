@@ -1,9 +1,11 @@
 import { skillMarketMockData } from '@/mock-data/skillMarket';
+import { buildSkillMcpDetailMockData } from '@/mock-data/marketShared';
 import { filterMarketItems, mockDelay, page } from '@/lib/mock';
 import { postApi } from '@/lib/httpClient';
 import { selectService } from '@/api/core/serviceMode';
 import type { Category, ListMarketRequest, MarketListMode, PageResult, ServiceRequestOptions } from '@/api/core/types';
 import type { MarketDetail, MarketItem } from '@/types';
+import type { SkillMcpMarketItem, SkillMcpDetail } from '@/types';
 
 export interface CreateSkillRequest {
   categoryId: string;
@@ -67,13 +69,31 @@ export const skillMarketMockService: SkillMarketService = {
   createAndPublishSkill: async (input, options) => {
     await mockDelay(options?.signal, 500);
     const slug = input.name.toLowerCase().replace(/\s+/g, '-');
+    const skillId = `skill-${slug}`;
+    const createdAt = new Date().toISOString();
+    const item: SkillMcpMarketItem = {
+      id: skillId,
+      name: input.name,
+      icon: input.icon,
+      description: input.description,
+      ownerId: 'skill-creator',
+      ownerName: 'Skill Creator',
+      ownerType: 'NT',
+      category: input.categoryId,
+      isValidated: false,
+      metric: '0 次安装',
+      createTimeAt: createdAt,
+      updatedAt: createdAt,
+      versions: input.fabs.map((fab) => ({ callPermission: true, fab, version: input.version })),
+    };
+    (skillMarketMockData.details as Record<string, SkillMcpDetail>)[skillId] = buildSkillMcpDetailMockData('skill', item);
     return {
-      skillId: `skill-${slug}`,
+      skillId,
       publicationStatus: 'published',
       version: input.version,
       fabs: input.fabs,
-      createdAt: new Date().toISOString(),
-      detailUrl: `/market/skill/skill-${slug}`,
+      createdAt,
+      detailUrl: `/market/skill/${skillId}`,
     };
   },
 };

@@ -193,12 +193,12 @@ export default function ChatPage() {
       void respondToHitl({ mode: 'toolAuthorization', decision: 'approve', requestId }),
     onRejectHitl: (requestId) =>
       void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
-    onSurfaceAction: () =>
+    onSurfaceAction: (actionName = 'open_report') =>
       surface &&
       void sendA2uiAction({
-        actionName: 'open_report',
+        actionName: actionName || 'open_report',
         context: { reportId: 'artifact-report' },
-        sourceComponentId: 'open',
+        sourceComponentId: 'action-button',
         surfaceId: surface[0],
       }),
   }, { showReasoning, showSurfaces: getServiceMode() !== 'http' });
@@ -252,11 +252,11 @@ export default function ChatPage() {
                       void respondToHitl({ mode: 'toolAuthorization', decision: 'approve', requestId }),
                     onRejectHitl: (requestId) =>
                       void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
-                    onSurfaceAction: (surfaceId) =>
+                    onSurfaceAction: (actionName, surfaceId) =>
                       void sendA2uiAction({
-                        actionName: 'open_report',
+                        actionName: actionName || 'open_report',
                         context: { reportId: 'artifact-report' },
-                        sourceComponentId: 'open',
+                        sourceComponentId: 'action-button',
                         surfaceId,
                       }),
                   }, { showReasoning, showSurfaces: getServiceMode() !== 'http' })}
@@ -276,7 +276,12 @@ export default function ChatPage() {
                   actions={
                     !running && answer ? (
                       <>
-                        <ActionIcon aria-label={t('chat.copy')} icon={Copy} size="small" />
+                        <ActionIcon
+                          aria-label={t('chat.copy')}
+                          icon={Copy}
+                          onClick={() => void navigator.clipboard.writeText(answer || '')}
+                          size="small"
+                        />
                         <ActionIcon
                           aria-label={t('chat.like')}
                           icon={ThumbsUp}

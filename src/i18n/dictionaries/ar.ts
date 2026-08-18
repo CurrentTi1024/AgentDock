@@ -29,6 +29,7 @@ export default {
   'chat.like': 'مفيد',
   'chat.mentionButton': 'Agent-FAB',
   'chat.mentionHint': 'Agent-FAB المتاحة',
+  'chat.mentionEmpty': 'لا توجد وكلاء متاحون',
   'chat.openReport': 'فتح تقرير التحليل',
   'chat.placeholder': 'أرسل رسالة، اكتب @ لاختيار Agent-FAB',
   'chat.reasoning': 'التفكير',

@@ -16,11 +16,19 @@ const DIST_DIR = process.env.AGENTDOCK_DIST_DIR ?? join(process.cwd(), 'dist');
 const parseFabEndpoints = (): Record<string, string> => {
   const raw = process.env.AGENT_ORCHESTRATION_BASE_URLS_JSON;
   if (!raw) return {};
+  let endpoints: Record<string, string>;
   try {
-    return JSON.parse(raw) as Record<string, string>;
+    endpoints = JSON.parse(raw) as Record<string, string>;
   } catch {
     throw new Error('AGENT_ORCHESTRATION_BASE_URLS_JSON is not valid JSON');
   }
+  if (process.env.NODE_ENV === 'production') {
+    for (const [fab, value] of Object.entries(endpoints)) {
+      const url = new URL(value);
+      if (url.protocol !== 'https:') throw new Error(`FAB endpoint ${fab} must use HTTPS in production`);
+    }
+  }
+  return endpoints;
 };
 
 const MIME_TYPES: Record<string, string> = {

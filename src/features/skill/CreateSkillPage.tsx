@@ -58,27 +58,48 @@ export default function CreateSkillPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [publishing, setPublishing] = useState(false);
-  const [published, setPublished] = useState(false);
-  const [fabs, setFabs] = useState(['F15B']);
+  const [published, setPublished] = useState<{ detailUrl: string; fabs: string[]; version: string }>();
+  const [error, setError] = useState<string>();
+  const [form, setForm] = useState({
+    branch: 'main',
+    categoryId: 'analysis',
+    changelog: t('skillCreate.sampleChangelog'),
+    description: t('skillCreate.sampleDescription'),
+    fabs: ['F15B'] as string[],
+    icon: '🛫',
+    license: 'Internal',
+    name: t('skillCreate.sampleName'),
+    path: '/',
+    repositoryUrl: 'https://git.company.example/ai/skills/flight-log-summary',
+    summary: t('skillCreate.sampleSummary'),
+    tags: t('skillCreate.sampleTags'),
+    version: '1.0.0',
+  });
+  const setField = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
+    setForm((current) => ({ ...current, [key]: value }));
   const toggleFab = (fab: string) =>
-    setFabs((current) => (current.includes(fab) ? current.filter((item) => item !== fab) : [...current, fab]));
+    setField('fabs', form.fabs.includes(fab) ? form.fabs.filter((item) => item !== fab) : [...form.fabs, fab]);
+
   const publish = async () => {
     setPublishing(true);
+    setError(undefined);
     try {
-      await skillMarketService.createAndPublishSkill({
-        name: t('skillCreate.sampleName'),
-        icon: '🛫',
-        description: t('skillCreate.sampleDescription'),
-        summary: t('skillCreate.sampleSummary'),
-        categoryId: 'analysis',
+      const result = await skillMarketService.createAndPublishSkill({
+        categoryId: form.categoryId,
+        changelogMarkdown: form.changelog,
+        description: form.description,
+        fabs: form.fabs,
+        icon: form.icon,
+        license: form.license,
         locale: 'zh-CN',
-        license: 'Internal',
-        version: '1.0.0',
-        fabs,
-        repository: { url: 'https://git.company.example/ai/skills/flight-log-summary', branch: 'main', path: '/' },
-        changelogMarkdown: t('skillCreate.sampleChangelog'),
+        name: form.name,
+        repository: { branch: form.branch, path: form.path, url: form.repositoryUrl },
+        summary: form.summary,
+        version: form.version,
       });
-      setPublished(true);
+      setPublished({ detailUrl: result.detailUrl, fabs: result.fabs, version: result.version });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setPublishing(false);
     }
@@ -113,9 +134,9 @@ export default function CreateSkillPage() {
                 {t('skillCreate.published')}
               </Text>
               <Text type="secondary">
-                flight-log-summary · v1.0.0 · {fabs.join(' / ')}
+                {form.name} · v{published.version} · {published.fabs.join(' / ')}
               </Text>
-              <Button type="primary" onClick={() => navigate('/market/skill/document-summary')}>
+              <Button type="primary" onClick={() => navigate(published.detailUrl)}>
                 {t('skillCreate.viewDetail')}
               </Button>
             </Flexbox>
@@ -131,27 +152,28 @@ export default function CreateSkillPage() {
               </Flexbox>
               <div className={styles.two}>
                 <Field label={t('skillCreate.name')}>
-                  <Input defaultValue={t('skillCreate.sampleName')} />
+                  <Input value={form.name} onChange={(event) => setField('name', event.target.value)} />
                 </Field>
                 <Field label={t('skillCreate.icon')}>
-                  <Input defaultValue="🛫" />
+                  <Input value={form.icon} onChange={(event) => setField('icon', event.target.value)} />
                 </Field>
               </div>
               <Field label={t('skillCreate.description')}>
-                <TextArea autoSize={{ minRows: 2 }} defaultValue={t('skillCreate.sampleDescription')} />
+                <TextArea autoSize={{ minRows: 2 }} value={form.description} onChange={(event) => setField('description', event.target.value)} />
               </Field>
               <div className={styles.two}>
                 <Field label={t('skillCreate.category')}>
                   <Select
-                    defaultValue="analysis"
                     options={[
                       { label: t('skillCreate.categoryAnalysis'), value: 'analysis' },
                       { label: t('skillCreate.categoryDocuments'), value: 'documents' },
                     ]}
+                    value={form.categoryId}
+                    onChange={(value) => setField('categoryId', String(value))}
                   />
                 </Field>
                 <Field label={t('skillCreate.tags')}>
-                  <Input defaultValue={t('skillCreate.sampleTags')} />
+                  <Input value={form.tags} onChange={(event) => setField('tags', event.target.value)} />
                 </Field>
               </div>
             </Block>
@@ -163,22 +185,26 @@ export default function CreateSkillPage() {
                 </Text>
               </Flexbox>
               <Field label={t('skillCreate.repoUrl')} hint={t('skillCreate.repoHint')}>
-                <Input defaultValue="https://git.company.example/ai/skills/flight-log-summary" />
+                <Input value={form.repositoryUrl} onChange={(event) => setField('repositoryUrl', event.target.value)} />
               </Field>
               <div className={styles.two}>
                 <Field label={t('skillCreate.branch')}>
-                  <Input defaultValue="main" />
+                  <Input value={form.branch} onChange={(event) => setField('branch', event.target.value)} />
                 </Field>
                 <Field label={t('skillCreate.skillPath')}>
-                  <Input defaultValue="/" />
+                  <Input value={form.path} onChange={(event) => setField('path', event.target.value)} />
                 </Field>
               </div>
               <div className={styles.two}>
                 <Field label={t('skillCreate.version')}>
-                  <Input defaultValue="1.0.0" />
+                  <Input value={form.version} onChange={(event) => setField('version', event.target.value)} />
                 </Field>
                 <Field label={t('skillCreate.license')}>
-                  <Select defaultValue="Internal" options={[{ label: 'Internal', value: 'Internal' }]} />
+                  <Select
+                    options={[{ label: 'Internal', value: 'Internal' }]}
+                    value={form.license}
+                    onChange={(value) => setField('license', String(value))}
+                  />
                 </Field>
               </div>
               <Field label={t('skillCreate.fabs')}>
@@ -186,7 +212,7 @@ export default function CreateSkillPage() {
                   {['F15B', 'F18B', 'F35A'].map((fab) => (
                     <Button
                       key={fab}
-                      type={fabs.includes(fab) ? 'primary' : 'default'}
+                      type={form.fabs.includes(fab) ? 'primary' : 'default'}
                       onClick={() => toggleFab(fab)}
                     >
                       {fab}
@@ -195,7 +221,7 @@ export default function CreateSkillPage() {
                 </Flexbox>
               </Field>
               <Field label={t('skillCreate.changelog')}>
-                <TextArea autoSize={{ minRows: 3 }} defaultValue={t('skillCreate.sampleChangelog')} />
+                <TextArea autoSize={{ minRows: 3 }} value={form.changelog} onChange={(event) => setField('changelog', event.target.value)} />
               </Field>
             </Block>
             <Block horizontal align="center" gap={14} padding={18} variant="outlined">
@@ -205,14 +231,15 @@ export default function CreateSkillPage() {
                 <Text type="secondary">{t('skillCreate.securityHint')}</Text>
               </Flexbox>
               <Flexbox horizontal gap={6}>
-                {fabs.map((fab) => (
+                {form.fabs.map((fab) => (
                   <Tag key={fab}>{fab}</Tag>
                 ))}
               </Flexbox>
             </Block>
+            {error && <Text type="danger">{error}</Text>}
             <Flexbox horizontal justify="flex-end" gap={10}>
               <Button onClick={() => navigate('/market/skill')}>{t('skillCreate.cancel')}</Button>
-              <Button disabled={!fabs.length} loading={publishing} type="primary" onClick={publish}>
+              <Button disabled={!form.fabs.length || !form.name.trim()} loading={publishing} type="primary" onClick={() => void publish()}>
                 {t('skillCreate.publish')}
               </Button>
             </Flexbox>

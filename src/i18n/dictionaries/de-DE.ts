@@ -29,6 +29,7 @@ export default {
   'chat.like': 'Hilfreich',
   'chat.mentionButton': 'Agent-FAB',
   'chat.mentionHint': 'Verfügbare Agent-FABs',
+  'chat.mentionEmpty': 'Keine verfügbaren Agenten',
   'chat.openReport': 'Analysebericht öffnen',
   'chat.placeholder': 'Nachricht senden, @ eingeben, um Agent-FAB zu wählen',
   'chat.reasoning': 'Gedankengang',

@@ -66,31 +66,39 @@ const ChatInput = memo<ChatInputProps>(
 
     return (
       <Flexbox className={styles.composer} gap={4} padding={10}>
-        {mentionOpen && mentions.length > 0 && (
+        {mentionOpen && (
           <Flexbox className={styles.mentionMenu} gap={3}>
-            <Text fontSize={11} type="secondary" style={{ padding: '6px 10px' }}>
-              {t('chat.mentionHint')}
-            </Text>
-            {mentions.map((mention) => (
-              <div
-                className={styles.mentionItem}
-                key={`${mention.agentId}-${mention.fab}`}
-                onClick={() => {
-                  setMentionOpen(false);
-                  onSelectMention(mention);
-                }}
-              >
-                <Avatar avatar={mention.icon} size={30} />
-                <Flexbox flex={1} style={{ minWidth: 0 }}>
-                  <Text ellipsis weight={500}>
-                    {mention.agentFullName}
-                  </Text>
-                  <Text ellipsis fontSize={11} type="secondary">
-                    v{mention.version} · {mention.description}
-                  </Text>
-                </Flexbox>
-              </div>
-            ))}
+            {mentions.length === 0 ? (
+              <Text fontSize={12} type="secondary" style={{ padding: '8px 10px' }}>
+                {t('chat.mentionEmpty')}
+              </Text>
+            ) : (
+              <>
+                <Text fontSize={11} type="secondary" style={{ padding: '6px 10px' }}>
+                  {t('chat.mentionHint')}
+                </Text>
+                {mentions.map((mention) => (
+                  <div
+                    className={styles.mentionItem}
+                    key={`${mention.agentId}-${mention.fab}`}
+                    onClick={() => {
+                      setMentionOpen(false);
+                      onSelectMention(mention);
+                    }}
+                  >
+                    <Avatar avatar={mention.icon} size={30} />
+                    <Flexbox flex={1} style={{ minWidth: 0 }}>
+                      <Text ellipsis weight={500}>
+                        {mention.agentFullName}
+                      </Text>
+                      <Text ellipsis fontSize={11} type="secondary">
+                        v{mention.version} · {mention.description}
+                      </Text>
+                    </Flexbox>
+                  </div>
+                ))}
+              </>
+            )}
           </Flexbox>
         )}
         <TextArea

@@ -15,6 +15,7 @@ import { marketService } from '@/api/market/marketService';
 import { mcpMarketService } from '@/api/market/mcpMarketService';
 import { skillMarketService } from '@/api/market/skillMarketService';
 import type { Category, ListMarketRequest } from '@/api/core/types';
+import type { ServiceRequestOptions } from '@/api/core/types';
 import { useI18n } from '@/i18n';
 import type { MarketItem as Item, MarketKind } from '@/types';
 
@@ -40,22 +41,22 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
 
 const labels: Record<MarketKind, string> = { agent: 'Agent', mcp: 'MCP', skill: 'Skill' };
 
-const fetchList = (kind: MarketKind, input: ListMarketRequest) =>
+const fetchList = (kind: MarketKind, input: ListMarketRequest, options?: ServiceRequestOptions) =>
   kind === 'agent'
-    ? agentMarketService.getAgentsListByCategoryAndKW(input)
+    ? agentMarketService.getAgentsListByCategoryAndKW(input, options)
     : kind === 'skill'
-      ? skillMarketService.getSkillsListByCategoryAndKW(input)
-      : mcpMarketService.getMcpServersListByCategoryAndKW(input);
+      ? skillMarketService.getSkillsListByCategoryAndKW(input, options)
+      : mcpMarketService.getMcpServersListByCategoryAndKW(input, options);
 
-const fetchCategories = (kind: MarketKind, input: { fab: string; locale: string; mode: 'all' | 'permissioned' }) =>
+const fetchCategories = (kind: MarketKind, input: { fab: string; locale: string; mode: 'all' | 'permissioned' }, options?: ServiceRequestOptions) =>
   kind === 'agent'
-    ? agentMarketService.getAgentCategories(input)
+    ? agentMarketService.getAgentCategories(input, options)
     : kind === 'skill'
-      ? skillMarketService.getSkillCategories(input)
-      : mcpMarketService.getMcpServerCategories(input);
+      ? skillMarketService.getSkillCategories(input, options)
+      : mcpMarketService.getMcpServerCategories(input, options);
 
 export default function MarketPage({ kind }: { kind: MarketKind }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const navigate = useNavigate();
   const [fabs, setFabs] = useState<string[]>([]);
   const [fab, setFab] = useState('');
@@ -67,22 +68,26 @@ export default function MarketPage({ kind }: { kind: MarketKind }) {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [hasNextPage, setHasNextPage] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>();
 
   // FAB 选项与默认 FAB：all 渲染选项，permissioned 决定默认项
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+    setError(undefined);
     void Promise.all([
-      marketService.getFabOptions({ locale: 'zh-CN', mode: 'all', type: kind }),
-      marketService.getFabOptions({ locale: 'zh-CN', mode: 'permissioned', type: kind }),
+      marketService.getFabOptions({ locale, mode: 'all', type: kind }, { signal: controller.signal }),
+      marketService.getFabOptions({ locale, mode: 'permissioned', type: kind }, { signal: controller.signal }),
     ]).then(([all, permissioned]) => {
-      if (cancelled) return;
       setFabs(all.fabs);
       setFab(permissioned.fabs[0] || all.fabs[0] || '');
+    }).catch((reason: unknown) => {
+      if ((reason as DOMException).name !== 'AbortError') setError(reason instanceof Error ? reason.message : String(reason));
     });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [kind]);
+  }, [kind, locale]);
 
   useEffect(() => {
     if (!fab) return;
@@ -92,24 +97,39 @@ export default function MarketPage({ kind }: { kind: MarketKind }) {
 
   useEffect(() => {
     if (!fab) return;
+    const controller = new AbortController();
+    const requestId = `${kind}:${fab}:${category}:${mode}:${page}:${query}`;
+    setLoading(true);
+    setError(undefined);
     const request = {
       categoryId: category === 'all' ? null : category,
       fab,
       keyword: query || null,
-      locale: 'zh-CN',
+      locale,
       mode,
       page,
       pageSize: 21,
       sortBy: 'recommended',
       sortOrder: 'desc' as const,
     };
-    void fetchList(kind, request).then((result) => {
+    void Promise.all([
+      fetchList(kind, request, { signal: controller.signal }),
+      fetchCategories(kind, { fab, locale, mode }, { signal: controller.signal }),
+    ]).then(([result, { categories: next }]) => {
+      if (requestId !== `${kind}:${fab}:${category}:${mode}:${page}:${query}`) return;
       setItems(result.items);
       setTotalPages(result.totalPages);
       setHasNextPage(result.hasNextPage);
+      setCategories(next);
+    }).catch((reason: unknown) => {
+      if ((reason as DOMException).name !== 'AbortError' && requestId === `${kind}:${fab}:${category}:${mode}:${page}:${query}`) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      }
+    }).finally(() => {
+      if (requestId === `${kind}:${fab}:${category}:${mode}:${page}:${query}`) setLoading(false);
     });
-    void fetchCategories(kind, { fab, locale: 'zh-CN', mode }).then(({ categories: next }) => setCategories(next));
-  }, [category, fab, kind, mode, page, query]);
+    return () => controller.abort();
+  }, [category, fab, kind, locale, mode, page, query]);
 
   const categoryItems = useMemo(
     () =>
@@ -177,17 +197,23 @@ export default function MarketPage({ kind }: { kind: MarketKind }) {
           </Flexbox>
           <Flexbox flex={1} gap={14}>
             <Text type="secondary">{t('market.results', { count: items.length })}</Text>
-            <Grid rows={3} width="100%">
-              {items.map((item) => (
-                <MarketItem fab={fab} item={item} key={`${item.id}-${fab}`} kind={kind} />
-              ))}
-            </Grid>
-            <Pagination
-              currentPage={page}
-              hasNextPage={hasNextPage}
-              totalPages={totalPages}
-              onPageChange={setPage}
-            />
+            {loading && <Text type="secondary">{t('common.loading')}</Text>}
+            {error && <Text type="danger">{error}</Text>}
+            {!loading && !error && (
+              <>
+                <Grid rows={3} width="100%">
+                  {items.map((item) => (
+                    <MarketItem fab={fab} item={item} key={`${item.id}-${fab}`} kind={kind} />
+                  ))}
+                </Grid>
+                <Pagination
+                  currentPage={page}
+                  hasNextPage={hasNextPage}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                />
+              </>
+            )}
           </Flexbox>
         </Flexbox>
       </WideScreenContainer>

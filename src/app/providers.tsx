@@ -42,11 +42,13 @@ const useResolvedAppearance = (): 'light' | 'dark' => {
 
 export default function Providers({ children }: { children: ReactNode }) {
   const appearance = useResolvedAppearance();
+  const serviceMode = getServiceMode();
+  const copilotEnabled = serviceMode === 'http';
 
   return (
     <I18nProvider>
       <CopilotKit
-        a2ui={{ catalog: agentDockCatalog }}
+        a2ui={copilotEnabled ? { catalog: agentDockCatalog } : undefined}
         credentials="include"
         onError={(event) => {
           // mock 模式下没有 /info 端点，连接失败属于预期，静默处理；http 模式才打印。
@@ -54,7 +56,7 @@ export default function Providers({ children }: { children: ReactNode }) {
             console.error('[CopilotKit]', event.error);
           }
         }}
-        runtimeUrl={runtimeConfig.copilotRuntimeUrl}
+        runtimeUrl={copilotEnabled ? runtimeConfig.copilotRuntimeUrl : undefined}
         useSingleEndpoint
       >
         <ThemeProvider

@@ -220,8 +220,16 @@ function Sidebar({ detail, kind }: { detail: MarketDetail; kind: MarketKind }) {
       )}
       {(detail.homepageUrl || ('repositoryUrl' in detail && detail.repositoryUrl)) && (
         <Flexbox gap={8}>
-          {detail.homepageUrl && <Button icon={ExternalLinkIcon}>{t('detail.homepage')}</Button>}
-          {'repositoryUrl' in detail && detail.repositoryUrl && <Button icon={GitBranchIcon}>{t('detail.sourceCode')}</Button>}
+          {detail.homepageUrl && (
+            <Button icon={ExternalLinkIcon} onClick={() => window.open(detail.homepageUrl, '_blank', 'noopener,noreferrer')}>
+              {t('detail.homepage')}
+            </Button>
+          )}
+          {'repositoryUrl' in detail && detail.repositoryUrl && (
+            <Button icon={GitBranchIcon} onClick={() => window.open(detail.repositoryUrl, '_blank', 'noopener,noreferrer')}>
+              {t('detail.sourceCode')}
+            </Button>
+          )}
         </Flexbox>
       )}
     </Flexbox>
@@ -620,35 +628,47 @@ export default function DetailPage({ kind }: { kind: MarketKind }) {
   const [fabs, setFabs] = useState<string[]>([]);
   const [fab, setFab] = useState(searchParams.get('fab') || '');
   const [detail, setDetail] = useState<MarketDetail>();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>();
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+    setError(undefined);
     void Promise.all([
-      marketService.getFabOptions({ locale: 'zh-CN', mode: 'all', type: kind }),
-      marketService.getFabOptions({ locale: 'zh-CN', mode: 'permissioned', type: kind }),
+      marketService.getFabOptions({ locale, mode: 'all', type: kind }, { signal: controller.signal }),
+      marketService.getFabOptions({ locale, mode: 'permissioned', type: kind }, { signal: controller.signal }),
     ]).then(([all, permissioned]) => {
-      if (cancelled) return;
       setFabs(all.fabs);
       const initial = searchParams.get('fab') || permissioned.fabs[0] || all.fabs[0] || '';
       setFab(initial);
       if (!searchParams.get('fab') && initial) setSearchParams({ fab: initial }, { replace: true });
+    }).catch((reason: unknown) => {
+      if ((reason as DOMException).name !== 'AbortError') setError(reason instanceof Error ? reason.message : String(reason));
     });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind]);
+  }, [kind, locale, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (!fab || !id) return;
+    const controller = new AbortController();
+    const options = { signal: controller.signal };
+    setLoading(true);
+    setError(undefined);
     const request =
       kind === 'agent'
-        ? agentMarketService.getAgentDetailById({ agentId: id, fab, locale: 'zh-CN' })
+        ? agentMarketService.getAgentDetailById({ agentId: id, fab, locale }, options)
         : kind === 'skill'
-          ? skillMarketService.getSkillDetailById({ skillId: id, fab, locale: 'zh-CN' })
-          : mcpMarketService.getMcpServerDetailById({ mcpServerId: id, fab, locale: 'zh-CN' });
-    void request.then(setDetail);
-  }, [fab, id, kind]);
+          ? skillMarketService.getSkillDetailById({ skillId: id, fab, locale }, options)
+          : mcpMarketService.getMcpServerDetailById({ mcpServerId: id, fab, locale }, options);
+    void request.then(setDetail).catch((reason: unknown) => {
+      if ((reason as DOMException).name !== 'AbortError') setError(reason instanceof Error ? reason.message : String(reason));
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [fab, id, kind, locale]);
 
   const selectFab = (next: string) => {
     setFab(next);
@@ -665,7 +685,11 @@ export default function DetailPage({ kind }: { kind: MarketKind }) {
           </Flexbox>
         }
       />
-      {!detail ? (
+      {error ? (
+        <Flexbox align="center" flex={1} justify="center">
+          <Text type="danger">{error}</Text>
+        </Flexbox>
+      ) : !detail || loading ? (
         <Flexbox align="center" flex={1} justify="center">
           <Text type="secondary">{t('common.loading')}</Text>
         </Flexbox>

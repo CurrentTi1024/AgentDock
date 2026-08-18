@@ -29,6 +29,7 @@ export default {
   'chat.like': 'Faydalı',
   'chat.mentionButton': 'Agent-FAB',
   'chat.mentionHint': 'Kullanılabilir Agent-FAB',
+  'chat.mentionEmpty': 'Kullanılabilir ajan yok',
   'chat.openReport': 'Analiz raporunu aç',
   'chat.placeholder': 'Mesaj gönder, Agent-FAB seçmek için @ yaz',
   'chat.reasoning': 'Akıl yürütme',

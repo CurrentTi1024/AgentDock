@@ -11,7 +11,7 @@ import { createRunState, reduceRunEvent } from '@/api/runtime/runReducer';
 import type { AgUiEvent, RunAgentInput, RuntimeRunState } from '@/api/runtime/types';
 import { getServiceMode } from '@/api/core/serviceMode';
 import { runtimeConfig } from '@/api/runtimeConfig';
-import { sessionHistoryService } from '@/api/session/sessionHistoryService';
+import { flushRunCheckpoint, scheduleRunCheckpoint, sessionHistoryService } from '@/api/session/sessionHistoryService';
 import { useRunStore } from '@/stores/runStore';
 
 export interface AgentDockConversationOptions {
@@ -57,7 +57,8 @@ export const useAgentDockConversation = (options: AgentDockConversationOptions) 
     runRef.current = next;
     setHttpRun(next);
     const input = inputRef.current;
-    if (input) void sessionHistoryService.saveRunCheckpoint(optionsRef.current.sessionId, input, next);
+    if (input) scheduleRunCheckpoint(optionsRef.current.sessionId, input, next);
+    if (next.status === 'success' || next.status === 'error' || next.status === 'cancelled') void flushRunCheckpoint();
   }, [useOfficial]);
 
   useEffect(() => {
