@@ -117,22 +117,22 @@ threadId: session?.threadId || `thread-${sessionId}`
 
 ### 4.3 Runtime（Copilot Runtime Node 服务）转发
 
-`server/copilot-runtime/fabProxy.ts`：
+`server/index.ts`（官方 single-route handler）+ `server/copilot-runtime/fabRoutingAgent.ts`：
 
-1. 校验 body：`forwardedProps.fab/sessionId/action`、`runId`、`threadId` 必须存在，action 必须在 `run/resume/stop/hitlResponse/a2uiAction` 集合内。
-2. `AGENT_ORCHESTRATION_BASE_URLS_JSON` 解析 fab → base URL；协议（http/https）由公司内网部署规范决定，代码不做强制校验。
-3. 拼接 `${base}/ag-ui`，透传 `authorization/cookie/x-request-id/traceparent`。
-4. 流式返回上游 SSE；非 2xx 或上游不可达返回 `FAB_ENDPOINT_UNAVAILABLE`；取消返回 `CANCELLED`。
+1. 前端 POST `/api/copilotkit`，body 为官方 envelope `{ method, params, body }`（`agent/run` / `agent/connect` / `agent/stop` / `info`）。
+2. `FabRoutingAgent.run(input)` 读取 `forwardedProps.fab`，从 `AGENT_ORCHESTRATION_BASE_URLS_JSON` 选择 base URL（协议由公司内网规范决定，不强制校验），委托 `HttpAgent` 请求 `${base}/ag-ui`。
+3. `CopilotRuntime({ a2ui: {} })` 提供 A2UI Middleware 与认证透传；事件流原样回传。
+4. 上游不可达/非 2xx 由 Runtime 错误处理转为 `FAB_ENDPOINT_UNAVAILABLE` 等错误；取消返回 `CANCELLED`。
 
 ### 4.4 动作矩阵
 
 | 逻辑动作 | `forwardedProps.action` | 关键字段 | 当前状态 |
 |---|---|---|---|
-| 发起执行 | `run` | `sessionId`、`agentId` 或 `group`、`fab`、当前 message | 已实现（自研 transport） |
-| 断线恢复 | `resume` | `fab`、相同 `runId`、`resume.lastStreamId` | 已实现（reducer + checkpoint） |
-| 停止 | `stop` | `fab`、相同 `threadId/runId` | 已实现（本地 abort + stop action） |
-| HITL 响应 | `hitlResponse` | `fab`、`requestId`、mode、decision/input 等 | 部分实现（ChatPage requestId 硬编码为空，P0） |
-| A2UI Action | `a2uiAction` | `fab`、`surfaceId`、`actionName`、`context`、`sourceComponentId` | 骨架已实现（新 runId + parentRunId），但 action 内容硬编码 |
+| 发起执行 | `run` | `sessionId`、`agentId` 或 `group`、`fab`、当前 message | ✅ 官方 `agent/run`（proxy）/ 自研 SSE（direct） |
+| 断线恢复 | `resume` | `fab`、相同 `runId`、`resume.lastStreamId` | ⚠️ 官方 `agent/connect`；lastStreamId 语义待后端确认 |
+| 停止 | `stop` | `fab`、相同 `threadId/runId` | ✅ 官方 `agent/stop`（proxy）/ 本地 abort（direct） |
+| HITL 响应 | `hitlResponse` | `fab`、`requestId`、mode、decision/input 等 | ✅ 标准 `resume[]` + legacy 后备；wire 待冻结 |
+| A2UI Action | `a2uiAction` | `fab`、`surfaceId`、`actionName`、`context`、`sourceComponentId` | ✅ 官方 `a2uiAction.userAction`（renderer bridge）/ 自研后备 |
 
 ## 5. FAB 路由与部署配置
 
@@ -176,12 +176,12 @@ env:
 
 | # | 缺口 | 优先级 | 行动项 |
 |---|---|---|---|
-| R1 | 无 Copilot Runtime HTTP 挂载（无 server/index.ts） | P0 | 新增 Node HTTP 服务：静态托管 dist + `POST /api/copilotkit` 挂载官方 Runtime handler；**不实现** `/api/*` 反向代理——普通 REST 由 OAuth2 Proxy 按 path 路由到 `AGENT_REGISTRY_BASE_URL`（见 `design/08` §7） |
-| R2 | 自研 transport 与官方 CopilotKit envelope 不一致 | P0 | 按 `design/08` 决策：接入官方 runtime（envelope `{method,params,body}`）；自研 SSE/reducer 仅保留给 Mock（见 `design/09` §1） |
-| R3 | ChatPage HITL `requestId` 硬编码空串 | P0 | 从 activity block 读取 `requestId` 传入 `respondToHitl`；补充测试 |
-| R4 | 新会话 threadId 退化 `thread-${sessionId}` | P1 | `createSession` 时 `crypto.randomUUID()` 生成并固化；切换 agent 策略与后端确认 |
-| R5 | direct 模式在 mock 下回退 `/mock-orchestration/{fab}/ag-ui` 但无对应 mock 路由 | P1 | mock 模式不应依赖 HTTP 路由；统一走 `agentRuntimeService` mock stream |
-| R6 | `stop` 只发 action 不等待上游确认流 | P1 | 按 `02` 契约确认停止终态事件（`RUN_ERROR/CANCELLED` 或双方约定事件） |
-| R7 | 无 `GET /api/copilotkit/info` 发现端点 | P1 | 若接官方 runtime：由 `createCopilotRuntimeHandler` 提供；若自研：实现等价 info 响应 |
+| R1 | ~~无 Copilot Runtime HTTP 挂载~~ | ✅ | `server/index.ts` + `FabRoutingAgent`；`pnpm run server` 启动；OAuth2 Proxy 配置见 `design/08` §7.3 |
+| R2 | ~~自研 transport 与官方 envelope 不一致~~ | ✅ | 官方 single-route envelope 已接入；自研 SSE/reducer 仅 mock/direct |
+| R3 | ~~HITL requestId 硬编码~~ | ✅ | activity/interrupt 中读取并回传 |
+| R4 | ~~新会话 threadId 退化~~ | ✅ | `createSession` 固化 `crypto.randomUUID()` |
+| R5 | ~~direct mock 回退死链~~ | ✅ | `useOfficial` 仅 proxy；mock/direct 统一走 `agentRuntimeService`（mock stream / 自研 SSE） |
+| R6 | `stop` 终态确认 | P1(联调) | 官方 `agent/stop` 已接入；上游终止事件形态待后端确认 |
+| R7 | ~~无 /info 发现端点~~ | ✅ | 官方 Runtime `/info` 已验证（agents + a2uiEnabled） |
 
 > 渲染侧：AG-UI/A2UI 事件 → LobeHub 组件不做事件 Adapter，统一走投影层（`design/09-agui-lobehub-rendering-adapter.md`）。

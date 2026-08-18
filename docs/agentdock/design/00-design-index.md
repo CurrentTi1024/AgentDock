@@ -58,7 +58,7 @@ docs/agentdock/
 - 前端目录已按 bulletproof-react 范式重组（`app/api/components/features/lib/types`），路由薄壳 + feature 业务域 + service 数据访问边界成立。
 - Agent/Skill/MCP 市场 FAB 前置：`getFabOptions` → 分类/列表/详情带 `fab`，详情 Version 不分区。
 - 对话请求携带 `agentId / fab / sessionId / threadId / runId`；`runId` 由客户端生成（AG-UI 标准：Client 提供 runId）。
-- Runtime 按 FAB 路由已实现核心（`server/copilot-runtime/fabProxy.ts`），支持 `AGENT_ORCHESTRATION_BASE_URLS_JSON`。
+- Runtime 按 FAB 路由已实现（`server/index.ts` + `server/copilot-runtime/fabRoutingAgent.ts`），支持 `AGENT_ORCHESTRATION_BASE_URLS_JSON`。
 - AG-UI SSE 解析、事件去重、IndexedDB 检查点、stop/resume/HITL/A2UI Action 骨架已实现。
 - i18n 已从 3 种扩展到 LobeHub 全部 18 种语言，全部提供本地化词典并有测试守护。
 

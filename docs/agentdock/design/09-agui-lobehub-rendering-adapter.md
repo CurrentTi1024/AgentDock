@@ -310,7 +310,8 @@ src/features/chat/
 | `TEXT_MESSAGE_END` | 结束当前 block，等待下一条或 run 结束 |
 | `STATE_SNAPSHOT / STATE_DELTA` | `agentState`（不渲染，供诊断/恢复） |
 | `MESSAGES_SNAPSHOT` | 全量重建 `projection.messages`（恢复会话） |
-| `ACTIVITY_SNAPSHOT (a2ui.surface)` | surface 索引；渲染由官方 A2UI renderer 完成 |
+| `ACTIVITY_SNAPSHOT (a2ui.surface)`（mock） | surface 索引 + `A2uiStoredSurface` 组件化回退 |
+| `ACTIVITY_SNAPSHOT (a2ui-surface)`（官方） | 渲染由官方 A2UI renderer 完成（`useRenderActivityMessage`） |
 | `ACTIVITY_SNAPSHOT (agentDock.hitl)` / interrupt | 投影为 `AgentDockHITL[]` → `HitlPanel` |
 | `CUSTOM_EVENT` | 诊断日志 + 按需扩展（Delegation/Task 等公司自定义 activity） |
 | `RUN_FINISHED` | `status='success'`；触发快照落盘 |

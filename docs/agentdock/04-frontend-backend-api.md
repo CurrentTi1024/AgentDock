@@ -1202,7 +1202,27 @@ env:
 **Browser HTTP（可选 direct）**：按 FAB 调用 `POST {orchestrationBaseUrl}/ag-ui`  
 **响应**：Copilot Runtime/AG-UI 流式响应，不使用普通 envelope
 
-Headless Client 始终使用标准 `RunAgentInput`。生产 proxy 模式由 Runtime 选择 FAB endpoint；direct 联调模式才由 Browser 选择。两种模式都不得修改事件语义或生成第二个 `runId`：
+生产 proxy 模式由 Runtime 选择 FAB endpoint；direct 联调模式才由 Browser 选择。两种模式都不得修改事件语义或生成第二个 `runId`。
+
+**生产 proxy 请求体是官方 single-route envelope**，标准 `RunAgentInput` 位于 `body`：
+
+```json
+{
+  "method": "agent/run",
+  "params": { "agentId": "orchestration", "threadId": "thread-001" },
+  "body": {
+    "threadId": "thread-001",
+    "runId": "run-001",
+    "state": {},
+    "messages": [{ "id": "message-user-001", "role": "user", "content": "请分析今天的飞行测试数据" }],
+    "tools": [],
+    "context": [],
+    "forwardedProps": { "action": "run", "sessionId": "session-001", "agentId": "flight-analysis-agent", "fab": "F15B" }
+  }
+}
+```
+
+**direct 联调模式**：直接 POST `{orchestrationBaseUrl}/ag-ui`，body 为标准 `RunAgentInput`（自研 SSE client，需后端接受全文转发）。
 
 ```json
 {
@@ -1241,13 +1261,13 @@ Headless Client 始终使用标准 `RunAgentInput`。生产 proxy 模式由 Runt
 
 这些是 `POST /api/copilotkit` 内由 Copilot Runtime 处理的动作，不额外创建五个 HTTP 地址：
 
-| 逻辑动作 | `forwardedProps.action` | 关键字段 |
+| 逻辑动作 | 官方 envelope method | 关键字段 |
 |---|---|---|
-| 发起执行 | `run` | `sessionId`、`agentId` 或 `group`、`fab`、当前 message |
-| 断线恢复 | `resume` | `fab`、相同 `runId`、`resume.lastStreamId` |
-| 停止执行 | `stop` | `fab`、相同 `threadId`、`runId` |
-| HITL 响应 | `hitlResponse` | `fab`、`requestId`、mode 和对应输入 |
-| A2UI Action | `a2uiAction` | `fab`、`surfaceId`、`actionName`、`context` |
+| 发起执行 | `agent/run` | `sessionId`、`agentId` 或 `group`、`fab`、当前 message（在 `forwardedProps`） |
+| 断线恢复 | `agent/connect` | 相同 `runId`/`threadId`；`lastStreamId` 语义由后端决定 |
+| 停止执行 | `agent/stop` | `agentId`、`threadId` |
+| HITL 响应 | `agent/run` + `RunAgentInput.resume[]`（标准 interrupt）或 `forwardedProps.hitlResponse`（后备） | `requestId`、mode 和对应输入 |
+| A2UI Action | `agent/run` + `forwardedProps.a2uiAction.userAction` | `surfaceId`、`actionName`、`context`、`sourceComponentId` |
 
 完整请求字段、SSE 格式、事件清单、幂等、断线恢复、HITL 与 A2UI 规则以 `02-agui-a2ui-runtime-contract.md` 为唯一权威来源，本文件不复制另一份事件协议。
 
@@ -1280,7 +1300,7 @@ src/mock-data/{user,agentMarket,skillMarket,mcpMarket,...}.ts
 - Service 模式默认取 `VITE_SERVICE_MODE`；设置页「开发预览环境」可运行时切换 `mock`/`http`（持久化到 `localStorage` 的 `agentdock-service-mode`），两种实现仍返回相同 `data` 类型，不改变本契约。
 - Agent、Skill、MCP 的 HTTP Service 经 OAuth2 Proxy 访问同一个 Agent Registry（同源 `/api/*`），不自行按 FAB 选择地址。
 - 市场页面先通过 `getFabOptions` 获取 FAB 选项与默认 FAB，Agent/Skill/MCP 分类/列表/详情请求必须携带当前 FAB。
-- Copilot Runtime 单独由 `agentRuntimeService` 封装，不套普通业务 API envelope。
+- 生产 proxy 由 `@copilotkit/react-core/v2` transport 直接消费 `/api/copilotkit`（single-route envelope）；`agentRuntimeService`（自研 SSE）仅用于 mock/direct，不套普通业务 API envelope。
 - 生产环境中 `agentRuntimeService` 只提交 `fab`；FAB 到 Orchestration Base URL 的选择由 App Server Runtime 完成。仅本地专项联调允许启用 `direct` transport。
 - IndexedDB 由 `sessionHistoryService` 封装，不模拟成 FastAPI 接口。
 

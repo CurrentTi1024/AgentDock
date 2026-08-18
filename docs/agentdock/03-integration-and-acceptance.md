@@ -173,11 +173,10 @@
 
 ### Case 8：断线恢复
 
-- 人工在文本流中断开连接。
-- 保存 `runId + latestStreamId`。
-- 使用相同 Run 恢复。
-- 只补发缺失事件。
-- 文本不重复、不缺失。
+- 人工在文本流中断开连接；前端保存 `runId + latestStreamId`（IndexedDB checkpoint）。
+- 官方 proxy 路径：恢复走 Runtime `agent/connect`（`@ag-ui/client` transport）；`lastStreamId` 是否作为游标由 Orchestration 决定——联调前先确认 connect 语义。
+- 自研 mock/direct 路径：`restoreSession` 用相同 runId + `resume.lastStreamId` 恢复。
+- 只补发缺失事件；文本不重复、不缺失。
 
 ### Case 9：HITL
 

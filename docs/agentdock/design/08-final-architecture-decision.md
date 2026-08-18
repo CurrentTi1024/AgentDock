@@ -285,26 +285,24 @@ OAuth2 Proxy 有两种可落地的放置方式：
 
 后端冻结：`copilotkit`(Python)、`ag-ui-langgraph`、`deepagents` 版本；HITL 形态、A2UI 协议版本（v0.9）、`RunAgentInput` schema 一起在 `docs/agentdock/03` 联调前确认。
 
-## 10. 迁移步骤（P0 排期）
+## 10. 迁移步骤（P0 已落地）
 
 1. `server/`：新建 Node 服务入口 `server/index.ts` —— 这是 OAuth2 Proxy 转发 `/api/copilotkit` 时真正监听的 HTTP 服务：
 
    ```ts
-   // server/index.ts（示意）
+   // server/index.ts（已落地，官方 v2 API）
    import { createServer } from 'node:http';
-   import { createCopilotRuntime } from '@copilotkit/runtime';
+   import { CopilotRuntime, createCopilotRuntimeHandler } from '@copilotkit/runtime/v2';
    import { createCopilotNodeHandler } from '@copilotkit/runtime/v2/node';
    import { FabRoutingAgent } from './copilot-runtime/fabRoutingAgent';
 
-   const runtime = createCopilotRuntime({
-     agents: [new FabRoutingAgent({ fabToBaseUrl: JSON.parse(process.env.AGENT_ORCHESTRATION_BASE_URLS_JSON!) })],
+   const runtime = new CopilotRuntime({
+     agents: { orchestration: new FabRoutingAgent({ fabToBaseUrl: JSON.parse(process.env.AGENT_ORCHESTRATION_BASE_URLS_JSON!) }) },
+     a2ui: {},
    });
 
-   const handler = createCopilotNodeHandler({
-     runtime,
-     basePath: '/api/copilotkit',
-     mode: 'single-route',
-   });
+   const fetchHandler = createCopilotRuntimeHandler({ runtime, basePath: '/api/copilotkit', mode: 'single-route' });
+   const handler = createCopilotNodeHandler(fetchHandler);
 
    const server = createServer((req, res) => {
      if (req.method === 'GET' && req.url === '/healthz') return ok(res);

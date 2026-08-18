@@ -1,6 +1,7 @@
-// Adapted from: src/routes/(main)/home/_layout/Header (LobeHub canary)
-import { ActionIcon, Avatar, Flexbox, Text, Tooltip } from '@lobehub/ui';
-import { Plus } from 'lucide-react';
+// Adapted from: src/routes/(main)/home/_layout/Header + useCreateMenuItems (LobeHub canary)
+import { ActionIcon, Avatar, Flexbox, Text } from '@lobehub/ui';
+import { DropdownMenu } from '@lobehub/ui/base-ui';
+import { MessageSquare, Plus, Store, Users } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -42,6 +43,21 @@ const Header = () => {
     navigate(`/chat/${session.id}`);
   };
 
+  const createGroupConversation = async () => {
+    const group = await sessionHistoryService.createSession({
+      agentId: 'group',
+      agentName: 'FlightAnalysis_Group',
+      fab: 'F15B',
+      id: `group-${crypto.randomUUID()}`,
+      pinned: false,
+      threadId: crypto.randomUUID(),
+      title: t('nav.newGroup'),
+      type: 'group',
+      version: '2.1.0',
+    });
+    navigate(`/group/${group.id}`);
+  };
+
   return (
     <SideBarHeaderLayout
       left={
@@ -55,9 +71,32 @@ const Header = () => {
         </Flexbox>
       }
       right={
-        <Tooltip title={t('nav.newChat')}>
-          <ActionIcon aria-label={t('nav.newChat')} icon={Plus} onClick={() => void createConversation()} />
-        </Tooltip>
+        <DropdownMenu
+          placement="bottomRight"
+          items={[
+            {
+              icon: MessageSquare,
+              key: 'new-chat',
+              label: t('nav.newChat'),
+              onClick: () => void createConversation(),
+            },
+            {
+              icon: Users,
+              key: 'new-group-chat',
+              label: t('nav.newGroup'),
+              onClick: () => void createGroupConversation(),
+            },
+            { type: 'divider' },
+            {
+              icon: Store,
+              key: 'market-agent',
+              label: t('market.agent'),
+              onClick: () => navigate('/market/agent'),
+            },
+          ]}
+        >
+          <ActionIcon aria-label={t('nav.newChat')} icon={Plus} />
+        </DropdownMenu>
       }
       showBack={false}
       showTogglePanelButton={false}

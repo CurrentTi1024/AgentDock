@@ -1,6 +1,6 @@
 # AG-UI 协议实现（现状、事件矩阵、与官方差距）
 
-> 状态：Review 完成；事件协议基线见 `docs/agentdock/02-agui-a2ui-runtime-contract.md`  
+> 状态：方案 A 已落地（官方 single-route envelope）；自研 SSE/reducer 仅保留给 mock/direct。事件协议基线见 `docs/agentdock/02-agui-a2ui-runtime-contract.md`
 > 规范来源：<https://docs.ag-ui.com/sdk/js/core/types>、CopilotKit Runtime 文档
 
 ## 1. 标准 RunAgentInput
@@ -47,9 +47,9 @@ type RunAgentInput = {
 | `RUN_STARTED` | ✓ | status=running | 运行状态 | 完成 |
 | `RUN_FINISHED` | ✓ | status=success | 结束态 | 完成 |
 | `RUN_ERROR` | ✓ | status=error/cancelled + error | ErrorBlock | 完成 |
-| `STEP_STARTED` | ✓ | 仅 push rawEvents | **无 UI** | **P0** |
-| `STEP_FINISHED` | ✓ | 仅 push rawEvents | **无 UI** | **P0** |
-| `TEXT_MESSAGE_START/CONTENT/END` | ✓ | messages map 拼接 | ChatItem 文本（无 Markdown） | 完成（Markdown P0） |
+| `STEP_STARTED` | ✓ | steps map + orderedBlocks | WorkflowStepsBlock | ✅ |
+| `STEP_FINISHED` | ✓ | steps map + orderedBlocks | WorkflowStepsBlock | ✅ |
+| `TEXT_MESSAGE_START/CONTENT/END` | ✓ | messages map 拼接 | ChatItem + Markdown | ✅ |
 | `TEXT_MESSAGE_CHUNK` | 兼容 | 追加 delta | 同上 | 完成 |
 | `REASONING_MESSAGE_START/CONTENT/END/CHUNK` | ✓ | reasoning map | ReasoningBlock | 完成（样式 P1） |
 | `REASONING_START/END` | ✓ | 忽略 | — | P1（生命周期状态） |
@@ -61,7 +61,7 @@ type RunAgentInput = {
 | `STATE_SNAPSHOT` | ✓ | state=snapshot | 无 UI | P1（可诊断面板） |
 | `STATE_DELTA` | ✓ | RFC6902 子集 | 无 UI | P1 |
 | `MESSAGES_SNAPSHOT` | ✓ | 覆盖 messages | 渲染 | 完成 |
-| `ACTIVITY_SNAPSHOT` | ✓ | activities map；HITL→paused；a2ui.surface→surfaces | HITL/Surface | 部分（delegation 无 UI） |
+| `ACTIVITY_SNAPSHOT` | ✓ | activities map + orderedBlocks；HITL→paused；a2ui.surface/a2ui-surface→surfaces | HITL/Activity/A2UI | ✅（官方 renderer + stored fallback） |
 | `ACTIVITY_DELTA` | ✓ | 浅合并 patch | 无 UI | P1 |
 | `CUSTOM` / `RAW` | ✓ | rawEvents | 无 UI | P2 |
 
@@ -75,15 +75,17 @@ type RunAgentInput = {
 
 ## 5. 现状 vs 官方 CopilotKit Runtime
 
-### 5.1 官方 single-route envelope
+### 5.1 官方 single-route envelope（已核实源码）
 
 ```json
 {
-  "method": "run",
-  "params": { "agentId": "orchestration", "threadId": "thread-1", "runId": "run-1" },
+  "method": "agent/run",
+  "params": { "agentId": "orchestration", "threadId": "thread-1" },
   "body": { /* RunAgentInput */ }
 }
 ```
+
+合法 method：`agent/run`、`agent/suggest`、`agent/connect`、`agent/stop`、`info`、`inspector/metadata`、`transcribe`。
 
 官方多路由：
 
@@ -99,30 +101,26 @@ POST {basePath}/transcribe
 
 ### 5.2 当前 AgentDock
 
-- Browser POST `/api/copilotkit`，body 直接是 `RunAgentInput`（含 `forwardedProps`）。
-- Server `fabProxy` 原样转发 body 到 `{fab}/ag-ui`。
-- 无 `/info`；无 method/params 封装。
+- 生产 proxy：官方 `@copilotkit/react-core/v2` transport 发送 envelope，`useAgentDockConversation` 消费 `agent.subscribe` 事件。
+- Runtime：`server/index.ts` 挂载 `createCopilotRuntimeHandler`（single-route）+ `FabRoutingAgent`；`/info` 已验证。
+- mock/direct：自研 `parseSseStream + runReducer + runStore`，body 为全文 `RunAgentInput`。
 
 ### 5.3 决策建议
 
-方案 A（推荐，目标态）：接入官方 `@copilotkit/runtime` + headless client。
+方案 A（已落地）：官方 `@copilotkit/runtime` + headless client；`server/index.ts` single-route + `FabRoutingAgent`；前端 `useAgent`/`useCopilotKit`，`useOfficial` 仅在 http+proxy 生效。
 
-- Runtime 侧：`createCopilotRuntimeHandler`/Node adapter，single-route，注册一个 `HttpAgent`（指向 `{fab}/ag-ui`，或自定义 `ProxyAgent` 按 fab 选上游）。
-- 前端侧：`useAgent`/`runAgent`，transport 由 runtime info 自动匹配。
-- 优点：HITL、A2UI、stop/resume 官方支持；后端 DeepAgents 官方示例即为 FastAPI + AG-UI。
+方案 B（仅本地/Mock 过渡）：自研 client/reducer，“直接 RunAgentInput 全文转发”；后端 `/ag-ui` 必须接受相同 body。生产不采用（OAuth2 Proxy 无按 FAB 路由能力，见 `design/08` §7.0）。
 
-方案 B（过渡态，仅本地/Mock）：保留自研 client/reducer，但把协议冻结为“直接 RunAgentInput 全文转发”，并补 `/info`（返回支持 single-route 与 agent 列表）和明确的错误 envelope。后端 `/ag-ui` 必须接受相同 body。生产不采用（OAuth2 Proxy 无按 FAB 路由能力，见 `design/08` §7.0）。
-
-本文不强制二选一，但要求在联调前冻结（`design/06` 给出迁移计划）。无论哪个方案，**事件语义、runId 回显、streamId 透传不可改变**。
+**事件语义、runId 回显、streamId 透传不可改变。**
 
 ## 6. 缺口与行动项
 
 | # | 缺口 | 优先级 |
 |---|---|---|
-| A1 | STEP_STARTED/STEP_FINISHED 消费并渲染 LobeHub Task/Workflow 步骤 | P0 |
-| A2 | Markdown 渲染助手消息（LobeHub `Markdown` 组件或等价） | P0 |
-| A3 | 官方 envelope / transport 决策并落地 | P0 |
-| A4 | SSE 残留 frame 处理、坏事件跳过、event: 字段 | P1 |
+| A1 | ~~STEP 消费与渲染~~ | ✅ WorkflowStepsBlock |
+| A2 | ~~Markdown 渲染~~ | ✅ `Markdown.tsx` |
+| A3 | ~~官方 envelope/transport~~ | ✅ single-route + headless |
+| A4 | SSE 残留 frame 处理、坏事件跳过、event: 字段（仅影响自研 mock/direct 路径） | P1 |
 | A5 | STATE_DELTA / ACTIVITY_DELTA 完整 RFC6902 path 支持 | P1 |
 | A6 | reasoning 生命周期（REASONING_START/END）与流式状态 | P1 |
 | A7 | Custom/RAW 事件可诊断面板（非白屏） | P2 |

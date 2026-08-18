@@ -22,8 +22,8 @@
 
 ```text
 Browser / Headless Client
-  production: POST /api/copilotkit → Copilot Runtime 按 FAB → {orchestrationBaseUrl}/ag-ui
-  direct dev: 按 FAB POST {orchestrationBaseUrl}/ag-ui
+  production(proxy): POST /api/copilotkit（single-route envelope）→ Copilot Runtime 按 FAB → {orchestrationBaseUrl}/ag-ui
+  direct dev: 按 FAB POST {orchestrationBaseUrl}/ag-ui（自研 SSE client，body 为全文 RunAgentInput）
     ↓
 Orchestration Service → text/event-stream
     ↓
@@ -45,6 +45,7 @@ Orchestration Service → Runtime → Browser
 ### Copilot Runtime
 
 - 生产 proxy 模式使用 single-route POST，并根据 FAB 路由；direct 联调模式不经过 Runtime。
+- Browser 与 Runtime 之间使用官方 envelope：`{ method: "agent/run" | "agent/connect" | "agent/stop" | "info", params: { agentId, threadId }, body: RunAgentInput }`；只有 `body` 是标准 `RunAgentInput`。
 - 负责 Catalog definitions、A2UI Middleware、Agent proxy 和 Browser-facing run/connect/stop。
 - 将 SSO 凭据安全传递到 Orchestration Service。
 - 不修改标准 AG-UI 事件语义和关联 ID。
@@ -140,6 +141,8 @@ type HitlMode =
 ```
 
 ### 3.2 单 Agent 请求示例
+
+> 该 JSON 是 `RunAgentInput`。生产 proxy 模式把它作为 `{ method: "agent/run", params: { agentId: "orchestration", threadId }, body: <本 JSON> }` 的 body 发送；direct 联调模式直接 POST 到 `{fab}/ag-ui`。
 
 ```json
 {
@@ -389,6 +392,7 @@ Core/中间件必须形成：
 - Middleware 从 `TOOL_CALL_ARGS` 累积参数并建立 Surface。
 - 不能只把 A2UI JSON 放在普通文本或最终 `TOOL_CALL_RESULT` 中。
 - Orchestration Service 不解析 A2UI，不合并 args delta。
+- 官方 `CopilotRuntime({ a2ui: {} })` 的 A2UI Middleware 会把 `render_a2ui` 流式参数转换为 `ACTIVITY_SNAPSHOT(activityType="a2ui-surface", content={ a2ui_operations })`，前端 Provider `a2ui={{ catalog }}` 自动渲染。
 
 ### 9.3 A2UI Action
 
@@ -411,11 +415,15 @@ Core/中间件必须形成：
 - 产生新的 `runId`。
 - `parentRunId` 指向产生该 Surface 的 Run。
 
+> 官方 wire：中间件读取 `forwardedProps.a2uiAction.userAction`（`{ surfaceId, sourceComponentId, actionName, context, ... }`），前端由 A2UI renderer 的 action bridge 自动发送；自研后备路径才使用本节的平铺 `forwardedProps.a2uiAction`。
+
 ## 10. 断线恢复
 
 ### 10.1 Browser → Runtime
 
-Browser 保存：
+官方路径：前端通过 Runtime 的 `agent/connect` 恢复（`@ag-ui/client` transport 自动处理）；`lastStreamId` 仅作为后端可选检查点语义保留，是否支持由 Orchestration 决定。
+
+自研路径（mock/direct）Browser 保存：
 
 ```ts
 {
@@ -424,7 +432,7 @@ Browser 保存：
 }
 ```
 
-恢复时调用 Runtime connect，并在 forwarded props 中携带：
+恢复时（自研路径）调用 Runtime connect，并在 forwarded props 中携带：
 
 ```json
 {
@@ -437,7 +445,7 @@ Browser 保存：
 
 ### 10.2 Runtime → Orchestration Service
 
-Runtime Adapter 使用相同 `runId` 和 `lastStreamId` 请求 `/ag-ui`。Service 只返回游标之后的事件。
+Runtime Adapter 使用相同 `runId` 请求 `/ag-ui`（官方 `agent/connect`）；若双方约定支持 `lastStreamId`，Service 只返回游标之后的事件。联调前必须确认 Orchestration 的 connect 语义（整场重放 vs 游标恢复）。
 
 ### 10.3 去重
 

@@ -56,7 +56,7 @@ export default function Providers({ children }: { children: ReactNode }) {
             console.error('[CopilotKit]', event.error);
           }
         }}
-        runtimeUrl={copilotEnabled ? runtimeConfig.copilotRuntimeUrl : undefined}
+        runtimeUrl={runtimeConfig.copilotRuntimeUrl}
         useSingleEndpoint
       >
         <ThemeProvider

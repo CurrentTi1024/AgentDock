@@ -1,19 +1,19 @@
-# A2UI 端到端管线设计（现状为伪实现，需 P0 落地）
+# A2UI 端到端管线设计（已落地：catalog + renderer + Runtime middleware）
 
-> 状态：Review 完成，待实现  
+> 状态：已落地（官方 catalog + renderer + Runtime middleware），action 与后端 fixture 待联调
 > 关联：`docs/agentdock/02-agui-a2ui-runtime-contract.md` 第 9 节
 
 ## 1. 官方 A2UI 概念
 
 A2UI 是声明式 UI 格式，AG-UI 是传输层。核心概念：
 
-- **Catalog**：组件定义（Zod schema + 自然语言 description）+ React renderer 映射。传给 CopilotKit Provider 后自动启用 A2UI 并注入 `generate_a2ui` 工具（CopilotKit ≥ 1.61.2）。
+- **Catalog**：组件定义（Zod schema + 自然语言 description）+ React renderer 映射。传给 CopilotKit Provider 后自动启用 A2UI；`generate_a2ui`/`render_a2ui` 工具注入由 Runtime/后端 Middleware 配置决定（动态 schema 时 Runtime 侧 `injectA2UITool: true`，固定 schema 时后端直接返回 `a2ui_operations`）。
 - **Built-in catalog**：Text、Image、Card 等，`includeBasicCatalog: true` 可同时保留。
 - **BYOC**：`createCatalog` 自定义组件。
 - **Surface 生命周期**：`createSurface` → `updateComponents` → `updateDataModel`。
 - **固定 schema 模式**：Agent 自持 data-only tool 返回 `a2ui_operations`，runtime 只需 `a2ui: true`。
 - **动态 schema 模式**：runtime 注入 `generate_a2ui` 工具 + 次 LLM。
-- **Action 回传**：前端 `useA2UIActionHandler` 注册处理器；或发送 AG-UI run 携带 `forwardedProps.a2uiAction`。
+- **Action 回传**：官方 renderer 的 action bridge 自动发送（中间件读取 `forwardedProps.a2uiAction.userAction`）；自研后备路径才用平铺 `forwardedProps.a2uiAction`。
 
 后端链路（LangGraph/FastAPI + DeepAgents）：
 
@@ -25,26 +25,26 @@ FastAPI app + CopilotKitMiddleware
   └─ Runtime middleware 建立 Surface → Activity 事件 → 前端 renderer
 ```
 
-## 2. 当前 AgentDock 实现（伪实现）
+## 2. 当前 AgentDock 实现（已落地）
 
 ### 2.1 已具备
 
-- Mock stream 会输出 `ACTIVITY_SNAPSHOT (activityType: a2ui.surface, surfaceId, content: { catalogId, components })`。
-- reducer 把该 activity 存入 `run.surfaces[surfaceId]`。
-- `A2uiSurfaceBlock` 渲染折叠块；按钮调用 `sendA2uiAction`。
-- `sendA2uiAction` 生成新 runId + `parentRunId=原runId`，action 走 `forwardedProps.a2uiAction` —— 方向正确。
+- `a2ui/catalog.tsx`：`createCatalog` 定义 `metricCard / actionButton` + LobeHub 风格渲染器，Provider `a2ui={{ catalog }}`。
+- 官方 Runtime `a2ui: {}` middleware 把 `render_a2ui` 流转成 `a2ui-surface` activity；前端 `useRenderActivityMessage` 渲染。
+- Mock/恢复历史用 `A2uiStoredSurface` 按 payload 组件重建；未知组件回退 raw JSON。
+- `sendA2uiAction`（自研后备）：新 runId + `parentRunId`；http 路径按官方 `a2uiAction.userAction` 嵌套。
 
 ### 2.2 缺口
 
 | # | 缺口 | 影响 | 优先级 |
 |---|---|---|---|
-| U1 | 无 catalog 定义与 renderer | Surface 无法按组件渲染，只显示 raw JSON | P0 |
-| U2 | 无 `@copilotkit/a2ui-renderer`（或等价自研 renderer） | 无法消费 components/updateDataModel | P0 |
-| U3 | Action 硬编码 `open_report` + 固定 context | 无法由 surface 按钮数据驱动 | P0 |
-| U4 | 无 `useA2UIActionHandler` | 客户端自定义 action 逻辑缺失 | P0 |
+| U1 | ~~无 catalog 定义与 renderer~~ | ✅ `a2ui/catalog.tsx` |
+| U2 | ~~无官方 renderer~~ | ✅ Provider `a2ui` + `useRenderActivityMessage` |
+| U3 | ~~Action 硬编码~~ | ✅ 官方 renderer dispatch + 存储 surface 由 payload 驱动；自研后备保留默认值 |
+| U4 | ~~无 action 处理器~~ | ✅ 官方 action bridge + `sendA2uiAction` 双路径 |
 | U5 | 右栏 Artifact 面板静态写死 | 与 surface/artifact 数据无关联 | P1 |
-| U6 | 无 `updateComponents/updateDataModel` 增量事件处理 | 长生命周期 surface 无法更新 | P1 |
-| U7 | 无固定 schema（a2ui_operations）兼容 | 后端若走固定 schema 无法对接 | P1 |
+| U6 | `updateComponents/updateDataModel` 增量 | 长生命周期 surface 更新由官方 renderer 处理；恢复历史仅快照 | P1(联调) |
+| U7 | 固定 schema（a2ui_operations）兼容 | Runtime middleware 已支持；待后端 fixture 验证 | P1(联调) |
 
 ## 3. 目标实现方案
 
@@ -53,19 +53,19 @@ FastAPI app + CopilotKitMiddleware
 ```tsx
 // catalog.tsx
 import { createCatalog } from '@copilotkit/a2ui-renderer';
+import { z } from 'zod';
 
-const metricCard = { name: 'metricCard', description: '显示一个关键指标', schema: z.object({ label: z.string(), value: z.number() }) };
-const actionButton = { name: 'actionButton', description: '可点击按钮，触发 A2UI action', schema: z.object({ label: z.string(), actionName: z.string() }) };
-
-export const agentDockCatalog = createCatalog({
-  catalogId: 'agentdock://catalog',
-  includeBasicCatalog: true,
-  definitions: [metricCard, actionButton],
-  renderers: {
+export const agentDockCatalog = createCatalog(
+  {
+    metricCard: { description: '显示一个关键指标', props: z.object({ label: z.string(), value: z.number() }) },
+    actionButton: { description: '可点击按钮，触发 A2UI action', props: z.object({ label: z.string(), actionName: z.string() }) },
+  },
+  {
     metricCard: MetricCard,
     actionButton: ActionButton,
   },
-});
+  { catalogId: 'agentdock://catalog', includeBasicCatalog: true },
+);
 ```
 
 Provider：
@@ -78,7 +78,7 @@ Provider：
 
 渲染：A2UI Renderer 自动激活（activity message），或用 `useRenderedMessages`/`useRenderActivityMessage` 在 LobeHub 消息区域内嵌入。
 
-Action：按钮 onClick → `useA2UIActionHandler` 或直接发 run：
+Action：官方 renderer 的 `dispatch` 自动走 action bridge；自研后备直接发 run：
 
 ```json
 {
@@ -101,9 +101,9 @@ Action：按钮 onClick → `useA2UIActionHandler` 或直接发 run：
 
 ### 3.2 Runtime / App Server
 
-- 启用 A2UI middleware（官方 runtime 配置 `a2ui: true` 或 catalog 自动启用）。
-- 透传 catalog definitions 到上游（DeepAgents 侧 `CopilotKitMiddleware` 需要）。
-- 不解析、不合并 A2UI `TOOL_CALL_ARGS`，保持流式原样。
+- 启用 A2UI middleware：`CopilotRuntime({ agents, a2ui: {} })`（动态 schema 联调时按需 `injectA2UITool: true`）。
+- Catalog definitions 由 Provider 经 `/info` 与 agent context 到达 Core（`CopilotKitMiddleware` 需要）。
+- Runtime middleware 解析 `render_a2ui` 流式参数并转成 `a2ui-surface` activity；Orchestration 不解析、不合并 `TOOL_CALL_ARGS`。
 
 ### 3.3 Core（DeepAgents + CopilotKitMiddleware）
 
