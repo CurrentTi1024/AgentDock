@@ -24,15 +24,35 @@ const GroupSidebarBody = () => {
   const navigate = useNavigate();
   const [groups, setGroups] = useState<SessionRecord[]>([]);
   const [keyword, setKeyword] = useState('');
+  const pendingSession = (location.state as { pendingSession?: SessionRecord } | null)?.pendingSession;
 
   useEffect(() => {
     const load = () => {
       void sessionHistoryService.listSessions().then(setGroups);
     };
+    const applyPending = () => {
+      if (!pendingSession || pendingSession.type !== 'group') return;
+      setGroups((current) =>
+        current.some((session) => session.id === pendingSession.id)
+          ? current
+          : [pendingSession, ...current],
+      );
+    };
+    const refresh = () => {
+      applyPending();
+      load();
+    };
+    applyPending();
     load();
     window.addEventListener('agentdock:sessions-changed', load);
-    return () => window.removeEventListener('agentdock:sessions-changed', load);
-  }, [location.pathname]);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('agentdock:sessions-changed', load);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [location.pathname, pendingSession]);
 
   const visibleGroups = useMemo(() => {
     const query = keyword.toLowerCase();

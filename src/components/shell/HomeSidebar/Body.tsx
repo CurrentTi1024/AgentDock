@@ -63,6 +63,7 @@ const Body = () => {
   const thisMonthOnly = useUiStore((s) => s.thisMonthOnly);
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [keyword, setKeyword] = useState('');
+  const pendingSession = (location.state as { pendingSession?: SessionRecord } | null)?.pendingSession;
 
   useEffect(() => {
     const load = () => {
@@ -70,10 +71,29 @@ const Body = () => {
         void sessionHistoryService.listSessions().then(setSessions);
       }
     };
+    const applyPending = () => {
+      if (!pendingSession) return;
+      setSessions((current) =>
+        current.some((session) => session.id === pendingSession.id)
+          ? current
+          : [pendingSession, ...current],
+      );
+    };
+    const refresh = () => {
+      applyPending();
+      load();
+    };
+    applyPending();
     load();
     window.addEventListener('agentdock:sessions-changed', load);
-    return () => window.removeEventListener('agentdock:sessions-changed', load);
-  }, [location.pathname, thisMonthOnly]);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('agentdock:sessions-changed', load);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [location.pathname, pendingSession, thisMonthOnly]);
 
   const visibleSessions = useMemo(() => {
     const query = keyword.toLowerCase();
