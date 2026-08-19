@@ -65,6 +65,10 @@ const useMockConversation = (options: AgentDockConversationOptions): AgentDockCo
 
   const send = useCallback(
     async (message: string) => {
+      // 防重入：上一轮 run 未结束（running/paused）时忽略新发送，
+      // 避免 UI 门禁延迟导致同一会话并发 run（后端日志曾出现同一时刻两个 /ag-ui POST）。
+      const currentRun = useRunStore.getState().run;
+      if (currentRun && (currentRun.status === 'running' || currentRun.status === 'paused')) return;
       const { agentId, fab, group, sessionId } = optionsRef.current;
       const threadId = optionsRef.current.threadId || `thread-${sessionId}`;
       await useRunStore
@@ -192,36 +196,36 @@ const useOfficialConversation = (
   const restore = useCallback(async () => {
     const checkpoint = await sessionHistoryService.getLatestRun(optionsRef.current.sessionId);
     if (!checkpoint) return;
-    runRef.current = checkpoint.snapshot;
     inputRef.current = checkpoint.input;
-    setHttpRun(checkpoint.snapshot);
+    // 后端尚无 streamId 游标恢复：陈旧 running 快照（页面在 run 中途关闭/刷新）
+    // 直接转为 cancelled 并落库，避免 restore 自动 resume 重放造成重复/并发 run。
+    const restored = checkpoint.status === 'running'
+      ? {
+          ...checkpoint.snapshot,
+          error: { code: 'CANCELLED', message: 'Run interrupted by reload; stream resume is not supported yet.' },
+          status: 'cancelled' as const,
+        }
+      : checkpoint.snapshot;
+    runRef.current = restored;
+    setHttpRun(restored);
+    if (restored !== checkpoint.snapshot) {
+      await sessionHistoryService.saveRunCheckpoint(
+        optionsRef.current.sessionId,
+        checkpoint.input,
+        restored,
+      );
+    }
     // 回填 agent 可见消息，保证下一次 run 携带完整上下文（与 LobeHub 本地历史一致）
     const restoredMessages = [
       ...(checkpoint.input.messages || []),
-      ...Object.values(checkpoint.snapshot.messages || {}),
+      ...Object.values(restored.messages || {}),
     ]
       .filter((message) => message?.role === 'user' || message?.role === 'assistant')
       .map((message) => ({ content: message.content, id: message.id, role: message.role }));
     if (restoredMessages.length) agent.setMessages(restoredMessages as Message[]);
-    // 按 streamId 游标恢复（与后端冻结的方向）：running/paused 且有 latestStreamId 时，
-    // 通过官方 agent/connect 携带 action=resume + resume.lastStreamId 补发缺失事件。
-    if (
-      (checkpoint.status === 'running' || checkpoint.status === 'paused') &&
-      checkpoint.snapshot.latestStreamId
-    ) {
-      try {
-        await agent.connectAgent({
-          forwardedProps: {
-            ...(checkpoint.input.forwardedProps as Record<string, unknown>),
-            action: 'resume',
-            resume: { lastStreamId: checkpoint.snapshot.latestStreamId },
-          },
-          runId: checkpoint.input.runId,
-        });
-      } catch (error) {
-        console.warn('[AgentDock] connect resume failed', error);
-      }
-    }
+    // 注：移除 connectAgent 自动恢复。后端没有 Redis 事件日志/streamId 游标，
+    // resume 会重放整轮对话并产生并发 run；HITL(paused) 通过 respondToHitl 的
+    // runAgent(resume[]) 续跑，不需要 connectAgent。
   }, [agent]);
 
   useEffect(() => {
@@ -230,6 +234,9 @@ const useOfficialConversation = (
 
   const send = useCallback(
     async (message: string) => {
+      // 防重入：与官方路径一致，上一轮未结束时忽略新发送。
+      const currentRun = runRef.current;
+      if (currentRun && (currentRun.status === 'running' || currentRun.status === 'paused')) return;
       const { agentId, fab, group, sessionId } = optionsRef.current;
       const threadId = optionsRef.current.threadId || `thread-${sessionId}`;
       const runId = crypto.randomUUID();
