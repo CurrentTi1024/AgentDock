@@ -35,6 +35,39 @@
 - 把 LobeHub 对应页面的功能与嵌套 UI/UX 完整搬移，改写 hooks 逻辑融合本项目（Service / i18n / router）。
 - 每页按“需求文档 → 迁移 → hooks 改写 → 测试 → 视觉验收”推进。
 
+## 0.1 当前问题 / 后续任务 / 待确认任务
+
+### 现在的问题（已确认存在）
+
+1. **市场未 fully copy LobeHub**（FAB 选择器 UI/UX 保持不变）：
+   - 右上角缺失排序条件（sortBy）与升降序（sortOrder）；
+   - Agent 列表卡片缺失每个 agent 的 skill/mcp 数量等元信息；
+   - “进入聊天”按钮颜色/样式与 LobeHub 不一致；
+   - 分类侧栏、卡片密度、详情 Tabs/侧栏等细节待逐项对照。
+2. **Chat / Group Chat 未全量复刻 LobeHub**：消息类型矩阵仍有缺口（assistantGroup / task / tasks / groupTasks / supervisor / activity 等），过程折叠、操作栏、编辑态、群聊设置面板等交互为简化版。
+3. **其他页面为占位/简化**：Group / Tasks / Documents / Memory / Channel / Artifact / Page / Settings 未按 LobeHub 全量迁移。
+4. **本地环境**：5173 被旧 dev server（PID 54967）占用，测试可能访问旧代码；需 kill 后重启。
+5. **构建体积**：主 chunk ~2MB（CopilotKit 依赖 katex/mermaid/shiki），需要拆包优化。
+6. **静态样例**：详情页 Reviews / Security / Info 等待真实数据。
+
+### 后续任务（直接执行，无需确认）
+
+- R2：对话页 + 群聊页按 LobeHub 全量复刻（组件、样式、交互、消息类型矩阵），并同步 `design/05` 渲染矩阵。
+- R3：市场补齐排序/升降序、skill/mcp 数量、进入聊天按钮样式、分类/卡片密度/详情对照（FAB UI/UX 不变）。
+- R4：Group / Tasks / Documents / Memory / Channel / Artifact / Page / Settings 全量迁移，不留占位符。
+- 前端收尾：构建体积拆包（CopilotKit 懒加载/独立 chunk）；每完成一项跑 `pnpm run build` + `pnpm run test`，并在 task.md / docs/06 更新状态。
+
+### 待确认任务（需要用户或后端拍板）
+
+1. **HITL wire**：标准 `RUN_FINISHED(outcome=interrupt) + resume[]` 还是 legacy `on_interrupt`（前端双路径已实现，需后端 fixture 冻结一种）。
+2. **A2UI**：动态 schema（Runtime `injectA2UITool: true`）还是固定 schema（`a2ui_operations`）；需要一条真实 `render_a2ui` fixture。
+3. **Orchestration connect 语义**：前端已按 `lastStreamId` 游标恢复实现（方向已冻结），需后端确认支持并按游标过滤；Redis event TTL。
+4. **threadId 策略**：同一本地会话切换 agent/fab 时是否新建 threadId（建议新建）。
+5. **市场字段契约**：sortBy / sortOrder 枚举值；skill/mcp 数量字段名与空值规则；`permissioned` 为空时的文案。
+6. **SSO 透传**：Cookie 还是 Authorization，Runtime → Orchestration 的透传方式。
+7. **详情真实数据**：Reviews / Security / Info 数据源与字段。
+8. **构建体积优化方案确认**：是否接受 CopilotKit 独立 chunk / 懒加载（影响首屏加载策略）。
+
 ## 1. 模块总览
 
 | 模块 | 需求摘要 | 状态 | 引用 |
