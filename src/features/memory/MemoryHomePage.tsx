@@ -66,7 +66,7 @@ const MemoryHomePage = memo(() => {
                   {t('memory.analyze')}
                 </Button>
               )}
-              <ActionIcon icon={Trash2} size="small" title={t('memory.purge')} />
+              <ActionIcon aria-label={t('memory.purge')} icon={Trash2} size="small" title={t('memory.purge')} />
             </Flexbox>
           )
         }

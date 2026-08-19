@@ -319,7 +319,13 @@ export function DocumentDetailPage() {
           item && (
             <Flexbox horizontal align="center" gap={8}>
               <Tag>{item.category}</Tag>
-              <ActionIcon icon={Trash2} size="small" title={t('memory.delete')} onClick={handleDelete} />
+              <ActionIcon
+                aria-label={t('memory.delete')}
+                icon={Trash2}
+                size="small"
+                title={t('memory.delete')}
+                onClick={handleDelete}
+              />
             </Flexbox>
           )
         }

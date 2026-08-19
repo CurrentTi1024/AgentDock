@@ -51,16 +51,6 @@ const KIND_BY_TAB: Record<MemoryTabKey, MemoryKind | undefined> = {
   activities: 'activity',
 };
 
-const CATEGORY_OPTIONS = [
-  '偏好',
-  '沟通',
-  '格式',
-  '上下文',
-  '经验',
-  '身份',
-  '活动',
-];
-
 const MemoryListPage = memo(() => {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -71,6 +61,7 @@ const MemoryListPage = memo(() => {
 
   const [items, setItems] = useState<MemoryItem[]>([]);
   const [keyword, setKeyword] = useState('');
+  const [category, setCategory] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<MemoryItem | null>(null);
@@ -102,12 +93,20 @@ const MemoryListPage = memo(() => {
     return () => controller.abort();
   }, [load]);
 
+  // FilterBar：分类选项从数据派生（遵循“后端/Mock 数据原文展示”规则，不硬编码 UI 文案）。
+  const categories = useMemo(
+    () => [...new Set(items.map((item) => item.category).filter(Boolean))],
+    [items],
+  );
+
   const filtered = useMemo(() => {
     const query = keyword.toLowerCase();
     return items.filter(
-      (item) => !query || `${item.title}${item.content}${item.tags.join(' ')}`.toLowerCase().includes(query),
+      (item) =>
+        (!query || `${item.title}${item.content}${item.tags.join(' ')}`.toLowerCase().includes(query)) &&
+        (!category || item.category === category),
     );
-  }, [items, keyword]);
+  }, [category, items, keyword]);
 
   const handleDelete = useCallback(
     (item: MemoryItem) => {
@@ -172,8 +171,15 @@ const MemoryListPage = memo(() => {
               style={{ width: 200 }}
               value={keyword}
             />
-            <ActionIcon icon={Plus} size="small" title={t('memory.new')} onClick={() => setCreating(true)} />
             <ActionIcon
+              aria-label={t('memory.new')}
+              icon={Plus}
+              size="small"
+              title={t('memory.new')}
+              onClick={() => setCreating(true)}
+            />
+            <ActionIcon
+              aria-label={viewMode === 'grid' ? t('memory.timeline') : t('memory.grid')}
               icon={viewMode === 'grid' ? Rows3 : LayoutGrid}
               size="small"
               title={viewMode === 'grid' ? t('memory.timeline') : t('memory.grid')}
@@ -208,34 +214,54 @@ const MemoryListPage = memo(() => {
                 icon={kind ? KIND_ICONS[kind] : undefined}
               />
             </Center>
-          ) : viewMode === 'grid' ? (
-            <Flexbox gap={10} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
-              {filtered.map((item) => (
-                <MemoryGridCard
-                  active={selected?.id === item.id}
-                  item={item}
-                  key={item.id}
-                  onDelete={() => handleDelete(item)}
-                  onEdit={() => setEditing(item)}
-                  onOpen={() => setSelected(item)}
-                  onTogglePin={() => handleTogglePin(item)}
-                />
-              ))}
-            </Flexbox>
           ) : (
-            <Flexbox gap={2}>
-              {filtered.map((item) => (
-                <TimelineRow
-                  active={selected?.id === item.id}
-                  item={item}
-                  key={item.id}
-                  onDelete={() => handleDelete(item)}
-                  onEdit={() => setEditing(item)}
-                  onOpen={() => setSelected(item)}
-                  onTogglePin={() => handleTogglePin(item)}
+            <>
+              {categories.length > 1 && (
+                <Flexbox horizontal align="center" gap={6} wrap="wrap">
+                  <Tag
+                    style={{ cursor: 'pointer' }}
+                    color={category === null ? 'blue' : undefined}
+                    onClick={() => setCategory(null)}
+                  >
+                    {t('memory.filterAll')}
+                  </Tag>
+                  {categories.map((item) => (
+                    <Tag
+                      key={item}
+                      style={{ cursor: 'pointer' }}
+                      color={category === item ? 'blue' : undefined}
+                      onClick={() => setCategory((current) => (current === item ? null : item))}
+                    >
+                      {item}
+                    </Tag>
+                  ))}
+                </Flexbox>
+              )}
+              {viewMode === 'grid' ? (
+                <Flexbox gap={10} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+                  {filtered.map((item) => (
+                    <MemoryGridCard
+                      active={selected?.id === item.id}
+                      item={item}
+                      key={item.id}
+                      onDelete={() => handleDelete(item)}
+                      onEdit={() => setEditing(item)}
+                      onOpen={() => setSelected(item)}
+                      onTogglePin={() => handleTogglePin(item)}
+                    />
+                  ))}
+                </Flexbox>
+              ) : (
+                <TimelineGroups
+                  items={filtered}
+                  selectedId={selected?.id}
+                  onDelete={handleDelete}
+                  onEdit={setEditing}
+                  onOpen={setSelected}
+                  onTogglePin={handleTogglePin}
                 />
-              ))}
-            </Flexbox>
+              )}
+            </>
           )}
         </WideScreenContainer>
         {selected && (
@@ -250,6 +276,7 @@ const MemoryListPage = memo(() => {
       </Flexbox>
       {(editing || creating) && (
         <MemoryEditModal
+          categories={categories}
           defaultValue={editing ?? undefined}
           kind={kind}
           onCancel={() => {
@@ -325,6 +352,71 @@ const MemoryGridCard = memo<{
         {item.content}
       </Text>
     </Block>
+  );
+});
+
+const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+const startOfWeek = (date: Date) => {
+  const day = (date.getDay() + 6) % 7; // 周一为一周起点
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate() - day);
+  return start.getTime();
+};
+const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1).getTime();
+
+const periodKeyOf = (value: string): PeriodKey => {
+  const time = new Date(value).getTime();
+  const now = new Date();
+  if (time >= startOfDay(now)) return 'today';
+  if (time >= startOfWeek(now)) return 'week';
+  if (time >= startOfMonth(now)) return 'month';
+  return 'earlier';
+};
+
+type PeriodKey = 'earlier' | 'month' | 'today' | 'week';
+const PERIOD_ORDER: PeriodKey[] = ['today', 'week', 'month', 'earlier'];
+
+/** 时间线按时间段分组（LobeHub TimeLineView/PeriodGroup）。 */
+const TimelineGroups = memo<{
+  items: MemoryItem[];
+  selectedId?: string;
+  onDelete: (item: MemoryItem) => void;
+  onEdit: (item: MemoryItem) => void;
+  onOpen: (item: MemoryItem) => void;
+  onTogglePin: (item: MemoryItem) => void;
+}>(({ items, selectedId, onDelete, onEdit, onOpen, onTogglePin }) => {
+  const { t } = useI18n();
+  const groups = useMemo(() => {
+    const map = new Map<PeriodKey, MemoryItem[]>();
+    for (const key of PERIOD_ORDER) map.set(key, []);
+    for (const item of items) {
+      map.get(periodKeyOf(item.updatedAt))?.push(item);
+    }
+    return [...map.entries()].filter(([, list]) => list.length > 0);
+  }, [items]);
+
+  return (
+    <Flexbox gap={12}>
+      {groups.map(([key, list]) => (
+        <Flexbox gap={4} key={key}>
+          <Text fontSize={12} type="secondary" weight={500}>
+            {t(`memory.period.${key}`)}
+          </Text>
+          <Flexbox gap={2}>
+            {list.map((item) => (
+              <TimelineRow
+                active={selectedId === item.id}
+                item={item}
+                key={item.id}
+                onDelete={() => onDelete(item)}
+                onEdit={() => onEdit(item)}
+                onOpen={() => onOpen(item)}
+                onTogglePin={() => onTogglePin(item)}
+              />
+            ))}
+          </Flexbox>
+        </Flexbox>
+      ))}
+    </Flexbox>
   );
 });
 
@@ -404,10 +496,16 @@ const MemoryRightPanel = memo<{
               {item.title}
             </Text>
           </Flexbox>
-          <ActionIcon icon={Pencil} onClick={onEdit} size="small" title={t('memory.edit')} />
-          <ActionIcon icon={Pin} onClick={onTogglePin} size="small" title={item.pinned ? t('memory.unpin') : t('memory.pin')} />
-          <ActionIcon icon={Trash2} onClick={onDelete} size="small" title={t('memory.delete')} />
-          <ActionIcon icon={Rows3} onClick={onClose} size="small" title={t('common.close')} />
+          <ActionIcon aria-label={t('memory.edit')} icon={Pencil} onClick={onEdit} size="small" title={t('memory.edit')} />
+          <ActionIcon
+            aria-label={item.pinned ? t('memory.unpin') : t('memory.pin')}
+            icon={Pin}
+            onClick={onTogglePin}
+            size="small"
+            title={item.pinned ? t('memory.unpin') : t('memory.pin')}
+          />
+          <ActionIcon aria-label={t('memory.delete')} icon={Trash2} onClick={onDelete} size="small" title={t('memory.delete')} />
+          <ActionIcon aria-label={t('common.close')} icon={Rows3} onClick={onClose} size="small" title={t('common.close')} />
         </Flexbox>
         <Flexbox horizontal wrap="wrap" gap={6}>
           <Tag>{item.category}</Tag>
@@ -432,15 +530,18 @@ const MemoryRightPanel = memo<{
 });
 
 const MemoryEditModal = memo<{
+  categories: string[];
   defaultValue?: MemoryItem;
   kind?: MemoryKind;
   onCancel: () => void;
   onSave: (value: { title: string; content: string; category: string; tags: string[] }) => void | Promise<void>;
-}>(({ defaultValue, kind, onCancel, onSave }) => {
+}>(({ categories, defaultValue, kind, onCancel, onSave }) => {
   const { t } = useI18n();
   const [title, setTitle] = useState(defaultValue?.title ?? '');
   const [content, setContent] = useState(defaultValue?.content ?? '');
-  const [category, setCategory] = useState(defaultValue?.category ?? KIND_META[kind ?? 'context'].categoryKey);
+  const [category, setCategory] = useState(
+    defaultValue?.category ?? categories[0] ?? KIND_META[kind ?? 'context'].categoryKey,
+  );
   const [tags, setTags] = useState((defaultValue?.tags ?? []).join(', '));
   const [saving, setSaving] = useState(false);
 
@@ -491,7 +592,12 @@ const MemoryEditModal = memo<{
         <Flexbox horizontal gap={12}>
           <Select
             onChange={(value) => setCategory(value as string)}
-            options={CATEGORY_OPTIONS.map((item) => ({ label: item, value: item }))}
+            options={[
+              ...categories.map((item) => ({ label: item, value: item })),
+              ...(categories.includes(KIND_META[kind ?? 'context'].categoryKey)
+                ? []
+                : [{ label: KIND_META[kind ?? 'context'].categoryKey, value: KIND_META[kind ?? 'context'].categoryKey }]),
+            ]}
             style={{ flex: 1 }}
             value={category}
           />

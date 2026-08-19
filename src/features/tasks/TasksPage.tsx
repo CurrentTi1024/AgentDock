@@ -41,6 +41,7 @@ import {
 import { useI18n } from '@/i18n';
 
 import CreateTaskModal from './CreateTaskModal';
+import CreateTaskInlineEntry from './CreateTaskInlineEntry';
 import KanbanBoard from './KanbanBoard';
 import {
   compareTaskItems,
@@ -118,6 +119,7 @@ const TasksPage = memo(() => {
     normalizeTaskListViewOptions(readLocal<Partial<TaskListViewOptions>>('agentdock-tasks-options', {})),
   );
   const [createOpen, setCreateOpen] = useState(false);
+  const [inlineOpen, setInlineOpen] = useState(false);
   const [detailTask, setDetailTask] = useState<ScheduledTask | null>(null);
 
   const refresh = useCallback(
@@ -270,6 +272,33 @@ const TasksPage = memo(() => {
     setTasks((current) => [task, ...current]);
   }, []);
 
+  const handleCreateClick = useCallback(() => {
+    if (viewMode === 'list') {
+      setInlineOpen((open) => !open);
+    } else {
+      setCreateOpen(true);
+    }
+  }, [viewMode]);
+
+  const handleAssigneeChange = useCallback(
+    (task: ScheduledTask, agentId: string, agentFullName: string) => {
+      setTasks((current) =>
+        current.map((item) =>
+          item.identifier === task.identifier
+            ? { ...item, assigneeAgentId: agentId, assigneeAgentName: agentFullName }
+            : item,
+        ),
+      );
+      void scheduledTaskService
+        .updateTask(task.identifier, { assigneeAgentId: agentId, assigneeAgentName: agentFullName })
+        .catch((reason) => {
+          console.warn('[AgentDock] assignee update failed', reason);
+          void refresh();
+        });
+    },
+    [refresh],
+  );
+
   const skeleton = (
     <Block gap={2} padding={2} variant="borderless">
       {Array.from({ length: 5 }).map((_, index) => (
@@ -309,6 +338,7 @@ const TasksPage = memo(() => {
           {(grouped[0]?.items ?? []).map((task, index) => (
             <Fragment key={task.identifier}>
               <TaskItem
+                onAssigneeChange={handleAssigneeChange}
                 onDelete={handleDelete}
                 onOpen={setDetailTask}
                 onStatusChange={handleStatusChange}
@@ -374,6 +404,7 @@ const TasksPage = memo(() => {
                         {subTasks.map((task) => (
                           <TaskItem
                             key={task.identifier}
+                            onAssigneeChange={handleAssigneeChange}
                             onDelete={handleDelete}
                             onOpen={setDetailTask}
                             onStatusChange={handleStatusChange}
@@ -389,6 +420,7 @@ const TasksPage = memo(() => {
                   {group.items.map((task, index) => (
                     <Fragment key={task.identifier}>
                       <TaskItem
+                        onAssigneeChange={handleAssigneeChange}
                         onDelete={handleDelete}
                         onOpen={setDetailTask}
                         onStatusChange={handleStatusChange}
@@ -428,10 +460,22 @@ const TasksPage = memo(() => {
                 };
               })}
             >
-              <ActionIcon icon={CurrentVisibilityIcon} size="small" title={`${t('tasks.visibility.label')}: ${t(currentVisibility.labelKey)}`} />
+              <ActionIcon
+                aria-label={`${t('tasks.visibility.label')}: ${t(currentVisibility.labelKey)}`}
+                icon={CurrentVisibilityIcon}
+                size="small"
+                title={`${t('tasks.visibility.label')}: ${t(currentVisibility.labelKey)}`}
+              />
             </DropdownMenu>
-            <ActionIcon icon={Plus} size="small" title={t('tasks.new')} onClick={() => setCreateOpen(true)} />
             <ActionIcon
+              aria-label={t('tasks.new')}
+              icon={Plus}
+              size="small"
+              title={t('tasks.new')}
+              onClick={handleCreateClick}
+            />
+            <ActionIcon
+              aria-label={viewMode === 'list' ? t('tasks.kanban') : t('tasks.list')}
               icon={viewMode === 'list' ? LayoutGrid : LayoutList}
               size="small"
               title={viewMode === 'list' ? t('tasks.kanban') : t('tasks.list')}
@@ -514,7 +558,12 @@ const TasksPage = memo(() => {
               placement="bottomRight"
               trigger="click"
             >
-              <ActionIcon icon={Settings2} size="small" title={t('tasks.displaySettings')} />
+              <ActionIcon
+                aria-label={t('tasks.displaySettings')}
+                icon={Settings2}
+                size="small"
+                title={t('tasks.displaySettings')}
+              />
             </Popover>
           </Flexbox>
         }
@@ -534,6 +583,12 @@ const TasksPage = memo(() => {
         />
       ) : (
         <WideScreenContainer gap={16} paddingBlock={16} wrapperStyle={{ flex: 1, overflowY: 'auto' }}>
+          {inlineOpen && (
+            <CreateTaskInlineEntry
+              onCancel={() => setInlineOpen(false)}
+              onCreated={handleCreated}
+            />
+          )}
           {loading && tasks.length === 0 ? (
             skeleton
           ) : tasks.length === 0 ? (
@@ -580,7 +635,13 @@ function TaskDetailDrawer({ onClose, task }: { onClose: () => void; task: Schedu
             <StatusIcon color={meta.color} size={18} />
             <Text weight={500}>{task.name || task.identifier}</Text>
           </Flexbox>
-          <ActionIcon icon={Globe} onClick={onClose} size="small" title={t('common.close')} />
+          <ActionIcon
+            aria-label={t('common.close')}
+            icon={Globe}
+            onClick={onClose}
+            size="small"
+            title={t('common.close')}
+          />
         </Flexbox>
         <Flexbox gap={16} padding={16} style={{ overflowY: 'auto', flex: 1 }}>
           <Flexbox gap={6}>

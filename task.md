@@ -378,6 +378,16 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **i18n**：新增约 110 个 key（tasks/memory/documents/channel/artifact/page/settings/nav.page/common.retry|refresh），18 种语言全部翻译并过 `dictionaries.test.ts`。
 - **验证**：`pnpm run build` 通过；Chrome headless + CDP 冒烟 13 条路由全部 PASS、无 JS 异常；交互（显示隐藏完成项、设置分栏、Memory 数据分流）验证通过；26/26 测试通过（注：工作区存在其他会话未提交 WIP，见下）。
 - **并行会话说明**：工作区同时存在用户其他会话的提交与未提交 WIP（runReducer/sessionHistoryService/useAgentDockConversation/chat 相关），本轮仅提交本任务文件（`providers.tsx`/`MemoryListPage.tsx`/`package.json`/`pnpm-lock.yaml`），未触碰其他会话 WIP；若其 WIP 使 `pnpm run test` 变红，属该会话进行中状态。
+
+第十二轮（2026-08-20，R4 Code Review：嵌套子组件补齐 + 架构/数据集成）：
+
+- **Review 结论**：八类页面主体迁移完整；对照 LobeHub 逐层检查后补齐嵌套子组件，并修正架构/数据集成问题（详见 `design/13` §9）。
+- **Tasks 补齐**：内联创建行 `CreateTaskInlineEntry`（列表视图「+」展开）；看板列设置 `HiddenColumnsPanel`（5 列复选隐藏）；任务卡执行 Agent 切换 `AssigneeAgentSelector`；创建弹窗/内联/卡片三处执行 Agent 候选统一走 `getMentionAgentsList`（模块级缓存 + 失败回退），不再硬编码 3 个 Agent。
+- **Memory 补齐**：分类筛选 `FilterBar`（分类选项从数据派生，去掉硬编码中文表）；时间线 `TimelineGroups` 按 今天/本周/本月/更早 分组（周一起点）；编辑弹窗分类下拉数据驱动。
+- **可访问性**：`@lobehub/ui` ActionIcon 的 `title` 不生成 `aria-label`，全部补齐 aria-label（Tasks/Memory/Documents/Channel）。
+- **i18n**：新增 `tasks.columnSettings`、`memory.filterAll`、`memory.period.*` 共 6 个 key，18 语言翻译并过测试。
+- **验证**：build 通过；28/28 测试通过；Chrome headless + CDP 交互验证（内联创建展开、列设置隐藏「待办」列、执行 Agent 切换下拉、FilterBar chips、时间线分组）+ 9 条路由渲染全部通过。
+- **提交纪律**：并行会话 WIP（fabRoutingAgent/MessageBlocks/useAgentDockConversation）未触碰，仅提交本任务文件。
 - **补充（输入框全站统一）**：首页 hub 输入框改为直接复用 `ChatInput`（唯一输入框组件，彻底统一样式：圆角 16、左下角工具栏 Agent 选择/附件/语音/@/斜杠、底部 Agent 信息行）；`ChatInput` 新增 `sendDisabled`（未选 Agent 且无 @ 前缀时禁用发送）与 `placeholder` 透传；群聊页传 `hideMentionButton`——不强制 @/选 Agent（成员已组队），发送始终可用，也不显示「切换 Agent」选择。
 - **浏览器实测**：hub 输入框与对话页同款（左下角 Agent 选择 + 附件/语音，未选 Agent 时发送禁用）；群聊页无 @ 按钮、无切换 Agent、发送不禁用；25/25 测试通过。
 

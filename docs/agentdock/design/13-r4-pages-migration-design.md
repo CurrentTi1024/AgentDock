@@ -192,3 +192,33 @@ hooks 改写：原 `useTaskStore` / SWR / `useGlobalStore`（systemStatus）全�
 - Page 编辑器为轻量 Markdown 编辑（无协办/权限/版本历史）。
 - Channel 凭证为前端表单，真实平台接入与网关状态刷新待后端。
 - 全局待办不变：HITL wire 冻结、A2UI fixture、编排路由联调验证、构建体积拆包。
+
+## 9. 嵌套子组件补齐（Code Review 轮，2026-08-20）
+
+对照 LobeHub 源码逐层 review 后补迁的嵌套子组件与架构集成修正：
+
+### 9.1 Tasks
+
+- **`CreateTaskInlineEntry`**（新增文件）：列表视图点「+」展开内联创建行（名称 + 执行 Agent + 优先级 + 指令 + 提交/取消），与 LobeHub `getTaskCreateActionBehavior` 一致——列表视图走内联、看板视图走弹窗。
+- **`HiddenColumnsPanel`**：看板顶部「列设置」按钮（`SlidersHorizontal` + Popover），5 个列（backlog/running/needsInput/done/canceled）复选开关，`hiddenColumns` 状态驱动列过滤。
+- **`AssigneeAgentSelector`**：任务卡点击执行 Agent 头像弹出候选下拉（图标 + `agentFullName · fab`），选择后 `updateTask({ assigneeAgentId, assigneeAgentName })` 乐观更新；候选数据走 `agentMarketService.getMentionAgentsList`（模块级缓存一次）。
+- **数据源集成**：`CreateTaskModal` 与内联创建的执行 Agent 下拉不再硬编码 3 个 Agent，统一从 `getMentionAgentsList` 拉取（失败回退静态表），默认执行 Agent 取数据源第一条。
+
+### 9.2 Memory
+
+- **`FilterBar`**：分类筛选 chips（全部 + 各分类），分类选项**从已加载数据派生**（`[...new Set(items.map(i => i.category))]`），不再硬编码中文分类表；单一分类时不显示筛选条。
+- **`TimelineGroups`（PeriodGroup 移植）**：时间线视图按「今天 / 本周 / 本月 / 更早」分组（周一起点），组标题用 `memory.period.*` 文案。
+- 编辑弹窗分类下拉同步改为数据驱动（数据为空时回退 kind 默认分类）。
+
+### 9.3 可访问性与通用修复
+
+- `@lobehub/ui` 的 `ActionIcon` 用 `title` 不会生成 `aria-label`（无障碍缺口）：Tasks/Memory/Documents/Channel 全部带 `title` 的 ActionIcon 补 `aria-label`。
+
+### 9.4 i18n 增量
+
+新增 6 个 key（`tasks.columnSettings`、`memory.filterAll`、`memory.period.today|week|month|earlier`），18 种语言全部翻译并过 `dictionaries.test.ts`。
+
+### 9.5 验证（本轮）
+
+- `pnpm run build` 通过；`pnpm run test` 28/28。
+- Chrome headless + CDP：内联创建展开（textarea + 提交按钮）、看板列设置（5 列复选、隐藏「待办」列后列头消失）、执行 Agent 切换下拉、Memory FilterBar 分类 chips、时间线「本周」分组、9 条路由渲染全部通过。

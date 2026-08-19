@@ -12,8 +12,9 @@ import {
   MoreHorizontal,
   Trash2,
 } from 'lucide-react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 
+import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
 import {
   type ScheduledTask,
   type TaskStatus,
@@ -130,6 +131,7 @@ const formatDate = (value?: string | null, locale = 'en-US') => {
 };
 
 interface TaskItemProps {
+  onAssigneeChange?: (task: ScheduledTask, agentId: string, agentFullName: string) => void;
   onDelete?: (task: ScheduledTask) => void;
   onOpen?: (task: ScheduledTask) => void;
   onStatusChange?: (task: ScheduledTask, status: TaskStatus) => void;
@@ -138,8 +140,9 @@ interface TaskItemProps {
 }
 
 const TaskItem = memo<TaskItemProps>(
-  ({ onDelete, onOpen, onStatusChange, routeScope = 'global', task }) => {
+  ({ onAssigneeChange, onDelete, onOpen, onStatusChange, routeScope = 'global', task }) => {
     const { locale, t } = useI18n();
+    const agents = useAssigneeAgents();
     const [contextMenuOpen, setContextMenuOpen] = useState(false);
     const status = task.status;
     const time = formatDate(task.updatedAt || task.createdAt, locale);
@@ -228,7 +231,21 @@ const TaskItem = memo<TaskItemProps>(
               {scheduledBadge}
               {subtaskProgress}
             </Flexbox>
-            <AssigneeAvatar agentId={task.assigneeAgentId} />
+            <Dropdown
+              menu={{
+                items: agents.map((agent) => ({
+                  key: agent.agentId,
+                  label: `${agent.agentFullName} · ${agent.fab}`,
+                  icon: <Avatar avatar={agent.icon || '🤖'} shape="circle" size={16} />,
+                  onClick: () => onAssigneeChange?.(task, agent.agentId, agent.agentFullName),
+                })),
+              }}
+              trigger={['click']}
+            >
+              <span style={{ display: 'inline-flex', cursor: 'pointer' }}>
+                <AssigneeAvatar agentId={task.assigneeAgentId} />
+              </span>
+            </Dropdown>
             <Text fontSize={12} type="secondary" style={{ flex: 'none', minWidth: 88, textAlign: 'right' }}>
               {time}
             </Text>
@@ -243,3 +260,29 @@ const TaskItem = memo<TaskItemProps>(
 TaskItem.displayName = 'TaskItem';
 
 export default TaskItem;
+
+let cachedAgents: MentionAgent[] | null = null;
+
+/** 执行 Agent 候选列表：模块级缓存一次，避免每张卡片重复请求。 */
+const useAssigneeAgents = (): MentionAgent[] => {
+  const [agents, setAgents] = useState<MentionAgent[]>(cachedAgents ?? []);
+
+  useEffect(() => {
+    if (cachedAgents) return;
+    const controller = new AbortController();
+    void agentMarketService
+      .getMentionAgentsList({ locale: 'zh-CN' }, { signal: controller.signal })
+      .then(({ items }) => {
+        cachedAgents = items;
+        setAgents(items);
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted) {
+          console.warn('[AgentDock] assignee agents load failed', reason);
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
+  return agents;
+};

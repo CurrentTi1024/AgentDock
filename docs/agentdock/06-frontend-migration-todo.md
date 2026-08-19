@@ -239,6 +239,7 @@ src/
 - [x] 侧边栏折叠与群组交互（2026-08-20）：左侧菜单栏可折叠/展开（侧栏头部折叠按钮 + 折叠后顶部 NavHeader 展开按钮，状态持久化）；群聊发送后清空输入框（与单聊一致）。
 - [x] R4 其余页面全量迁移（2026-08-20）：Tasks（列表/看板/分组排序/创建弹窗/任务卡片/隐藏完成项）、Documents（搜索/筛选/置顶/详情 Markdown 阅读）、Memory（LobeHub 侧栏布局 + home 人格/标签云/分析 + contexts/experiences/preferences/identities/activities 网格/时间线/右栏/编辑弹窗）、Channel（平台渠道网格 + 状态 + 连接/断开配置面板）、Artifact（按会话分组的产物列表 + 代码/文档预览下载）、Page（页面列表 + 轻量 Markdown 编辑器/发布）、Settings（通用/外观/记忆/关于 分栏布局）。所有页面改写 hooks 接入 Service/i18n/router，无占位符。
 - [x] R4 浏览器冒烟（2026-08-20，Chrome headless + CDP）：13 条 R4 路由全部渲染无 JS 异常；交互验证通过（任务页显示隐藏完成项、设置页切换分栏、Memory 子页数据分流）。
+- [x] R4 Code Review 轮（2026-08-20）：补迁嵌套子组件——Tasks 内联创建行（CreateTaskInlineEntry）、看板列设置面板（HiddenColumnsPanel）、任务卡执行 Agent 切换（AssigneeAgentSelector，候选走 getMentionAgentsList）；Memory 分类筛选条（FilterBar，数据派生）+ 时间线时间段分组（TimelineGroups）；ActionIcon 补 aria-label；执行 Agent 下拉数据源统一。详见 design/13 §9。
 - [x] 非 zh-CN/en-US/zh-TW 的 15 种语言已人工翻译补齐；`dictionaries.test.ts` 守护 18 种语言的 key 集合与占位符一致；全量联网复核见 `task.md`，脚本 `scripts/verify-i18n.mjs` + `scripts/argos-translate-server.py`。
 - [x] 需求 Review / Code Review 已输出详细设计与缺口清单：见 `docs/agentdock/design/`（00-10：索引、端到端链路、AG-UI、A2UI、Registry、渲染矩阵、CopilotKit 接入、联调调试指南、最终架构决策、渲染投影层、逐行 Code Review）。
 - [ ] 浏览器逐页视觉验收（当前环境无浏览器驱动，已用 build/test + HTTP 冒烟代替）。

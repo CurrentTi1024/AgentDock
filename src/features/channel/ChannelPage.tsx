@@ -79,7 +79,13 @@ const ChannelPage = memo(() => {
       <NavHeader
         left={<Text weight={500}>{t('workspace.channel.title')}</Text>}
         right={
-          <ActionIcon icon={RefreshCw} size="small" title={t('common.refresh')} onClick={() => void load()} />
+          <ActionIcon
+            aria-label={t('common.refresh')}
+            icon={RefreshCw}
+            size="small"
+            title={t('common.refresh')}
+            onClick={() => void load()}
+          />
         }
       />
       <WideScreenContainer gap={16} paddingBlock={20} wrapperStyle={{ flex: 1, overflowY: 'auto' }}>
@@ -214,7 +220,13 @@ const ChannelDetailPanel = memo<{
             </Text>
           </Flexbox>
           <ActionIcon icon={RefreshCw} onClick={onRefresh} size="small" />
-          <ActionIcon icon={Trash2} onClick={onClose} size="small" title={t('common.close')} />
+          <ActionIcon
+            aria-label={t('common.close')}
+            icon={Trash2}
+            onClick={onClose}
+            size="small"
+            title={t('common.close')}
+          />
         </Flexbox>
         <Flexbox horizontal align="center" gap={8}>
           <Tag color={platform.status === 'connected' ? 'success' : platform.status === 'error' ? 'error' : undefined}>

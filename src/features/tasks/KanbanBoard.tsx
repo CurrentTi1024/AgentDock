@@ -1,7 +1,7 @@
 // Adapted from: src/features/AgentTasks/AgentTaskList/KanbanBoard.tsx (LobeHub canary)
-import { Block, Center, Empty, Flexbox, Text } from '@lobehub/ui';
+import { ActionIcon, Block, Center, Empty, Flexbox, Popover, Text } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { ClipboardCheck } from 'lucide-react';
+import { ClipboardCheck, SlidersHorizontal } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 
 import {
@@ -101,6 +101,11 @@ const KanbanBoard = memo<KanbanBoardProps>(({ isLoading, onRetry, onTaskOpen, ta
   const [dragging, setDragging] = useState<ScheduledTask | null>(null);
   const [overColumn, setOverColumn] = useState<string | null>(null);
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
+  const toggleColumn = useCallback((key: string) => {
+    setHiddenColumns((current) =>
+      current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
+    );
+  }, []);
 
   const columnTasks = useMemo(() => {
     const map = new Map<string, ScheduledTask[]>();
@@ -147,61 +152,86 @@ const KanbanBoard = memo<KanbanBoardProps>(({ isLoading, onRetry, onTaskOpen, ta
   }
 
   return (
-    <Flexbox className={styles.board} height="100%">
-      {COLUMNS.filter((column) => !hiddenColumns.includes(column.key)).map((column) => {
-        const meta = TASK_STATUS_VISUALS[toStatusForColumn(column.key) ?? 'backlog'];
-        const ColumnIcon = meta.icon;
-        const items = columnTasks.get(column.key) ?? [];
-        return (
-          <Flexbox className={styles.column} gap={8} key={column.key} style={{ height: '100%' }}>
-            <Flexbox horizontal align="center" gap={8} paddingInline={6} paddingBlock={4}>
-              <ColumnIcon color={meta.color} size={16} />
-              <Text style={{ flex: 1 }} weight={500}>
-                {t(`tasks.column.${column.key}`)}
-              </Text>
-              <Text fontSize={12} type="secondary">
-                {items.length}
-              </Text>
-            </Flexbox>
-            <Flexbox
-              className={`${styles.columnBody} ${overColumn === column.key ? styles.columnBodyOver : ''}`}
-              flex={1}
-              onDragOver={(event) => {
-                if (!column.droppable) return;
-                event.preventDefault();
-                setOverColumn(column.key);
-              }}
-              onDragLeave={() => setOverColumn((current) => (current === column.key ? null : current))}
-              onDrop={() => handleDrop(column.key)}
-              style={{ overflowY: 'auto' }}
-            >
-              {items.map((task) => (
-                <Block
-                  draggable={column.droppable}
-                  key={task.identifier}
-                  onClick={() => onTaskOpen(task)}
-                  onDragEnd={() => setDragging(null)}
-                  onDragStart={() => setDragging(task)}
-                  style={{ cursor: column.droppable ? 'grab' : 'default', borderRadius: 10 }}
-                >
-                  <TaskItem
-                    key={task.identifier}
-                    onOpen={onTaskOpen}
-                    task={task}
+    <Flexbox flex={1} style={{ overflow: 'hidden' }}>
+      <Flexbox horizontal align="center" justify="flex-end" paddingInline={12} paddingBlock={6}>
+        <Popover
+          content={
+            <Flexbox gap={8} style={{ width: 180 }}>
+              {COLUMNS.map((column) => (
+                <Flexbox horizontal align="center" gap={8} key={column.key}>
+                  <input
+                    checked={!hiddenColumns.includes(column.key)}
+                    onChange={() => toggleColumn(column.key)}
+                    type="checkbox"
                   />
-                </Block>
+                  <Text fontSize={13}>{t(`tasks.column.${column.key}`)}</Text>
+                </Flexbox>
               ))}
-              {items.length === 0 && (
-                <Center flex={1} style={{ minHeight: 80 }}>
-                  <Text fontSize={12} type="secondary">
-                    {t('tasks.column.dropHint')}
-                  </Text>
-                </Center>
-              )}
             </Flexbox>
-          </Flexbox>
-        );
-      })}
+          }
+          placement="bottomRight"
+          trigger="click"
+        >
+          <ActionIcon
+            aria-label={t('tasks.columnSettings')}
+            icon={SlidersHorizontal}
+            size="small"
+            title={t('tasks.columnSettings')}
+          />
+        </Popover>
+      </Flexbox>
+      <Flexbox className={styles.board} height="100%">
+        {COLUMNS.filter((column) => !hiddenColumns.includes(column.key)).map((column) => {
+          const meta = TASK_STATUS_VISUALS[toStatusForColumn(column.key) ?? 'backlog'];
+          const ColumnIcon = meta.icon;
+          const items = columnTasks.get(column.key) ?? [];
+          return (
+            <Flexbox className={styles.column} gap={8} key={column.key} style={{ height: '100%' }}>
+              <Flexbox horizontal align="center" gap={8} paddingInline={6} paddingBlock={4}>
+                <ColumnIcon color={meta.color} size={16} />
+                <Text style={{ flex: 1 }} weight={500}>
+                  {t(`tasks.column.${column.key}`)}
+                </Text>
+                <Text fontSize={12} type="secondary">
+                  {items.length}
+                </Text>
+              </Flexbox>
+              <Flexbox
+                className={`${styles.columnBody} ${overColumn === column.key ? styles.columnBodyOver : ''}`}
+                flex={1}
+                onDragOver={(event) => {
+                  if (!column.droppable) return;
+                  event.preventDefault();
+                  setOverColumn(column.key);
+                }}
+                onDragLeave={() => setOverColumn((current) => (current === column.key ? null : current))}
+                onDrop={() => handleDrop(column.key)}
+                style={{ overflowY: 'auto' }}
+              >
+                {items.map((task) => (
+                  <Block
+                    draggable={column.droppable}
+                    key={task.identifier}
+                    onClick={() => onTaskOpen(task)}
+                    onDragEnd={() => setDragging(null)}
+                    onDragStart={() => setDragging(task)}
+                    style={{ cursor: column.droppable ? 'grab' : 'default', borderRadius: 10 }}
+                  >
+                    <TaskItem key={task.identifier} onOpen={onTaskOpen} task={task} />
+                  </Block>
+                ))}
+                {items.length === 0 && (
+                  <Center flex={1} style={{ minHeight: 80 }}>
+                    <Text fontSize={12} type="secondary">
+                      {t('tasks.column.dropHint')}
+                    </Text>
+                  </Center>
+                )}
+              </Flexbox>
+            </Flexbox>
+          );
+        })}
+      </Flexbox>
     </Flexbox>
   );
 });

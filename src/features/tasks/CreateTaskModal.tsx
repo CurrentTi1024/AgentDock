@@ -1,8 +1,9 @@
 // Adapted from: src/features/AgentTasks/CreateTaskModal (LobeHub canary)
 import { Button, Flexbox, Form, Input, Modal, Select, TextArea, Text } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 
+import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
 import {
   scheduledTaskService,
   type ScheduledTask,
@@ -24,7 +25,7 @@ interface CreateTaskModalProps {
   onCreated: (task: ScheduledTask) => void;
 }
 
-const AGENT_OPTIONS = [
+const FALLBACK_AGENT_OPTIONS = [
   { label: 'FlightAnalysis_Agent-F15B', value: 'flight-analysis' },
   { label: 'ReportWriter_Agent-F15B', value: 'report-writer' },
   { label: 'CodeReview_Agent-F18B', value: 'code-review' },
@@ -32,11 +33,11 @@ const AGENT_OPTIONS = [
 
 const CreateTaskModal = memo<CreateTaskModalProps>(
   ({ defaultAssigneeAgentId, onClose, onCreated }) => {
-    const { t } = useI18n();
+    const { locale, t } = useI18n();
     const [name, setName] = useState('');
     const [instruction, setInstruction] = useState('');
     const [assigneeAgentId, setAssigneeAgentId] = useState<string | undefined>(
-      defaultAssigneeAgentId || AGENT_OPTIONS[0].value,
+      defaultAssigneeAgentId || FALLBACK_AGENT_OPTIONS[0].value,
     );
     const [priority, setPriority] = useState(3);
     const [visibility, setVisibility] = useState<'private' | 'public'>('public');
@@ -46,6 +47,37 @@ const CreateTaskModal = memo<CreateTaskModalProps>(
     const [schedulePattern, setSchedulePattern] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [agents, setAgents] = useState<MentionAgent[]>([]);
+
+    useEffect(() => {
+      const controller = new AbortController();
+      void agentMarketService
+        .getMentionAgentsList({ locale }, { signal: controller.signal })
+        .then(({ items }) => setAgents(items))
+        .catch((reason) => {
+          if (!controller.signal.aborted) {
+            console.warn('[AgentDock] mention agents load failed, using fallback', reason);
+          }
+        });
+      return () => controller.abort();
+    }, [locale]);
+
+    const agentOptions = useMemo(() => {
+      if (agents.length > 0) {
+        return agents.map((agent) => ({
+          label: `${agent.agentFullName} · ${agent.fab}`,
+          value: agent.agentId,
+        }));
+      }
+      return FALLBACK_AGENT_OPTIONS;
+    }, [agents]);
+
+    // 默认执行 Agent 使用数据源第一条，保持与 LobeHub 一致的默认行为。
+    useEffect(() => {
+      if (!defaultAssigneeAgentId && agents.length > 0) {
+        setAssigneeAgentId(agents[0].agentId);
+      }
+    }, [agents, defaultAssigneeAgentId]);
 
     const priorityOptions = useMemo(
       () =>
@@ -118,7 +150,7 @@ const CreateTaskModal = memo<CreateTaskModalProps>(
             <Form.Item label={t('tasks.create.assignee')} style={{ flex: 1 }}>
               <Select
                 onChange={(value) => setAssigneeAgentId(value as string)}
-                options={AGENT_OPTIONS}
+                options={agentOptions}
                 value={assigneeAgentId}
               />
             </Form.Item>
