@@ -24,6 +24,27 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
       box-shadow: 0 0 0 2px ${token.colorPrimaryBg};
     }
   `,
+  compactDropdown: css`
+    .ant-select-item {
+      font-size: 12px !important;
+      line-height: 20px !important;
+    }
+  `,
+  compactSelect: css`
+    .ant-select-selector {
+      height: 22px !important;
+      min-height: 22px !important;
+      font-size: 12px !important;
+    }
+    .ant-select-selection-item,
+    .ant-select-selection-placeholder {
+      font-size: 12px !important;
+      line-height: 22px !important;
+    }
+    .ant-select-arrow {
+      font-size: 10px !important;
+    }
+  `,
   footer: css`
     padding-block: 8px 2px;
   `,
@@ -191,11 +212,13 @@ const ChatInput = memo<ChatInputProps>(
             <Flexbox horizontal gap={2} style={{ minHeight: 24 }}>
               {switchAgents && onSwitchAgent && (
                 <Select
+                  className={styles.compactSelect}
                   options={switchAgents.map((agent) => ({
                     label: `${agent.icon} ${agent.agentFullName}`,
                     value: `${agent.agentId}@${agent.fab}`,
                   }))}
                   placeholder={t('agentSidebar.switchAgent')}
+                  popupClassName={styles.compactDropdown}
                   size="small"
                   value={switchValue}
                   variant="borderless"
@@ -286,12 +309,14 @@ const ChatInput = memo<ChatInputProps>(
                 {t('chat.approval.label')}
               </Text>
               <Select
+                className={styles.compactSelect}
                 data-testid="approval-mode"
                 options={[
                   { label: t('chat.approval.manual'), value: 'manual' },
                   { label: t('chat.approval.auto'), value: 'auto' },
                 ]}
                 size="small"
+                popupClassName={styles.compactDropdown}
                 value={approvalMode}
                 onChange={(mode) => onApprovalModeChange(mode as ApprovalMode)}
               />
