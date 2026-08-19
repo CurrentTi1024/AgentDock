@@ -239,3 +239,10 @@ src/
 - [x] 需求 Review / Code Review 已输出详细设计与缺口清单：见 `docs/agentdock/design/`（00-10：索引、端到端链路、AG-UI、A2UI、Registry、渲染矩阵、CopilotKit 接入、联调调试指南、最终架构决策、渲染投影层、逐行 Code Review）。
 - [ ] 浏览器逐页视觉验收（当前环境无浏览器驱动，已用 build/test + HTTP 冒烟代替）。
 - [ ] 真实后端联调（`VITE_SERVICE_MODE=http` 时按新契约走通）。
+
+## 核心需求后续项（总纲见 task.md §0）
+
+- [ ] R1 端到端链路收尾：HITL wire 冻结、A2UI 后端 fixture、断线游标恢复联调验证。
+- [ ] R2 Chat/Group Chat 全量复刻：消息类型矩阵逐项对照 LobeHub（assistantGroup/reasoning/tool/task/groupTasks/supervisor/activity/a2ui/error），交互（折叠/操作栏/设置面板/成员管理）逐项补齐。
+- [ ] R3 市场补齐：右上角排序条件 + 升降序；Agent 卡片 skill/mcp 数量；进入聊天按钮样式；分类/卡片密度/详情逐项对照。
+- [ ] R4 其他页面全量迁移（不留占位符）：Group/Tasks/Documents/Memory/Channel/Artifact/Page/Settings 按 LobeHub 迁移并改写 hooks。

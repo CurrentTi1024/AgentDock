@@ -14,6 +14,13 @@
   - 接口契约（唯一权威）：`docs/agentdock/04-frontend-backend-api.md`
   - LobeHub 迁移矩阵与 TODO：`docs/agentdock/05-lobehub-source-migration.md`、`docs/agentdock/06-frontend-migration-todo.md`
 
+## 核心开发需求（总纲，详细清单见 task.md §0）
+
+1. **完整实时链路**：LobeHub 组件 props → AG-UI/A2UI → Copilot Runtime → Orchestration Service → Core，端到端事件逐项映射渲染（流式回显、HITL、A2UI、断线游标恢复）。
+2. **Chat / Group Chat 全量复刻 LobeHub**：对话页与群聊页的页面、组件、样式、交互全部迁移融合；所有 agent 消息类型（assistant / assistantGroup / reasoning / tool / task / tasks / groupTasks / supervisor / activity / a2ui / error）都按 LobeHub 方式显示。
+3. **市场全量复刻 LobeHub**（FAB 选择器 UI/UX 保持不变）：补回右上角排序条件与升降序、Agent 列表卡片中的 skill/mcp 数量等元信息、进入聊天按钮样式等。
+4. **其余页面不留占位符**：Group / Tasks / Documents / Memory / Channel / Artifact / Page / Settings 后续一并完成，完整迁移功能与嵌套 UI/UX，改写 hooks 逻辑融合本项目。
+
 ## 常用命令
 
 ```bash

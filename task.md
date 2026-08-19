@@ -4,16 +4,47 @@
 > 模式：需求 Review + Code Review + 文档输出（详见 `docs/agentdock/design/`）
 > 基线：LobeHub canary `/private/tmp/lobehub-canary`；只迁移前端
 
+## 0. 核心开发需求（总纲）
+
+### R1 完整实时链路：LobeHub 组件 props → AG-UI/A2UI → Copilot Runtime → Orchestration
+
+- LobeHub 展示组件全部“props 化”（不绑定 LobeHub store），由投影层喂数据。
+- AG-UI 事件由官方 CopilotKit transport 解析（single-route envelope：`agent/run / connect / stop / info`）。
+- A2UI 由官方 catalog + renderer 渲染，action 以 `forwardedProps.a2uiAction.userAction` 回传。
+- Copilot Runtime（`server/index.ts` + `FabRoutingAgent`）按 `fab` 路由到 Orchestration `/ag-ui`。
+- 后端 DeepAgents + CopilotKitMiddleware 输出 AG-UI SSE；前端逐事件投影到对应组件。
+- 端到端保证：流式回显、HITL（标准 resume[] / legacy 双 wire）、断线恢复（按 streamId 游标）、A2UI 增量更新。
+
+### R2 Chat / Group Chat 全量复刻 LobeHub
+
+- 对话页与群聊页完整迁移 LobeHub 页面、组件、样式与交互（消息列表、输入区、过程折叠、操作栏、设置面板、成员管理、返回入口）。
+- 所有 agent 消息类型按 LobeHub 显示：assistant / assistantGroup / reasoning / tool / task / tasks / groupTasks / supervisor / activity / a2ui / error 等。
+- 组件 props 化 + 投影层落地，视觉与交互与 LobeHub 一致。
+
+### R3 市场全量复刻 LobeHub（融合 FAB，FAB UI/UX 保持不变）
+
+- 保持现有 FAB 选择器 UI/UX 不变。
+- 补回 LobeHub 市场右上角：排序条件（sortBy）+ 升降序（sortOrder）。
+- Agent 列表卡片补回每个 agent 的 skill/mcp 数量等元信息。
+- “进入聊天”按钮颜色/样式与 LobeHub 一致。
+- 分类侧栏、卡片密度、详情 Tabs/侧栏、分页等逐项对照补齐。
+
+### R4 其他页面全量完成（不留占位符）
+
+- Group / Tasks / Documents / Memory / Channel / Artifact / Page / Settings 后续一并完成，不使用占位符。
+- 把 LobeHub 对应页面的功能与嵌套 UI/UX 完整搬移，改写 hooks 逻辑融合本项目（Service / i18n / router）。
+- 每页按“需求文档 → 迁移 → hooks 改写 → 测试 → 视觉验收”推进。
+
 ## 1. 模块总览
 
 | 模块 | 需求摘要 | 状态 | 引用 |
 |---|---|---|---|
 | M0/M1 应用壳与导航 | 迁移 LobeHub 壳/导航；本月模式开关 | ✅ 已完成 | `docs/agentdock/06` |
-| M2 对话页 | Agent 对话、@Agent、流式、Reasoning/Tool/HITL/A2UI、IndexedDB 全量历史（单 Agent + Group） | ✅ P0 主要完成（HITL wire 待后端冻结） | `design/01`、`design/02`、`design/05`、`design/09` |
-| M3 市场列表 | Agent/Skill/MCP 市场，FAB 前置，all/permissioned | ✅ 完成（竞态/locale 已修） | `design/04` |
+| M2 对话页 | Agent 对话、@Agent、流式、Reasoning/Tool/HITL/A2UI、IndexedDB 全量历史（单 Agent + Group） | ⚠️ P0 核心完成；R2 全量复刻 LobeHub 消息类型与交互进行中（HITL wire 待后端冻结） | `design/01`、`design/02`、`design/05`、`design/09` |
+| M3 市场列表 | Agent/Skill/MCP 市场，FAB 前置，all/permissioned | ⚠️ 核心完成（竞态/locale 已修）；R3 待补：排序/升降序、skill/mcp 数量、进入聊天按钮样式 | `design/04` |
 | M4 详情页 | 三类详情，FAB 前置，Version 不分区 | ✅ 完成（竞态/locale 已修；Reviews/Security/Info 静态样例 P2） | `design/04` |
 | M5 Skill 创建 | 三步表单 + 立即发布 | ✅ 完成（受控表单 + detailUrl + Mock 详情注册） | `design/04` |
-| M6 隐藏模块 | Channel/Artifact/Page/Group/Tasks/Documents/Memory/Settings | ✅ 本月模式隐藏；占位完成 | `docs/agentdock/00` |
+| M6 隐藏模块 | Channel/Artifact/Page/Group/Tasks/Documents/Memory/Settings | ⚠️ 本月模式隐藏完成；R4 全量迁移进行中（当前部分为占位/简化） | `docs/agentdock/00` |
 | M7 i18n | 覆盖 LobeHub 全部语言；UI 静态字段 | ✅ 18 种语言词典 + 测试 | `src/i18n` |
 | R 运行时链路 | agentId/fab/sessionId/threadId/runId 携带；FAB 路由；AG-UI/A2UI 流式回显 | ⚠️ 官方集成已落地（Provider/hook/server/A2UI catalog），HITL wire 与后端 A2UI fixture 待联调 | `design/01`、`design/02`、`design/03`、`design/06`、`design/08`、`design/09` |
 | D 调试 | 公司内无缝调试 Registry + Orchestration + 事件消费回显 | ✅ 文档已输出 | `design/07` |
