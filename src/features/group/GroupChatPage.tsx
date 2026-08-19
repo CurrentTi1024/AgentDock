@@ -216,6 +216,14 @@ const GroupChatPage = () => {
     await send(message);
   };
 
+  // 发送输入框内容后立即清空输入框（与单聊一致）；示例消息走 sendMessage 不清空。
+  const sendInputMessage = () => {
+    if (!input.trim() || !session) return;
+    const prompt = input;
+    setInput('');
+    void sendMessage(prompt);
+  };
+
   const commitMembers = (next: typeof members) => {
     setMembers(next);
     if (!session) return;
@@ -470,13 +478,14 @@ const GroupChatPage = () => {
             <ChatInput
               agentName={session?.title || t('nav.group')}
               fab={fab}
+              hideMentionButton
               mentions={[]}
               running={running}
               value={input}
               onChange={setInput}
               onMentionTrigger={() => undefined}
               onSelectMention={() => undefined}
-              onSend={() => void sendMessage(input)}
+              onSend={sendInputMessage}
               onStop={() => void stop()}
             />
           </Flexbox>

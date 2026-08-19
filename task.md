@@ -31,6 +31,9 @@
 - Agent/Skill/MCP 卡片布局统一：FAB 版本置于右上角，不再显示“已验证”，左下角时间精确到时分，右下角显示 ownerName。
 - 市场页搜索框随屏幕宽度自适应（移除 maxWidth: 480，与 LobeHub 一致 width: 100%）。
 - 分页改用 LobeHub 原版 antd `Pagination`（数字分页，`alignSelf: flex-end` 位于列表底部右侧）。
+- 左侧菜单栏可折叠（对齐 LobeHub）：侧栏头部折叠按钮（PanelLeftClose），折叠后顶部 NavHeader 显示展开按钮（PanelLeftOpen）；宽度/折叠状态持久化到 localStorage。
+- Chat Group 侧栏头部增加返回首页（Home）图标；创建群组弹窗优化：Agent 名称搜索、成员列表滚动（max-height 280px）、选中计数（已选 x/y）、空态与选中/悬停视觉。
+- Chat Group 侧栏移除顶部“对话”菜单项（返回首页图标已覆盖该入口）。
 
 > 2026-08-20 更新：R3 前三项已完成并通过 Chrome headless + CDP 验证
 > （sortBy 下拉 + 升降序切换、Agent 卡片 skill/mcp 数量标签、
@@ -351,5 +354,7 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **浏览器实测**：hub 输入 `@` → 提及菜单 → 点击 CodeReview_Agent → 输入变为 `@CodeReview_Agent-F15B …` → 发送 → `/chat/:id?agent=code-review&fab=F15B` 全链路通过。
 - **补充（输入框改版，按用户反馈）**：移除「记住上次使用的 Agent」（localStorage 读写全部删除，每次打开需选择或 @）；移除输入框顶部大 Select（太丑）；候选问题改为悬浮在输入框外部左上角（无输入时展示）；Agent 选择/附件/语音移入输入框内左下角工具栏（紧凑 Select + 禁用按钮），对话页输入框同样在左下角增加「切换 Agent」选择（新建该 Agent 会话并跳转）；`home.placeholder` 文案更新（18 语言）。
 - **提交纪律**：工作区出现用户/其他会话的未提交 WIP（runReducer/sessionHistoryService/useAgentDockConversation/市场排序相关），本轮起只暂存本任务文件，不再 `git add -A`。
+- **补充（输入框全站统一）**：首页 hub 输入框改为直接复用 `ChatInput`（唯一输入框组件，彻底统一样式：圆角 16、左下角工具栏 Agent 选择/附件/语音/@/斜杠、底部 Agent 信息行）；`ChatInput` 新增 `sendDisabled`（未选 Agent 且无 @ 前缀时禁用发送）与 `placeholder` 透传；群聊页传 `hideMentionButton`——不强制 @/选 Agent（成员已组队），发送始终可用，也不显示「切换 Agent」选择。
+- **浏览器实测**：hub 输入框与对话页同款（左下角 Agent 选择 + 附件/语音，未选 Agent 时发送禁用）；群聊页无 @ 按钮、无切换 Agent、发送不禁用；25/25 测试通过。
 
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。

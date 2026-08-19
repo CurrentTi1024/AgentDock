@@ -59,6 +59,7 @@ interface ChatInputProps {
   agentName?: string;
   approvalMode?: ApprovalMode;
   fab?: string;
+  hideMentionButton?: boolean;
   mentions: MentionAgent[];
   mentionsLoading?: boolean;
   onChange: (value: string) => void;
@@ -68,7 +69,9 @@ interface ChatInputProps {
   onSelectMention: (mention: MentionAgent) => void;
   onStop: () => void;
   onSwitchAgent?: (agent: MentionAgent) => void;
+  placeholder?: string;
   running: boolean;
+  sendDisabled?: boolean;
   switchAgents?: MentionAgent[];
   value: string;
 }
@@ -78,6 +81,7 @@ const ChatInput = memo<ChatInputProps>(
     agentName,
     approvalMode = 'manual',
     fab,
+    hideMentionButton = false,
     mentions,
     mentionsLoading = false,
     onChange,
@@ -87,7 +91,9 @@ const ChatInput = memo<ChatInputProps>(
     onSend,
     onStop,
     onSwitchAgent,
+    placeholder,
     running,
+    sendDisabled = false,
     switchAgents,
     value,
   }) => {
@@ -97,7 +103,7 @@ const ChatInput = memo<ChatInputProps>(
     const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key === 'Enter' && !event.shiftKey) {
+      if (event.key === 'Enter' && !event.shiftKey && !sendDisabled) {
         event.preventDefault();
         if (!running) onSend();
       }
@@ -151,7 +157,7 @@ const ChatInput = memo<ChatInputProps>(
             autoSize={{ minRows: 2, maxRows: 8 }}
             data-testid="chat-input"
             onKeyDown={handleKeyDown}
-            placeholder={t('chat.placeholder')}
+            placeholder={placeholder ?? t('chat.placeholder')}
             value={value}
             variant="borderless"
             onChange={(event) => {
@@ -196,9 +202,11 @@ const ChatInput = memo<ChatInputProps>(
               <Button size="small" type="text" onClick={() => setSlashOpen((open) => !open)}>
                 <Slash size={14} />
               </Button>
-              <Button size="small" type="text" onClick={() => openMentionMenu()}>
-                <AtSign size={14} /> {t('chat.mentionButton')}
-              </Button>
+              {!hideMentionButton && (
+                <Button size="small" type="text" onClick={() => openMentionMenu()}>
+                  <AtSign size={14} /> {t('chat.mentionButton')}
+                </Button>
+              )}
             </Flexbox>
             <Flexbox horizontal align="center" gap={12}>
               {!running && (
@@ -228,6 +236,7 @@ const ChatInput = memo<ChatInputProps>(
               ) : (
                 <Button
                   data-testid="chat-send"
+                  disabled={sendDisabled}
                   icon={Send}
                   onClick={onSend}
                   size="small"

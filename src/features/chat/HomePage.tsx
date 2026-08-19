@@ -1,16 +1,16 @@
 // AgentDock 首页 hub：不绑定默认 Agent、不记住上次——发送前在输入框左下角选择 Agent
-// 或输入 @ 快速选择；候选问题悬浮在输入框外部左上角。
+// 或输入 @ 快速选择；候选问题悬浮在输入框外部左上角；输入框复用 ChatInput 统一样式。
 // Adapted from: src/features/Home + AgentSidebar/Header/Agent/SwitchPanel (LobeHub canary)
-import { ActionIcon, Avatar, Button, Flexbox, Select, Text, TextArea } from '@lobehub/ui';
-import { createStaticStyles, cssVar } from 'antd-style';
-import { Mic, Paperclip, Send, Sparkles } from 'lucide-react';
+import { Avatar, Button, Flexbox, Text } from '@lobehub/ui';
+import { createStaticStyles } from 'antd-style';
+import { Sparkles } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import NavHeader from '@/components/shell/NavHeader';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
 import { sessionHistoryService, type SessionRecord } from '@/api/session/sessionHistoryService';
-import AgentMentionMenu from '@/features/chat/components/AgentMentionMenu';
+import ChatInput from '@/features/chat/components/ChatInput';
 import { useI18n } from '@/i18n';
 import { formatRelativeTime } from '@/lib/relativeTime';
 
@@ -43,7 +43,6 @@ const HomePage = memo(() => {
   const [agents, setAgents] = useState<MentionAgent[]>([]);
   const [selected, setSelected] = useState<MentionAgent>();
   const [input, setInput] = useState('');
-  const [mentionOpen, setMentionOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
 
   useEffect(() => {
@@ -110,29 +109,9 @@ const HomePage = memo(() => {
     (mention: MentionAgent) => {
       setSelected(mention);
       setInput((value) => `@${mention.agentFullName} ${value.replace(/^@\S*\s*/, '')}`);
-      setMentionOpen(false);
     },
     [],
   );
-
-  const handleInputChange = useCallback((value: string) => {
-    setInput(value);
-    setMentionOpen(value.startsWith('@'));
-  }, []);
-
-  const openMention = useCallback(() => {
-    if (!input.startsWith('@')) {
-      setInput((value) => `@${value}`);
-    }
-    setMentionOpen(true);
-  }, [input]);
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      void start();
-    }
-  };
 
   return (
     <Flexbox height="100%" style={{ minWidth: 0 }}>
@@ -163,72 +142,22 @@ const HomePage = memo(() => {
             </Flexbox>
           )}
 
-          <Flexbox
-            gap={10}
-            padding={12}
-            style={{
-              border: `1px solid ${cssVar.colorBorder}`,
-              borderRadius: 16,
-              background: cssVar.colorBgContainer,
-              position: 'relative',
-            }}
-          >
-            {mentionOpen && (
-              <AgentMentionMenu mentions={agents} onSelect={selectMention} />
-            )}
-            <TextArea
-              autoSize={{ minRows: 2, maxRows: 6 }}
-              data-testid="home-input"
-              onKeyDown={handleKeyDown}
-              placeholder={t('home.placeholder')}
-              value={input}
-              variant="borderless"
-              onChange={(event) => handleInputChange(event.target.value)}
-            />
-            <Flexbox horizontal align="center" justify="space-between">
-              <Flexbox horizontal align="center" gap={4}>
-                <Select
-                  options={agents.map((agent) => ({
-                    label: `${agent.icon} ${agent.agentFullName} · ${agent.fab}`,
-                    value: `${agent.agentId}@${agent.fab}`,
-                  }))}
-                  placeholder={t('home.selectAgent')}
-                  size="small"
-                  style={{ minWidth: 150 }}
-                  value={selected ? `${selected.agentId}@${selected.fab}` : undefined}
-                  onChange={(value) => {
-                    const agent = agents.find((item) => `${item.agentId}@${item.fab}` === value);
-                    setSelected(agent);
-                  }}
-                />
-                <ActionIcon
-                  aria-label={t('chat.attach')}
-                  disabled
-                  icon={Paperclip}
-                  title={t('chat.attach')}
-                />
-                <ActionIcon
-                  aria-label={t('chat.voice')}
-                  disabled
-                  icon={Mic}
-                  title={t('chat.voice')}
-                />
-                <Button size="small" type="text" onClick={openMention}>
-                  @
-                </Button>
-              </Flexbox>
-              <Button
-                data-testid="home-send"
-                disabled={!selected || !input.trim()}
-                icon={Send}
-                size="small"
-                type="primary"
-                onClick={() => void start()}
-              >
-                {t('chat.send')}
-              </Button>
-            </Flexbox>
-          </Flexbox>
+          <ChatInput
+            agentName={selected?.agentFullName}
+            fab={selected?.fab}
+            mentions={agents}
+            onChange={setInput}
+            onMentionTrigger={() => undefined}
+            onSelectMention={selectMention}
+            onSend={() => void start()}
+            onStop={() => undefined}
+            onSwitchAgent={(agent) => setSelected(agent)}
+            placeholder={t('home.placeholder')}
+            running={false}
+            sendDisabled={!selected && !input.trim().startsWith('@')}
+            switchAgents={agents}
+            value={input}
+          />
 
           <div className={styles.section}>
             <Flexbox horizontal align="center" gap={6}>
