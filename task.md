@@ -34,6 +34,7 @@
 - 左侧菜单栏可折叠（对齐 LobeHub）：侧栏头部折叠按钮（PanelLeftClose），折叠后顶部 NavHeader 显示展开按钮（PanelLeftOpen）；宽度/折叠状态持久化到 localStorage。
 - Chat Group 侧栏头部增加返回首页（Home）图标；创建群组弹窗优化：Agent 名称搜索、成员列表滚动（max-height 280px）、选中计数（已选 x/y）、空态与选中/悬停视觉。
 - Chat Group 侧栏移除顶部“对话”菜单项（返回首页图标已覆盖该入口）。
+- 修复群聊发送后输入框未清空：`GroupChatPage` 发送输入框内容时先 `setInput('')`（示例消息路径不受影响）。
 
 > 2026-08-20 更新：R3 前三项已完成并通过 Chrome headless + CDP 验证
 > （sortBy 下拉 + 升降序切换、Agent 卡片 skill/mcp 数量标签、
