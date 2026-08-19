@@ -98,7 +98,7 @@ const HomePage = memo(() => {
       version: target.version,
     };
     navigate(`/chat/${id}?agent=${encodeURIComponent(target.agentId)}&fab=${encodeURIComponent(target.fab)}`, {
-      state: { pendingSession: record },
+      state: { pendingPrompt: cleanPrompt, pendingSession: record },
     });
     void sessionHistoryService.createSession(record).catch((reason) => {
       console.warn('[AgentDock] agent session persist failed', reason);

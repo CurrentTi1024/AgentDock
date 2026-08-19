@@ -246,6 +246,18 @@ export default function ChatPage() {
     await send(prompt);
   };
 
+  // 首页 hub 发送：路由 state 携带 pendingPrompt，挂载且会话就绪后自动发送一次；
+  // 发送后 replace 清空 state，避免刷新/回退重发。
+  const pendingPromptSentRef = useRef(false);
+  useEffect(() => {
+    if (pendingPromptSentRef.current) return;
+    const prompt = (location.state as { pendingPrompt?: string } | null)?.pendingPrompt;
+    if (!prompt || !session) return;
+    pendingPromptSentRef.current = true;
+    void sendMessageWith(prompt);
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, navigate, session, sendMessageWith]);
+
   const sendMessage = async () => {
     const prompt = input;
     if (!prompt || running) return;
