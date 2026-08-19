@@ -3,7 +3,7 @@
 import { ActionIcon, Avatar, Button, Flexbox, Select, Tag, Text, TextArea } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { ArrowBigUp, AtSign, CornerDownLeft, Mic, Paperclip, Send, Slash, Square } from 'lucide-react';
-import { type KeyboardEvent, memo, useRef, useState } from 'react';
+import { type KeyboardEvent, memo, useMemo, useRef, useState } from 'react';
 
 import { type MentionAgent } from '@/api/market/agentMarketService';
 import AgentMentionMenu from '@/features/chat/components/AgentMentionMenu';
@@ -99,8 +99,17 @@ const ChatInput = memo<ChatInputProps>(
   }) => {
     const { t } = useI18n();
     const [mentionOpen, setMentionOpen] = useState(false);
-    const [slashOpen, setSlashOpen] = useState(false);
-    const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [slashOpen, setSlashOpen] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // 切换 Agent 下拉：选中态显示当前 Agent（头像+名称），无边框紧凑样式。
+  const switchValue = useMemo(() => {
+    if (!switchAgents?.length || !agentName) return undefined;
+    const current = switchAgents.find(
+      (agent) => agent.agentFullName === agentName && agent.fab === fab,
+    );
+    return current ? `${current.agentId}@${current.fab}` : undefined;
+  }, [agentName, fab, switchAgents]);
 
     const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
       if (event.key === 'Enter' && !event.shiftKey && !sendDisabled) {
@@ -188,7 +197,9 @@ const ChatInput = memo<ChatInputProps>(
                   }))}
                   placeholder={t('agentSidebar.switchAgent')}
                   size="small"
-                  style={{ minWidth: 140 }}
+                  value={switchValue}
+                  variant="borderless"
+                  style={{ maxWidth: 148, minWidth: 92 }}
                   onChange={(value) => {
                     const agent = switchAgents.find(
                       (item) => `${item.agentId}@${item.fab}` === value,
