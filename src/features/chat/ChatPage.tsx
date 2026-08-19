@@ -301,6 +301,8 @@ export default function ChatPage() {
     const result: StoredTextMessage[] = [];
     for (let index = 0; index < history.length; index += 1) {
       const record = history[index];
+      // 防御：过滤历史遗留的流式占位行（lc_run--），避免同一回复双气泡。
+      if (record.id.startsWith('lc_run--')) continue;
       // 落库 id 带 kind 前缀（text:xxx），run.messages 使用原始 id。
       const rawTextId = record.id.replace(/^text:/, '');
       if (record.kind !== 'text' || liveTextIds.has(rawTextId)) continue;

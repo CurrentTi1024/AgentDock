@@ -95,16 +95,19 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
         // 跳过 CopilotKit/checkpoint 内部重复消息（lc_run--<langgraph run id>）：
         // 流式 TEXT 事件用 lc_run-- 占位 id，快照带规范 UUID；保留内部 id 会导致历史重复。
         if (String(message.id).startsWith('lc_run--')) continue;
-        // 快照到达时用规范 UUID 替换流式阶段产生的 lc_run-- 占位消息（同角色同内容），
-        // 保证同一回复只有一个规范 id，同时不丢失流式期间已经渲染的内容。
+        // 快照到达时用规范 UUID 替换流式阶段产生的 lc_run-- 占位消息（按角色匹配，
+        // 不要求内容相等——快照可能先于流式完成到达，此时占位内容只是部分文本）。
+        // 保证同一回复只有一个规范 id，避免“我”+全文两个气泡。
         if (message.role === 'assistant') {
           const placeholderId = Object.keys(next.messages).find(
             (existingId) =>
               existingId.startsWith('lc_run--') &&
-              next.messages[existingId].role === 'assistant' &&
-              next.messages[existingId].content === message.content,
+              next.messages[existingId].role === 'assistant',
           );
-          if (placeholderId) delete next.messages[placeholderId];
+          if (placeholderId) {
+            delete next.messages[placeholderId];
+            next.messageOrder = next.messageOrder.filter((id) => id !== placeholderId);
+          }
         }
         next.messages[message.id] = message;
       }

@@ -393,3 +393,46 @@ test('快速连续两轮 run：防抖按 runId 分槽，两轮消息都不丢失
     '两轮消息按时间线顺序落库',
   );
 });
+
+test('持久化不落 lc_run-- 占位行：规范 UUID 是唯一权威文本行', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-placeholder-skip';
+  const threadId = `thread-${sessionId}`;
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId,
+    title: sessionId,
+    type: 'agent',
+    version: '2.1.0',
+  });
+
+  // 快照到达前的状态同时存在占位（部分内容）与规范消息（完整内容）
+  let state = createRunState('run-placeholder', threadId);
+  state.messages['user-ph'] = { id: 'user-ph', role: 'user', content: '天气如何' };
+  state.messageOrder.push('user-ph');
+  state.messages['lc_run--part-1'] = { id: 'lc_run--part-1', role: 'assistant', content: '我' };
+  state.messageOrder.push('lc_run--part-1');
+  state.messages['assistant-ph'] = { id: 'assistant-ph', role: 'assistant', content: '我目前无法获取实时天气数据。' };
+  state.messageOrder.push('assistant-ph');
+
+  const input = {
+    context: [],
+    forwardedProps: { action: 'run' as const, agentId: 'flight-analysis', fab: 'F15B', sessionId },
+    messages: [{ id: 'user-ph', role: 'user' as const, content: '天气如何' }],
+    runId: 'run-placeholder',
+    state: {},
+    threadId,
+    tools: [],
+  };
+  scheduleRunCheckpoint(sessionId, input, state);
+  await flushRunCheckpoint();
+
+  const records = await sessionHistoryService.getMessages(sessionId);
+  const textIds = records.filter((record) => record.kind === 'text').map((record) => record.id);
+  assert.deepEqual(textIds, ['text:user-ph', 'text:assistant-ph']);
+  assert.equal(textIds.some((id) => id.includes('lc_run--')), false);
+});

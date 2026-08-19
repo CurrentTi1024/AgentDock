@@ -73,6 +73,34 @@ test('drops CopilotKit internal duplicate message ids from MESSAGES_SNAPSHOT', (
   assert.equal(state.messages['lc_run--01a01afa-5bd9'], undefined);
 });
 
+test('快照先于流式完成到达：规范 UUID 按角色替换部分内容占位，不产生双气泡', () => {
+  let state = createRunState('run-snap-3', 'thread-snap-3');
+  // 流式阶段只输出了一部分（“我”），快照携带规范 UUID + 完整内容
+  state = reduceRunEvent(state, {
+    streamId: '1',
+    event: { type: 'TEXT_MESSAGE_START', messageId: 'lc_run--part-1', role: 'assistant' },
+  });
+  state = reduceRunEvent(state, {
+    streamId: '2',
+    event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'lc_run--part-1', delta: '我' },
+  });
+  state = reduceRunEvent(state, {
+    streamId: '3',
+    event: {
+      type: 'MESSAGES_SNAPSHOT',
+      messages: [
+        { id: 'user-3', role: 'user', content: '天气如何' },
+        { id: 'assistant-3', role: 'assistant', content: '我目前无法获取实时天气数据。' },
+      ],
+    },
+  });
+  assert.deepEqual(Object.keys(state.messages).sort(), ['assistant-3', 'user-3']);
+  assert.equal(state.messages['lc_run--part-1'], undefined);
+  assert.equal(state.messages['assistant-3'].content, '我目前无法获取实时天气数据。');
+  // 时间线里只有规范 id，没有占位 id
+  assert.deepEqual(state.messageOrder, ['user-3', 'assistant-3']);
+});
+
 test('records per-message streamId and dedupes replay', () => {
   let state = createRunState('run-4', 'thread-4');
   state = reduceRunEvent(state, { streamId: '1', event: { type: 'TEXT_MESSAGE_START', messageId: 'assistant-4', role: 'assistant' } });

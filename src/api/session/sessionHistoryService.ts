@@ -166,6 +166,9 @@ export const sessionHistoryService = {
     for (const messageId of messageIds) {
       const message = snapshot.messages[messageId];
       if (!message || !message.id) continue;
+      // 流式占位 id（lc_run--）不落库：快照规范 UUID 才是唯一权威行，
+      // 避免同一回复以两个 id 各渲染一次（“我”+全文两个气泡）。
+      if (String(message.id).startsWith('lc_run--')) continue;
       // 只持久化用户与助手文本；system/developer 上下文消息（如 A2UI catalog）
       // 不进入可见历史，避免以 assistant 气泡误渲染。
       if (message.role !== 'user' && message.role !== 'assistant') continue;
@@ -179,6 +182,7 @@ export const sessionHistoryService = {
       const message = snapshot.messages[messageId];
       if (!message || !message.id) continue;
       if (message.role !== 'user' && message.role !== 'assistant') continue;
+      if (String(message.id).startsWith('lc_run--')) continue;
       push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, streamId: message.streamId ?? snapshot.latestStreamId });
     }
     for (const [id, content] of Object.entries(snapshot.reasoning || {})) push('reasoning', id, { content, runId: snapshot.runId, streamId: snapshot.latestStreamId });
