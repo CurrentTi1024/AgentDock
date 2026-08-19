@@ -12,11 +12,16 @@ export interface ChatItemProps {
   avatar?: string | ReactNode;
   children?: ReactNode;
   content?: string;
+  editing?: boolean;
   id: string;
   loading?: boolean;
   messageExtra?: ReactNode;
   name: string;
+  onDoubleClick?: () => void;
+  onChange?: (value: string) => void;
+  onEditingChange?: (editing: boolean) => void;
   role: 'assistant' | 'user';
+  showAvatar?: boolean;
   showTitle?: boolean;
   time?: number;
   titleAddon?: ReactNode;
@@ -30,7 +35,25 @@ const LobeChatItemWithChildren = LobeChatItem as unknown as ComponentType<
 >;
 
 const ChatItem = memo<ChatItemProps>(
-  ({ actions, avatar, children, content, id, loading, messageExtra, name, role, showTitle, time, titleAddon }) => {
+  ({
+    actions,
+    avatar,
+    children,
+    content,
+    editing,
+    id,
+    loading,
+    messageExtra,
+    name,
+    onDoubleClick,
+    onChange,
+    onEditingChange,
+    role,
+    showAvatar,
+    showTitle,
+    time,
+    titleAddon,
+  }) => {
     const isUser = role === 'user';
     // 用户气泡显示本人头像（右侧）；agent 使用 docs 变体（无外边框），动作栏独立成行。
     const avatarValue = avatar ?? (isUser ? 'LC' : '🤖');
@@ -43,10 +66,14 @@ const ChatItem = memo<ChatItemProps>(
         actions={actions}
         actionsWrapWidth={isUser ? 10_000 : undefined}
         avatar={meta}
+        editing={editing}
         id={id}
         loading={loading}
         message={content === undefined ? undefined : content}
         messageExtra={messageExtra}
+        onChange={onChange}
+        onDoubleClick={onDoubleClick}
+        onEditingChange={onEditingChange}
         placement={isUser ? 'right' : 'left'}
         renderMessage={(content) => (
           <Flexbox gap={8} style={{ width: '100%' }}>
@@ -54,7 +81,7 @@ const ChatItem = memo<ChatItemProps>(
             {children}
           </Flexbox>
         )}
-        showAvatar
+        showAvatar={showAvatar ?? true}
         showTitle={showTitle ?? !isUser}
         time={toEpoch(time)}
         titleAddon={titleAddon}

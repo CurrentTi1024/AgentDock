@@ -233,3 +233,42 @@ test('多会话隔离：消息与 checkpoint 不串库', async () => {
     assert.equal((await sessionHistoryService.getLatestRun(sessionId))?.runId, runId);
   }
 });
+
+test('removeTurn 整轮删除（用户文本 + 回复 + 过程块 + checkpoint）', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-remove-branch';
+  const runId = 'run-remove-branch';
+  const { input, snapshot } = buildSingleAgentRun(sessionId, runId);
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input, snapshot);
+  const before = await sessionHistoryService.getMessages(sessionId);
+  const userMessageId = input.messages[0].id;
+  assert.ok(before.some((record) => record.id === `text:${userMessageId}`));
+  assert.ok(before.some((record) => record.kind === 'tool'));
+
+  await sessionHistoryService.removeTurn(sessionId, userMessageId);
+  const after = await sessionHistoryService.getMessages(sessionId);
+  assert.equal(after.some((record) => record.id === `text:${userMessageId}`), false);
+  // 助手回复与过程块（tool/reasoning/step）随该轮一并删除
+  assert.equal(after.some((record) => record.kind === 'text'), false);
+  assert.equal(after.some((record) => record.kind === 'tool'), false);
+  assert.equal(after.some((record) => record.kind === 'reasoning'), false);
+  // checkpoint 不复活已删消息
+  const latest = await sessionHistoryService.getLatestRun(sessionId);
+  assert.equal(latest, undefined);
+});
+
+test('updateMessageContent 同步消息行与 checkpoint 快照', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-edit-content';
+  const runId = 'run-edit-content';
+  const { input, snapshot } = buildSingleAgentRun(sessionId, runId);
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input, snapshot);
+  const userMessageId = input.messages[0].id;
+
+  await sessionHistoryService.updateMessageContent(sessionId, userMessageId, '编辑后的新问题');
+  const records = await sessionHistoryService.getMessages(sessionId);
+  const record = records.find((item) => item.id === `text:${userMessageId}`);
+  assert.equal(record?.content, '编辑后的新问题');
+  const checkpoint = await sessionHistoryService.getLatestRun(sessionId);
+  assert.equal(checkpoint?.snapshot.messages[userMessageId].content, '编辑后的新问题');
+});

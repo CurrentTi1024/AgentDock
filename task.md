@@ -298,4 +298,14 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - i18n 新增 4 个 key（approval label/auto/manual、footer hint）同步 18 语言；修复 fr-FR 同值越界。
 - Chrome headless + CDP 实测：圆角 16px、审批模式显示、@ 触发 mention、用户头像在右侧、动作栏独立行全部符合；22/22 测试通过。
 
+第七轮（2026-08-19，逐 code 补齐 LobeHub 对话交互）：
+
+- **用户消息编辑**：双击用户消息打开官方 EditableMessage 编辑（Confirm/Cancel），确认后走 branch 替换（`removeTurn` 整轮删除 + 以编辑文本重跑）；新增 `sessionHistoryService.updateMessageContent/removeTurn`，checkpoint 同步。
+- **输入区功能**：斜杠命令菜单（`/` 触发，插入分析/对比/总结建议）；附件、语音按钮已就位但禁用（首期未启用）；与 @Agent 一起组成 LobeHub ActionBar。
+- **助手重新生成 = branch 替换**：`regenerateAssistant` 找到该回复之前的用户消息，整轮删除（用户文本+回复+过程块+checkpoint）后重跑，不再是简单重发。
+- **live/历史模型修正**：只有 running/paused 的 run 走 live 渲染；完成/取消的 run 刷新后一律按历史消息渲染（可编辑/操作），对齐 LobeHub「无 live 消息」模型。
+- **消息分割线 + 连续同角色合并**：时间间隔 >30min 插入 HistoryDivider（历史消息）；连续同角色隐藏重复头像/标题。
+- **群聊设置面板**：改为 LobeHub 风格 Tabs（模式/任务/成员管理）。
+- **测试**：新增 removeTurn/updateMessageContent 单测（发现并修复了存储顺序导致的分支删除 bug），24/24 通过；build 通过；浏览器实测斜杠菜单、双击编辑打开、live/历史模型修正。
+
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。

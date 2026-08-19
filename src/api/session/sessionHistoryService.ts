@@ -57,21 +57,65 @@ export const sessionHistoryService = {
    * 同时删除包含该消息的 checkpoint，避免刷新后从快照复活已删消息。
    */
   async removeMessage(sessionId: string, id: string) {
+    await this.removeMessages(sessionId, [id]);
+  },
+  /**
+   * 批量删除消息行及其关联过程块；同时删除包含任一消息的 checkpoint，避免刷新后复活。
+   */
+  async removeMessages(sessionId: string, ids: string[]) {
+    const idSet = new Set(ids);
     await db.transaction('rw', db.messages, db.checkpoints, async () => {
       const all = await db.messages.where('sessionId').equals(sessionId).sortBy('sequence');
-      const targetIndex = all.findIndex((record) => record.id === `text:${id}` || record.id === id);
-      if (targetIndex < 0) return;
-      const idsToRemove = [all[targetIndex].id];
-      for (let index = targetIndex + 1; index < all.length; index += 1) {
-        const record = all[index];
-        if (record.kind === 'text') break;
-        idsToRemove.push(record.id);
+      const idsToRemove = new Set<string>();
+      for (const id of ids) {
+        const targetIndex = all.findIndex((record) => record.id === `text:${id}` || record.id === id);
+        if (targetIndex < 0) continue;
+        idsToRemove.add(all[targetIndex].id);
+        for (let index = targetIndex + 1; index < all.length; index += 1) {
+          const record = all[index];
+          if (record.kind === 'text') break;
+          idsToRemove.add(record.id);
+        }
       }
-      await db.messages.bulkDelete(idsToRemove);
+      if (idsToRemove.size) await db.messages.bulkDelete([...idsToRemove]);
       const checkpoints = await db.checkpoints.where('sessionId').equals(sessionId).toArray();
       for (const checkpoint of checkpoints) {
-        if (checkpoint.snapshot.messages[id]) {
+        if (Object.keys(checkpoint.snapshot.messages).some((key) => idSet.has(key))) {
           await db.checkpoints.delete(checkpoint.runId);
+        }
+      }
+    });
+    notifySessionsChanged();
+  },
+  /**
+   * 分支替换：删除以该用户消息开始的整轮（用户文本 + 助手回复 + 全部过程块 + checkpoint）。
+   * 存储顺序是文本在前、过程块在后，不能按「下一条文本即止」切分，必须按 runId 整轮删除。
+   */
+  async removeTurn(sessionId: string, userMessageId: string) {
+    await db.transaction('rw', db.messages, db.checkpoints, async () => {
+      const target = await db.messages.get(`text:${userMessageId}`);
+      if (!target?.runId) return;
+      await db.messages.where('sessionId').equals(sessionId).and((record) => record.runId === target.runId).delete();
+      await db.checkpoints.where('sessionId').equals(sessionId).and((checkpoint) => checkpoint.runId === target.runId).delete();
+    });
+    notifySessionsChanged();
+  },
+  /** 编辑消息内容：同步更新消息行与 checkpoint 中的快照。 */
+  async updateMessageContent(sessionId: string, id: string, content: string) {
+    await db.transaction('rw', db.messages, db.checkpoints, async () => {
+      const target = await db.messages.get(`text:${id}`);
+      if (target) {
+        await db.messages.update(`text:${id}`, { content });
+      } else {
+        const record = await db.messages.get(id);
+        if (record) await db.messages.update(id, { content });
+      }
+      const checkpoints = await db.checkpoints.where('sessionId').equals(sessionId).toArray();
+      for (const checkpoint of checkpoints) {
+        const message = checkpoint.snapshot.messages[id];
+        if (message) {
+          checkpoint.snapshot.messages[id] = { ...message, content };
+          await db.checkpoints.put(checkpoint);
         }
       }
     });

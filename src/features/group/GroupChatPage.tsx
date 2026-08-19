@@ -1,10 +1,10 @@
 // Group conversation — LobeHub group Conversation + Portal adaptation (slim)
-import { ActionIcon, Avatar, Block, Button, Flexbox, Icon, Segmented, Tag, Text } from '@lobehub/ui';
+import { ActionIcon, Avatar, Block, Button, Flexbox, Icon, Segmented, Tabs, Tag, Text } from '@lobehub/ui';
 import { DropdownMenu } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { message } from 'antd';
 import { ChevronLeft, Clock3, Info, Play, Plus, Users, X } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { agentGroupService } from '@/api/agent-group/agentGroupService';
@@ -18,7 +18,12 @@ import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
 import { MessageActions } from '@/features/chat/components/MessageActions';
 import NavHeader from '@/components/shell/NavHeader';
-import { renderRunBlocks, renderStoredBlocks, type StoredTextMessage } from '@/features/chat/components/MessageBlocks';
+import {
+  HistoryDivider,
+  renderRunBlocks,
+  renderStoredBlocks,
+  type StoredTextMessage,
+} from '@/features/chat/components/MessageBlocks';
 import { useAgentDockConversation } from '@/features/chat/useAgentDockConversation';
 import { useI18n } from '@/i18n';
 import { useUiStore } from '@/stores/uiStore';
@@ -49,6 +54,8 @@ const DEFAULT_GROUP_MEMBERS = [
   { agentId: 'data-check', fab: 'F15B' },
   { agentId: 'report-writer', fab: 'F15B' },
 ];
+
+const HISTORY_DIVIDER_MS = 30 * 60 * 1000;
 
 interface StoredGroupConfig {
   config?: { maxIterations?: number };
@@ -104,6 +111,8 @@ const GroupChatPage = () => {
   });
 
   const running = run?.status === 'running';
+  // 完成/取消/失败的 run 刷新后按历史渲染（可编辑/操作），只有进行中才走 live 渲染。
+  const isActiveRun = run?.status === 'running' || run?.status === 'paused';
   const answer = Object.values(run?.messages || {})
     .filter((message) => message.role === 'assistant')
     .at(-1)?.content;
@@ -165,7 +174,7 @@ const GroupChatPage = () => {
   }, [run?.status, sessionId]);
 
   const storedMessages = useMemo<StoredTextMessage[]>(() => {
-    const liveTextIds = new Set(Object.keys(run?.messages || {}));
+    const liveTextIds = isActiveRun ? new Set(Object.keys(run?.messages || {})) : new Set<string>();
     const result: StoredTextMessage[] = [];
     for (let index = 0; index < history.length; index += 1) {
       const record = history[index];
@@ -180,7 +189,7 @@ const GroupChatPage = () => {
       result.push({ blocks, record });
     }
     return result;
-  }, [history, run?.messages]);
+  }, [history, isActiveRun, run?.messages]);
 
   const blocks = renderRunBlocks(run, {
     onApproveHitl: (requestId) =>
@@ -197,7 +206,7 @@ const GroupChatPage = () => {
       }),
   }, { showReasoning });
 
-  const hasAnyMessage = storedMessages.length > 0 || Boolean(answer || running || run?.status);
+  const hasAnyMessage = storedMessages.length > 0 || (isActiveRun && Boolean(answer || running || run?.status));
 
   const sendMessage = async (message: string) => {
     if (!session) return;
@@ -348,65 +357,77 @@ const GroupChatPage = () => {
                 </Button>
               </Flexbox>
             )}
-            {storedMessages.map(({ blocks: storedBlocks, record }) =>
-              record.role === 'user' ? (
-                <ChatItem
-                  actions={
-                    <MessageActions
-                      content={record.content || ''}
-                      placement="user"
-                      onCopy={(content) => void navigator.clipboard.writeText(content || '')}
-                      onDelete={() =>
-                        void sessionHistoryService.removeMessage(sessionId, record.id).then(() =>
-                          sessionHistoryService.getMessages(sessionId).then(setHistory),
-                        )
+            {storedMessages.map(({ blocks: storedBlocks, record }, index) => {
+              const previous = index > 0 ? storedMessages[index - 1].record : undefined;
+              const merged = Boolean(previous && previous.role === record.role);
+              const gap = previous
+                ? new Date(record.createdAt).getTime() - new Date(previous.createdAt).getTime()
+                : 0;
+              return (
+                <Fragment key={record.id}>
+                  {gap > HISTORY_DIVIDER_MS && <HistoryDivider label={t('chat.history')} />}
+                  {record.role === 'user' ? (
+                    <ChatItem
+                      actions={
+                        <MessageActions
+                          content={record.content || ''}
+                          placement="user"
+                          onCopy={(content) => void navigator.clipboard.writeText(content || '')}
+                          onDelete={() =>
+                            void sessionHistoryService.removeMessage(sessionId, record.id).then(() =>
+                              sessionHistoryService.getMessages(sessionId).then(setHistory),
+                            )
+                          }
+                        />
                       }
+                      content={record.content}
+                      id={record.id}
+                      name={t('chat.you')}
+                      role="user"
+                      showAvatar={!merged}
+                      showTitle={false}
+                      time={new Date(record.createdAt).getTime()}
                     />
-                  }
-                  content={record.content}
-                  id={record.id}
-                  key={record.id}
-                  name={t('chat.you')}
-                  role="user"
-                  time={new Date(record.createdAt).getTime()}
-                />
-              ) : (
-                <ChatItem
-                  actions={
-                    <MessageActions
-                      content={record.content || ''}
-                      onCopy={(content) => void navigator.clipboard.writeText(content || '')}
-                      onDelete={() =>
-                        void sessionHistoryService.removeMessage(sessionId, record.id).then(() =>
-                          sessionHistoryService.getMessages(sessionId).then(setHistory),
-                        )
+                  ) : (
+                    <ChatItem
+                      actions={
+                        <MessageActions
+                          content={record.content || ''}
+                          onCopy={(content) => void navigator.clipboard.writeText(content || '')}
+                          onDelete={() =>
+                            void sessionHistoryService.removeMessage(sessionId, record.id).then(() =>
+                              sessionHistoryService.getMessages(sessionId).then(setHistory),
+                            )
+                          }
+                        />
                       }
-                    />
-                  }
-                  content={record.content}
-                  id={record.id}
-                  key={record.id}
-                  name={session?.title || t('nav.group')}
-                  role="assistant"
-                  time={new Date(record.createdAt).getTime()}
-                >
-                  {renderStoredBlocks(storedBlocks, {
-                    onApproveHitl: (requestId) =>
-                      void respondToHitl({ mode: 'toolAuthorization', decision: 'approve', requestId }),
-                    onRejectHitl: (requestId) =>
-                      void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
-                    onSurfaceAction: (surfaceId) =>
-                      void sendA2uiAction({
-                        actionName: 'open_report',
-                        context: { reportId: 'artifact-report' },
-                        sourceComponentId: 'open',
-                        surfaceId,
-                      }),
-                  }, { showReasoning })}
-                </ChatItem>
-              ),
-            )}
-            {(answer || running || run?.status) && (
+                      content={record.content}
+                      id={record.id}
+                      name={session?.title || t('nav.group')}
+                      role="assistant"
+                      showAvatar={!merged}
+                      showTitle={!merged}
+                      time={new Date(record.createdAt).getTime()}
+                    >
+                      {renderStoredBlocks(storedBlocks, {
+                        onApproveHitl: (requestId) =>
+                          void respondToHitl({ mode: 'toolAuthorization', decision: 'approve', requestId }),
+                        onRejectHitl: (requestId) =>
+                          void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
+                        onSurfaceAction: (surfaceId) =>
+                          void sendA2uiAction({
+                            actionName: 'open_report',
+                            context: { reportId: 'artifact-report' },
+                            sourceComponentId: 'open',
+                            surfaceId,
+                          }),
+                      }, { showReasoning })}
+                    </ChatItem>
+                  )}
+                </Fragment>
+              );
+            })}
+            {isActiveRun && (answer || running || run?.status) && (
               <>
                 <ChatItem
                   actions={
@@ -462,71 +483,95 @@ const GroupChatPage = () => {
 
       {settingsOpen && (
       <Flexbox className={styles.panel} gap={16} padding={16}>
-        <Block gap={14} padding={18} variant="outlined">
-          <Text weight={500}>{t('workspace.group.mode')}</Text>
-          <Segmented
-            block
-            options={modes.map((item) => ({ label: item.name, value: item.modeId }))}
-            value={mode}
-            onChange={(value) => setMode(String(value))}
-          />
-          <Text fontSize={12} type="secondary">
-            {t('workspace.group.modeHint')}
-          </Text>
-          {running ? (
-            <Button block icon={Clock3} size="large" onClick={() => void stop()}>
-              {t('workspace.group.stop')}
-            </Button>
-          ) : (
-            <Button
-              block
-              icon={Play}
-              size="large"
-              type="primary"
-              onClick={() => void sendMessage(t('workspace.group.sampleMessage'))}
-            >
-              {t('workspace.group.start')}
-            </Button>
-          )}
-        </Block>
-        <Block gap={14} padding={18} variant="outlined">
-          <Text weight={500}>{t('workspace.group.task')}</Text>
-          <Text style={{ lineHeight: 1.7 }}>{t('workspace.group.taskDesc')}</Text>
-          <Flexbox horizontal gap={8}>
-            <Tag>maxIterations: 6</Tag>
-            <Tag>{t('workspace.group.timeout')}</Tag>
-          </Flexbox>
-        </Block>
-        <Block gap={14} padding={18} variant="outlined">
-          <Flexbox horizontal align="center" justify="space-between">
-            <Text weight={500}>{t('workspace.group.members')}</Text>
-            <Tag color="success">{t('workspace.group.members')}</Tag>
-          </Flexbox>
-          {members.map((member, index) => {
-            const mention = mentionByMember(member);
-            return (
-              <Flexbox horizontal align="center" gap={12} key={`${member.agentId}@${member.fab}`}>
-                <Avatar avatar={mention?.icon ?? '🤖'} shape="square" size={40} />
-                <Flexbox flex={1} style={{ minWidth: 0 }}>
-                  <Text ellipsis weight={500}>
-                    {mention?.agentFullName ?? member.agentId}
-                  </Text>
+        <Tabs
+          items={[
+            {
+              children: (
+                <Flexbox gap={14}>
+                  <Text weight={500}>{t('workspace.group.mode')}</Text>
+                  <Segmented
+                    block
+                    options={modes.map((item) => ({ label: item.name, value: item.modeId }))}
+                    value={mode}
+                    onChange={(value) => setMode(String(value))}
+                  />
                   <Text fontSize={12} type="secondary">
-                    v{member.version || '—'} · {member.fab}
+                    {t('workspace.group.modeHint')}
                   </Text>
+                  {running ? (
+                    <Button block icon={Clock3} onClick={() => void stop()}>
+                      {t('workspace.group.stop')}
+                    </Button>
+                  ) : (
+                    <Button
+                      block
+                      icon={Play}
+                      type="primary"
+                      onClick={() => void sendMessage(t('workspace.group.sampleMessage'))}
+                    >
+                      {t('workspace.group.start')}
+                    </Button>
+                  )}
                 </Flexbox>
-                {index === 0 && <Tag color="info">Supervisor</Tag>}
-                <ActionIcon
-                  aria-label={t('group.chat.removeMember')}
-                  icon={X}
-                  onClick={() => removeMember(member)}
-                  title={t('group.chat.removeMember')}
-                />
-              </Flexbox>
-            );
-          })}
-          <Button icon={Plus}>{t('workspace.group.addMember')}</Button>
-        </Block>
+              ),
+              key: 'mode',
+              label: t('workspace.group.mode'),
+            },
+            {
+              children: (
+                <Flexbox gap={14}>
+                  <Text weight={500}>{t('workspace.group.task')}</Text>
+                  <Text style={{ lineHeight: 1.7 }}>{t('workspace.group.taskDesc')}</Text>
+                  <Flexbox horizontal gap={8}>
+                    <Tag>maxIterations: 6</Tag>
+                    <Tag>{t('workspace.group.timeout')}</Tag>
+                  </Flexbox>
+                </Flexbox>
+              ),
+              key: 'task',
+              label: t('workspace.group.task'),
+            },
+            {
+              children: (
+                <Flexbox gap={14}>
+                  <Text weight={500}>{t('workspace.group.members')}</Text>
+                  {members.map((member, index) => {
+                    const mention = mentionByMember(member);
+                    return (
+                      <Flexbox
+                        horizontal
+                        align="center"
+                        gap={12}
+                        key={`${member.agentId}@${member.fab}`}
+                      >
+                        <Avatar avatar={mention?.icon ?? '🤖'} shape="square" size={40} />
+                        <Flexbox flex={1} style={{ minWidth: 0 }}>
+                          <Text ellipsis weight={500}>
+                            {mention?.agentFullName ?? member.agentId}
+                          </Text>
+                          <Text fontSize={12} type="secondary">
+                            v{member.version || '—'} · {member.fab}
+                          </Text>
+                        </Flexbox>
+                        {index === 0 && <Tag color="info">Supervisor</Tag>}
+                        <ActionIcon
+                          aria-label={t('group.chat.removeMember')}
+                          icon={X}
+                          onClick={() => removeMember(member)}
+                          title={t('group.chat.removeMember')}
+                        />
+                      </Flexbox>
+                    );
+                  })}
+                  <Button icon={Plus}>{t('workspace.group.addMember')}</Button>
+                </Flexbox>
+              ),
+              key: 'members',
+              label: t('workspace.group.members'),
+            },
+          ]}
+          variant="square"
+        />
       </Flexbox>
       )}
     </Flexbox>

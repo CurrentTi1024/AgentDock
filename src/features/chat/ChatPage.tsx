@@ -4,7 +4,7 @@ import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { LoadingDots } from '@lobehub/ui/chat';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { FileBarChart, X } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useParams, useSearchParams } from 'react-router-dom';
 
 import { resolveChatAgentId } from '@/features/chat/agentDetail';
@@ -13,7 +13,12 @@ import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
 import { MessageActions } from '@/features/chat/components/MessageActions';
 import Welcome from '@/features/chat/components/Welcome';
-import { renderStoredBlocks, renderRunBlocks, type StoredTextMessage } from '@/features/chat/components/MessageBlocks';
+import {
+  HistoryDivider,
+  renderStoredBlocks,
+  renderRunBlocks,
+  type StoredTextMessage,
+} from '@/features/chat/components/MessageBlocks';
 import { messageFeedbackService } from '@/api/conversation/messageFeedbackService';
 import { getServiceMode } from '@/api/core/serviceMode';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
@@ -47,6 +52,9 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
   `,
 }));
 
+// 连续同角色消息的时间间隔超过该值才插入「历史消息」分割线（LobeHub History divider）。
+const HISTORY_DIVIDER_MS = 30 * 60 * 1000;
+
 // 官方 runtime 的活动消息渲染依赖 CopilotKit Provider，仅在 http 模式下挂载。
 interface OfficialActivityMessage {
   role: 'activity';
@@ -76,6 +84,8 @@ export default function ChatPage() {
   const pendingSession = (location.state as { pendingSession?: SessionRecord } | null)?.pendingSession;
 
   const [input, setInput] = useState('');
+  const [editingId, setEditingId] = useState<string>();
+  const [editDraft, setEditDraft] = useState('');
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
   const [mentionsLoading, setMentionsLoading] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<MentionAgent>();
@@ -101,6 +111,9 @@ export default function ChatPage() {
     threadId: session?.threadId,
   });
   const running = run?.status === 'running';
+  // 只有进行中的 run（running/paused）才走 live 渲染；完成的 run 刷新后按历史消息渲染，
+  // 保证最后一条消息也有编辑/重新生成等操作（LobeHub 无“live 消息”概念）。
+  const isActiveRun = run?.status === 'running' || run?.status === 'paused';
   const answer = Object.values(run?.messages || {})
     .filter((message) => message.role === 'assistant')
     .at(-1)?.content;
@@ -233,7 +246,7 @@ export default function ChatPage() {
   const showReasoning = useUiStore((s) => s.showReasoning);
 
   const storedMessages = useMemo<StoredTextMessage[]>(() => {
-    const liveTextIds = new Set(Object.keys(run?.messages || {}));
+    const liveTextIds = isActiveRun ? new Set(Object.keys(run?.messages || {})) : new Set<string>();
     const result: StoredTextMessage[] = [];
     for (let index = 0; index < history.length; index += 1) {
       const record = history[index];
@@ -249,7 +262,7 @@ export default function ChatPage() {
       result.push({ blocks, record });
     }
     return result;
-  }, [history, run?.messages]);
+  }, [history, isActiveRun, run?.messages]);
 
   const blocks = renderRunBlocks(run, {
     onApproveHitl: (requestId) =>
@@ -273,7 +286,7 @@ export default function ChatPage() {
     sessionId,
     threadId: session?.threadId || '',
   };
-  const hasAnyMessage = storedMessages.length > 0 || Boolean(answer || running || run?.status);
+  const hasAnyMessage = storedMessages.length > 0 || (isActiveRun && Boolean(answer || running || run?.status));
   const lastUserPrompt = useMemo(() => {
     const fromRun = Object.values(run?.messages || {})
       .filter((message) => message.role === 'user')
@@ -290,6 +303,38 @@ export default function ChatPage() {
     },
     [sessionId],
   );
+
+  // branch 替换：删除以该用户消息开头的一整轮（用户消息 + 助手回复过程块 + checkpoint），
+  // 再以新 prompt 重跑——编辑与「重新生成」统一走这条路径（LobeHub regenerate 语义）。
+  const replaceTurn = async (userMessageId: string, prompt: string) => {
+    if (!prompt || running) return;
+    await sessionHistoryService.removeTurn(sessionId, userMessageId);
+    const refreshed = await sessionHistoryService.getMessages(sessionId);
+    setHistory(refreshed);
+    await sendMessageWith(prompt);
+  };
+
+  const regenerateAssistant = (assistantRecordId: string) => {
+    const index = history.findIndex((record) => record.id === `text:${assistantRecordId}`);
+    if (index < 0) return;
+    let userRecord: SessionMessageRecord | undefined;
+    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+      if (history[cursor].kind === 'text') {
+        userRecord = history[cursor];
+        break;
+      }
+    }
+    if (!userRecord) return;
+    void replaceTurn(userRecord.id.replace(/^text:/, ''), userRecord.content || '');
+  };
+
+  const commitEdit = (userMessageId: string, originalContent: string) => {
+    if (editDraft && editDraft !== originalContent) {
+      void replaceTurn(userMessageId, editDraft);
+    }
+    setEditingId(undefined);
+    setEditDraft('');
+  };
 
   const regenerate = (prompt: string) => {
     if (!prompt || running) return;
@@ -316,72 +361,95 @@ export default function ChatPage() {
             {!hasAnyMessage && (
               <Welcome agentName={agent} onSuggestion={(suggestion) => setInput(t(suggestion))} />
             )}
-            {storedMessages.map(({ blocks: storedBlocks, record }) =>
-              record.role === 'user' ? (
-                <ChatItem
-                  actions={
-                    <MessageActions
-                      content={record.content || ''}
-                      placement="user"
-                      onCopy={copyMessage}
-                      onDelete={() => deleteMessage(record.id)}
-                      onRegenerate={() => regenerate(record.content || '')}
-                    />
-                  }
-                  content={record.content}
-                  id={record.id}
-                  key={record.id}
-                  name={t('chat.you')}
-                  role="user"
-                  time={new Date(record.createdAt).getTime()}
-                />
-              ) : (
-                <ChatItem
-                  actions={
-                    <MessageActions
-                      content={record.content || ''}
-                      onCopy={copyMessage}
-                      onDelete={() => deleteMessage(record.id)}
-                      onDislike={() =>
-                        void messageFeedbackService.submitMessageFeedback({
-                          ...feedbackTarget,
-                          feedback: 'dislike',
-                          reasonCode: 'incorrect',
-                        })
+            {storedMessages.map(({ blocks: storedBlocks, record }, index) => {
+              const previous = index > 0 ? storedMessages[index - 1].record : undefined;
+              const merged = Boolean(previous && previous.role === record.role);
+              const gap = previous
+                ? new Date(record.createdAt).getTime() - new Date(previous.createdAt).getTime()
+                : 0;
+              const editing = editingId === record.id;
+              const originalContent = record.content || '';
+              return (
+                <Fragment key={record.id}>
+                  {gap > HISTORY_DIVIDER_MS && <HistoryDivider label={t('chat.history')} />}
+                  {record.role === 'user' ? (
+                    <ChatItem
+                      actions={
+                        <MessageActions
+                          content={originalContent}
+                          placement="user"
+                          onCopy={copyMessage}
+                          onDelete={() => deleteMessage(record.id)}
+                          onRegenerate={() => regenerate(originalContent)}
+                        />
                       }
-                      onLike={() =>
-                        void messageFeedbackService.submitMessageFeedback({
-                          ...feedbackTarget,
-                          feedback: 'like',
-                        })
-                      }
-                      onRegenerate={() => regenerate(lastUserPrompt)}
+                      content={record.content}
+                      editing={editing}
+                      id={record.id}
+                      name={t('chat.you')}
+                      onChange={setEditDraft}
+                      onDoubleClick={() => {
+                        setEditingId(record.id);
+                        setEditDraft(originalContent);
+                      }}
+                      onEditingChange={(next) => {
+                        if (!next) commitEdit(record.id, originalContent);
+                      }}
+                      role="user"
+                      showAvatar={!merged}
+                      showTitle={false}
+                      time={new Date(record.createdAt).getTime()}
                     />
-                  }
-                  content={record.content}
-                  id={record.id}
-                  key={record.id}
-                  name={agent}
-                  role="assistant"
-                  time={new Date(record.createdAt).getTime()}
-                >
-                  {renderStoredBlocks(storedBlocks, {
-                    onApproveHitl: (requestId) =>
-                      void respondToHitl({ mode: 'toolAuthorization', decision: 'approve', requestId }),
-                    onRejectHitl: (requestId) =>
-                      void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
-                    onSurfaceAction: (actionName, surfaceId) =>
-                      void sendA2uiAction({
-                        actionName: actionName || 'open_report',
-                        context: { reportId: 'artifact-report' },
-                        sourceComponentId: 'action-button',
-                        surfaceId,
-                      }),
-                  }, { showReasoning, showSurfaces: getServiceMode() !== 'http' })}
-                </ChatItem>
-              ),
-            )}
-            {(answer || running || run?.status) && (
+                  ) : (
+                    <ChatItem
+                      actions={
+                        <MessageActions
+                          content={originalContent}
+                          onCopy={copyMessage}
+                          onDelete={() => deleteMessage(record.id)}
+                          onDislike={() =>
+                            void messageFeedbackService.submitMessageFeedback({
+                              ...feedbackTarget,
+                              feedback: 'dislike',
+                              reasonCode: 'incorrect',
+                            })
+                          }
+                          onLike={() =>
+                            void messageFeedbackService.submitMessageFeedback({
+                              ...feedbackTarget,
+                              feedback: 'like',
+                            })
+                          }
+                          onRegenerate={() => regenerateAssistant(record.id)}
+                        />
+                      }
+                      content={record.content}
+                      id={record.id}
+                      name={agent}
+                      role="assistant"
+                      showAvatar={!merged}
+                      showTitle={!merged}
+                      time={new Date(record.createdAt).getTime()}
+                    >
+                      {renderStoredBlocks(storedBlocks, {
+                        onApproveHitl: (requestId) =>
+                          void respondToHitl({ mode: 'toolAuthorization', decision: 'approve', requestId }),
+                        onRejectHitl: (requestId) =>
+                          void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
+                        onSurfaceAction: (actionName, surfaceId) =>
+                          void sendA2uiAction({
+                            actionName: actionName || 'open_report',
+                            context: { reportId: 'artifact-report' },
+                            sourceComponentId: 'action-button',
+                            surfaceId,
+                          }),
+                      }, { showReasoning, showSurfaces: getServiceMode() !== 'http' })}
+                    </ChatItem>
+                  )}
+                </Fragment>
+              );
+            })}
+            {isActiveRun && (answer || running || run?.status) && (
               <>
                 <ChatItem
                   actions={

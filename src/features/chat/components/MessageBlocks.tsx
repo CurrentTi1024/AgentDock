@@ -32,6 +32,17 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
   `,
 }));
 
+/** LobeHub History 分割线：消息时间跨度较大或历史/实时分界时展示。 */
+export const HistoryDivider = ({ label }: { label: string }) => (
+  <Flexbox horizontal align="center" gap={12} paddingBlock={10}>
+    <div style={{ flex: 1, height: 1, background: cssVar.colorBorderSecondary }} />
+    <Text fontSize={12} type="secondary">
+      {label}
+    </Text>
+    <div style={{ flex: 1, height: 1, background: cssVar.colorBorderSecondary }} />
+  </Flexbox>
+);
+
 const formatDuration = (startedAt?: number, finishedAt?: number) => {
   if (!startedAt || !finishedAt) return undefined;
   const seconds = Math.max(0, Math.round((finishedAt - startedAt) / 100) / 10);
