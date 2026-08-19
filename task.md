@@ -404,3 +404,18 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **浏览器测试矩阵（无头 Chrome 实测）**：文本消息 ✅、两轮历史顺序/去重 ✅、工具调用块 ✅、A2UI 指标卡片渲染 ✅（CPU/内存/磁盘 + render_a2ui 8s 已调用 + success）、停止生成 cancelled ✅、mock reasoning 自动折叠 ✅、mock HITL 批准续跑 ✅、mock 工具/文本/surface 全链路 ✅；`pnpm run test` 28/28、`pnpm run build` 通过。
 - **已知限制**：真实 DeepSeek reasoning 为加密内容，ag_ui-langgraph 0.0.40 不产生 REASONING 协议事件（Thinking 仅 mock 可验）；A2UI 多轮上下文 secondary 可能偏离 forced render_a2ui（新会话单轮稳定）；刷新后 A2UI surface 不持久化；HITL 真实 wire 待冻结。
 - 详见 `docs/agentdock/design/11-e2e-joint-test-report.md`。
+
+第十三轮（2026-08-20，逐项修复并提交：并发 run 防护 / A2UI surface 持久化）：
+
+- **并发 run 防护**（`useAgentDockConversation.ts` + `server/copilot-runtime/fabRoutingAgent.ts`）：
+  - hook 层防重入：官方/mock send 在 running/paused 时忽略新发送；
+  - runtime 幂等守卫：同一 `threadId:runId` 的 action=run 在途时拒绝（FAB_DUPLICATE_RUN），杜绝重复上游执行；
+  - restore 不再自动 resume：陈旧 running checkpoint 本地转 cancelled 落库（后端无 streamId 游标，resume 会重放造成并发 run）；
+  - `runAgent` 异常写 RUN_ERROR 兜底，不卡 running。
+- **A2UI surface 持久化 + 组件名对齐**（`MessageBlocks.tsx` + `ChatPage.tsx` + `a2ui/catalog.tsx`）：
+  - 根因：后端按 a2ui.org v0.9 生成 `Metric/Title/Card/Column/Row`，前端 web_core basic catalog 无 Metric/Title → 页面实际一直渲染 “Unknown component”；
+  - 前端 catalog 补齐 5 个组件定义与 renderer，实时与历史 surface 均正常渲染；
+  - 历史 surface 快照（`a2ui_operations`）经 `StoredA2uiSurface` + `useRenderActivityMessage` 还原，刷新后仍可见；
+  - 坑：renderActivityMessage 的 content 只能含 `a2ui_operations`（额外字段致 schema 校验失败）；不要自包 A2UIProvider（react-core 自带同包 context）。
+- **验证**：快速连发只发 1 个 run；刷新后 surface 仍渲染（CPU/45%/内存/62%/磁盘/78%）；真实 A2UI 运行渲染真实 Metric 组件、无 Unknown、无控制台错误；`pnpm run test` 28/28、`pnpm run build` 通过。
+- 设计文档：`docs/agentdock/design/13-concurrent-run-guard.md`、`14-a2ui-surface-persistence.md`。

@@ -1,5 +1,6 @@
 // Adapted from: src/features/Conversation/Messages + Tool/AssistantGroup (LobeHub canary)
 import { ActionIcon, Block, Button, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
+import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { Brain, CheckCircle2, ChevronDown, Crown, Layers, ListTodo, Play, Users, Wrench, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -317,6 +318,44 @@ export const A2uiStoredSurface = ({
   return <Flexbox gap={8} wrap="wrap">{nodes}</Flexbox>;
 };
 
+/**
+ * 历史/刷新场景的 A2UI Surface 渲染：
+ * - http 实时链路落库的 payload 是官方 `a2ui_operations` 结构 → 用官方 renderer
+ *   （useRenderActivityMessage）按 catalog 还原为真实组件，刷新后仍然可见；
+ * - mock 场景仍是旧 `components` 结构 → 走 A2uiStoredSurface 兼容渲染。
+ */
+export const StoredA2uiSurface = ({
+  onAction,
+  payload,
+}: {
+  onAction: (actionName: string, surfaceId: string) => void;
+  payload: Record<string, unknown>;
+}) => {
+  const surfaceId = String(payload.surfaceId ?? 'surface');
+  const operations = Array.isArray(payload.a2ui_operations) ? payload.a2ui_operations : [];
+  if (operations.length > 0) {
+    // http 实时链路：快照 payload 是官方 a2ui_operations。复用 CopilotKit 自己的
+    // activity renderer（useRenderActivityMessage），content 必须严格符合其 schema：
+    // 只带 a2ui_operations，不能附加 surfaceId 等额外字段，否则校验失败返回 null。
+    const { renderActivityMessage } = useRenderActivityMessage();
+    const rendered = renderActivityMessage({
+      activityType: 'a2ui-surface',
+      content: { a2ui_operations: operations },
+      id: `surface-${surfaceId}`,
+      role: 'activity',
+    } as never);
+    if (rendered) return <>{rendered}</>;
+    return <A2uiSurfaceBlock payload={payload} />;
+  }
+  if (payload.components === undefined) return <A2uiSurfaceBlock payload={payload} />;
+  return (
+    <A2uiStoredSurface
+      onAction={(actionName) => onAction(actionName, surfaceId)}
+      payload={{ ...payload, surfaceId }}
+    />
+  );
+};
+
 export const ErrorBlock = ({ code, message }: { code?: string; message: string }) => (
   <ErrorBlockInner code={code} message={message} />
 );
@@ -414,7 +453,7 @@ export const renderStoredBlocks = (
       if (options.showSurfaces === false) continue;
       const surfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : record.id;
       nodes.push(
-        <A2uiStoredSurface
+        <StoredA2uiSurface
           key={record.id}
           onAction={(actionName) => handlers.onSurfaceAction(actionName, surfaceId)}
           payload={{ ...payload, surfaceId }}
