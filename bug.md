@@ -149,3 +149,53 @@ IndexedDB text 行（按 sequence 升序）：
   直接插入用户消息时维护 messageOrder
 - `src/features/chat/HomePage.tsx` / `ChatPage.tsx`：hub 首条消息自动发送
 - 测试：`src/api/session/sessionHistoryService.test.ts`、`src/api/runtime/runReducer.test.ts`
+
+## 八、追加：部分助手回复只有气泡没有头像
+
+### 现象
+
+同一会话连发多条后，部分 agent 回复只有气泡、没有 agent 头像（也没有标题）。
+
+### 根因
+
+连续同角色合并逻辑只按 `role` 判断：
+
+```ts
+const merged = Boolean(previous && previous.role === record.role);
+// merged 时隐藏头像与标题：showAvatar={!merged} / showTitle={!merged}
+```
+
+三条消息来自三轮独立 run，相邻的助手消息 role 相同 → 第二条/第三条被当成
+"同一段连续消息"合并，头像和标题被隐藏，视觉上就成了"孤儿气泡"。
+
+### 修复
+
+合并只应发生在**同一轮 run 内**的连续同角色消息（如一轮里多条助手文本），
+不同 run 的独立回复必须各自显示头像与标题：
+
+```ts
+const merged = Boolean(
+  previous &&
+    previous.role === record.role &&
+    previous.runId &&
+    previous.runId === record.runId,
+);
+```
+
+`ChatPage` 与 `GroupChatPage` 同步修改；`runId` 缺失的旧数据不合并（保守处理）。
+
+### 验证（页面实测）
+
+三轮对话（hi / 今天周几 / 天气如何）完成后逐条检查：
+
+```text
+USER avatar=true hi
+AST  avatar=true 今天的飞行测试整体稳定。…
+USER avatar=true 今天周几
+AST  avatar=true 今天的飞行测试整体稳定。…
+USER avatar=true 天气如何
+AST  avatar=true 今天的飞行测试整体稳定。…
+assistant without avatar: 0
+```
+
+每条助手回复都有头像与标题，顺序正确。

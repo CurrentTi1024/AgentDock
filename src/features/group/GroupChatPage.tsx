@@ -367,7 +367,13 @@ const GroupChatPage = () => {
             )}
             {storedMessages.map(({ blocks: storedBlocks, record }, index) => {
               const previous = index > 0 ? storedMessages[index - 1].record : undefined;
-              const merged = Boolean(previous && previous.role === record.role);
+              // 仅合并同一轮 run 内的连续同角色消息；不同 run 的独立回复各自显示头像/标题。
+              const merged = Boolean(
+                previous &&
+                  previous.role === record.role &&
+                  previous.runId &&
+                  previous.runId === record.runId,
+              );
               const gap = previous
                 ? new Date(record.createdAt).getTime() - new Date(previous.createdAt).getTime()
                 : 0;

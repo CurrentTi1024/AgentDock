@@ -328,7 +328,7 @@ export default function ChatPage() {
         sourceComponentId: 'action-button',
         surfaceId: surface[0],
       }),
-  }, { showReasoning, showSurfaces: getChatServiceMode() !== 'http' });
+  }, { showReasoning, showSurfaces: true });
 
   const lastLiveMessageId = Object.keys(run?.messages || {}).at(-1) || '';
   const feedbackTarget = {
@@ -414,7 +414,14 @@ export default function ChatPage() {
             )}
             {storedMessages.map(({ blocks: storedBlocks, record }, index) => {
               const previous = index > 0 ? storedMessages[index - 1].record : undefined;
-              const merged = Boolean(previous && previous.role === record.role);
+              // 仅合并同一轮 run 内的连续同角色消息（如一轮内多条助手文本）；
+              // 不同 run 的独立回复必须各自显示头像/标题，避免出现“只有气泡没有头像”。
+              const merged = Boolean(
+                previous &&
+                  previous.role === record.role &&
+                  previous.runId &&
+                  previous.runId === record.runId,
+              );
               const gap = previous
                 ? new Date(record.createdAt).getTime() - new Date(previous.createdAt).getTime()
                 : 0;
@@ -494,7 +501,7 @@ export default function ChatPage() {
                             sourceComponentId: 'action-button',
                             surfaceId,
                           }),
-                      }, { showReasoning, showSurfaces: getChatServiceMode() !== 'http' })}
+                      }, { showReasoning, showSurfaces: true })}
                     </ChatItem>
                   )}
                 </Fragment>
