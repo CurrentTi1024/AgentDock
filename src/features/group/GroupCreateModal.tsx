@@ -1,7 +1,7 @@
 // 新建群聊向导 — 选择成员 Agent 与后端支持的编排模式后创建群组会话（参照 LobeHub CreateGroupModal，slim）
 import { Avatar, Button, Flexbox, Icon, Input, Modal, Segmented, Tag, Text } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Check } from 'lucide-react';
+import { Check, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -19,8 +19,12 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     border: 1px solid ${token.colorBorderSecondary};
     border-radius: ${token.borderRadius}px;
     cursor: pointer;
+    transition:
+      border-color 0.2s ease-in-out,
+      background 0.2s ease-in-out;
+
     &:hover {
-      border-color: ${token.colorBorder};
+      border-color: ${token.colorPrimaryBorder};
       background: ${token.colorFillQuaternary};
     }
   `,
@@ -32,6 +36,16 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     border-radius: ${token.borderRadius}px;
     background: ${token.colorPrimaryBg};
     cursor: pointer;
+
+    &:hover {
+      border-color: ${token.colorPrimaryBorderHover};
+      background: ${token.colorPrimaryBgHover};
+    }
+  `,
+  memberList: css`
+    max-height: 280px;
+    overflow-y: auto;
+    padding-inline-end: 2px;
   `,
 }));
 
@@ -44,6 +58,7 @@ const GroupCreateContent = () => {
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
   const [modes, setModes] = useState<Array<{ modeId: string; name: string; description?: string }>>([]);
   const [name, setName] = useState('');
+  const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [mode, setMode] = useState('');
   const [error, setError] = useState<string>();
@@ -57,6 +72,15 @@ const GroupCreateContent = () => {
   }, []);
 
   const selectedMode = useMemo(() => modes.find((item) => item.modeId === mode), [mode, modes]);
+  const filteredMentions = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return mentions;
+    return mentions.filter((mention) =>
+      `${mention.agentFullName} ${mention.fab} ${mention.description}`
+        .toLowerCase()
+        .includes(keyword),
+    );
+  }, [mentions, query]);
 
   const toggleMember = (key: string) => {
     setError(undefined);
@@ -108,12 +132,24 @@ const GroupCreateContent = () => {
       <Flexbox gap={8}>
         <Flexbox horizontal align="center" justify="space-between">
           <Text weight={500}>{t('group.create.members')}</Text>
-          <Text fontSize={12} type="secondary">
-            {t('group.create.membersHint')}
-          </Text>
+          <Flexbox horizontal align="center" gap={8}>
+            <Text fontSize={12} type="secondary">
+              {t('group.create.selectedCount', { count: selected.length, total: mentions.length })}
+            </Text>
+            <Text fontSize={12} type="secondary">
+              {t('group.create.membersHint')}
+            </Text>
+          </Flexbox>
         </Flexbox>
-        <Flexbox gap={8} wrap="wrap">
-          {mentions.map((mention) => {
+        <Input
+          allowClear
+          prefix={<Icon icon={Search} size={14} />}
+          placeholder={t('group.create.searchPlaceholder')}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <Flexbox className={styles.memberList} gap={8} wrap="wrap">
+          {filteredMentions.map((mention) => {
             const key = memberKey(mention);
             const active = selected.includes(key);
             return (
@@ -139,6 +175,13 @@ const GroupCreateContent = () => {
             );
           })}
         </Flexbox>
+        {filteredMentions.length === 0 && (
+          <Flexbox align="center" justify="center" paddingBlock={18}>
+            <Text fontSize={13} type="secondary">
+              {t('group.create.noResults')}
+            </Text>
+          </Flexbox>
+        )}
       </Flexbox>
       <Flexbox gap={8}>
         <Text weight={500}>{t('workspace.group.mode')}</Text>
