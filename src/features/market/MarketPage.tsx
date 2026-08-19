@@ -88,8 +88,7 @@ export default function MarketPage({ kind }: { kind: MarketKind }) {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [items, setItems] = useState<Item[]>([]);
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [hasNextPage, setHasNextPage] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -145,8 +144,7 @@ export default function MarketPage({ kind }: { kind: MarketKind }) {
     ]).then(([result, { categories: next }]) => {
       if (requestId !== `${kind}:${fab}:${category}:${mode}:${page}:${query}:${sortBy}:${sortOrder}`) return;
       setItems(result.items);
-      setTotalPages(result.totalPages);
-      setHasNextPage(result.hasNextPage);
+      setTotalCount(result.totalCount);
       setCategories(next);
     }).catch((reason: unknown) => {
       if ((reason as DOMException).name !== 'AbortError' && requestId === `${kind}:${fab}:${category}:${mode}:${page}:${query}:${sortBy}:${sortOrder}`) {
@@ -172,7 +170,7 @@ export default function MarketPage({ kind }: { kind: MarketKind }) {
   return (
     <Flexbox className={styles.page}>
       <NavHeader
-        left={<SearchBar placeholder={t('market.search', { name: labels[kind] })} value={query} onChange={(event) => setQuery(event.target.value)} style={{ maxWidth: 480, width: '100%' }} />}
+        left={<SearchBar placeholder={t('market.search', { name: labels[kind] })} value={query} onChange={(event) => setQuery(event.target.value)} style={{ width: '100%' }} />}
         right={
           <Flexbox horizontal align="center" gap={8}>
             <SortButton
@@ -250,8 +248,8 @@ export default function MarketPage({ kind }: { kind: MarketKind }) {
                 </Grid>
                 <Pagination
                   currentPage={page}
-                  hasNextPage={hasNextPage}
-                  totalPages={totalPages}
+                  pageSize={21}
+                  totalCount={totalCount}
                   onPageChange={setPage}
                 />
               </>

@@ -10,7 +10,6 @@ import { useI18n } from '@/i18n';
 import { isAgentMarketItem, type MarketItem as MarketItemType, type MarketKind } from '@/types';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
-  author: css`color: ${cssVar.colorTextDescription};`,
   desc: css`flex: 1; margin: 0 !important; color: ${cssVar.colorTextSecondary};`,
   footer: css`margin-block-start: 16px; border-block-start: 1px dashed ${cssVar.colorBorder}; background: ${cssVar.colorBgContainer};`,
   meta: css`font-size: 12px; color: ${cssVar.colorTextDescription};`,
@@ -32,7 +31,7 @@ interface MarketItemProps {
 
 export default memo(function MarketItem({ fab, item, kind }: MarketItemProps) {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const name = isAgentMarketItem(item) ? item.agentFullName : item.name;
   const versions = isAgentMarketItem(item)
     ? [{ callPermission: item.fabPermission.callPermission, fab: item.fabPermission.fab, version: item.version }]
@@ -51,18 +50,23 @@ export default memo(function MarketItem({ fab, item, kind }: MarketItemProps) {
         <Flexbox horizontal gap={12} style={{ minWidth: 0, overflow: 'hidden' }}>
           <Avatar avatar={item.icon} background="transparent" shape="square" size={40} style={{ flex: 'none' }} />
           <Flexbox flex={1} gap={2} style={{ minWidth: 0, overflow: 'hidden' }}>
-            <Flexbox horizontal align="center" gap={8} style={{ overflow: 'hidden' }}>
-              <Text ellipsis as="h2" className={styles.title}>
-                {name}
-              </Text>
-              {item.isValidated && (
-                <Tag size="small" variant="filled">
-                  {t('common.verified')}
-                </Tag>
-              )}
-            </Flexbox>
-            <div className={styles.author}>{item.ownerName}</div>
+            <Text ellipsis as="h2" className={styles.title}>
+              {name}
+            </Text>
           </Flexbox>
+        </Flexbox>
+        <Flexbox
+          horizontal
+          align="center"
+          gap={4}
+          style={{ flex: 'none', justifyContent: 'flex-end', maxWidth: '55%' }}
+          wrap="wrap"
+        >
+          {versions.map((v) => (
+            <Tag key={`${v.fab}-${v.version}`} color={v.callPermission ? 'success' : undefined} size="small" variant="filled">
+              {v.fab} · v{v.version}
+            </Tag>
+          ))}
         </Flexbox>
       </Flexbox>
       <Flexbox flex={1} gap={12} paddingInline={16}>
@@ -87,22 +91,22 @@ export default memo(function MarketItem({ fab, item, kind }: MarketItemProps) {
             ) : null}
           </Flexbox>
         ) : null}
-        <Flexbox horizontal align="center" gap={6} wrap="wrap">
-          {versions.map((v) => (
-            <Tag key={`${v.fab}-${v.version}`} color={v.callPermission ? 'success' : undefined} size="small" variant="filled">
-              {v.fab} · v{v.version}
-            </Tag>
-          ))}
-        </Flexbox>
       </Flexbox>
       <Flexbox horizontal align="center" className={styles.footer} justify="space-between" padding={16}>
         <Flexbox horizontal align="center" className={styles.meta} gap={4}>
           <Icon icon={ClockIcon} size={14} />
-          {new Date(item.updatedAt).toLocaleDateString('zh-CN')}
+          {new Date(item.updatedAt).toLocaleString(locale, {
+            day: 'numeric',
+            hour: '2-digit',
+            hour12: false,
+            minute: '2-digit',
+            month: 'numeric',
+            year: 'numeric',
+          })}
         </Flexbox>
-        <Flexbox horizontal align="center" className={styles.meta} gap={4}>
-          {item.metric}
-        </Flexbox>
+        <Text ellipsis className={styles.meta} style={{ maxWidth: '55%' }}>
+          {item.ownerName}
+        </Text>
       </Flexbox>
     </Block>
   );
