@@ -218,7 +218,7 @@ src/
 | M3 市场列表 | 已完成 | 三类市场 FAB 前置（getFabOptions→分类/列表），排序（sortBy 下拉 + 升降序）、antd 分页（右下角）、emoji 分类、LobeHub 列表项（skill/mcp 数量 + FAB 版本右上角 + 时间到时分/ownerName） |
 | M4 详情页 | 已完成 | 三类市场详情 FAB 前置；Agent 展平单版本 Version 页；Skill/MCP 单版本 |
 | M5 Skill 创建页 | 已完成 | 表单/步骤/发布态，接入 createAndPublishSkill mock |
-| M6 隐藏模块占位与路由 | 已完成 | /channel /artifact /page 占位；本月模式不触发业务请求 |
+| M6 隐藏模块占位与路由 | 已完成 | 本月模式不触发业务请求 |
 | M7 i18n 与最终验证 | 已完成（结构 + 全量 UI 文案 + 全量联网复核） | 18 种 LobeHub 语言全部提供人工翻译词典（zh-CN/en-US/zh-TW 手写，其余 15 种也已人工翻译）；`dictionaries.test.ts` 守护 key/占位符一致；15 种语言 × 257 key 全量与机器翻译比对（ar 走 DeepL oneshot，其余走本地 Argos），补齐 12 种语言 13 个漏译 key；build/test 通过 |
 | M8 设置页功能接线 | 已完成 | 主题模式（跟随系统/浅色/深色，参照 LobeHub `themeMode`）、显示推理摘要开关、开发预览环境运行时 Mock/HTTP 切换；偏好持久化 localStorage |
 | M9 全屏布局与群聊布局 | 已完成 | 修复 ThemeProvider 外层未撑满视口导致的内容区高度塌缩；对话输入区底部通栏 + 840 居中（参照 LobeHub）；侧边栏按路由切换；新增 `/group` 群聊首页与 `/group/:id` 群聊会话页，群组历史在群组侧边栏展示 |
@@ -237,6 +237,8 @@ src/
 - [x] 群聊返回 Agent 主页：群侧边栏头部 Home 图标（原顶部「对话」菜单项已移除）+ 群聊页头部返回按钮。
 - [x] 市场补齐（2026-08-20）：右上角排序条件（sortBy 下拉）+ 升降序（sortOrder 切换）；Agent/Skill/MCP 卡片统一布局（FAB 版本右上角、去掉已验证、时间到时分、ownerName 右下角）；进入聊天按钮颜色对齐 LobeHub（主色切换为 neutral `primary`，暗色 #eeeeee / 亮色 #222222）；搜索框随宽度自适应；分页改为 antd Pagination 置于列表右下角。
 - [x] 侧边栏折叠与群组交互（2026-08-20）：左侧菜单栏可折叠/展开（侧栏头部折叠按钮 + 折叠后顶部 NavHeader 展开按钮，状态持久化）；群聊发送后清空输入框（与单聊一致）。
+- [x] R4 其余页面全量迁移（2026-08-20）：Tasks（列表/看板/分组排序/创建弹窗/任务卡片/隐藏完成项）、Documents（搜索/筛选/置顶/详情 Markdown 阅读）、Memory（LobeHub 侧栏布局 + home 人格/标签云/分析 + contexts/experiences/preferences/identities/activities 网格/时间线/右栏/编辑弹窗）、Channel（平台渠道网格 + 状态 + 连接/断开配置面板）、Artifact（按会话分组的产物列表 + 代码/文档预览下载）、Page（页面列表 + 轻量 Markdown 编辑器/发布）、Settings（通用/外观/记忆/关于 分栏布局）。所有页面改写 hooks 接入 Service/i18n/router，无占位符。
+- [x] R4 浏览器冒烟（2026-08-20，Chrome headless + CDP）：13 条 R4 路由全部渲染无 JS 异常；交互验证通过（任务页显示隐藏完成项、设置页切换分栏、Memory 子页数据分流）。
 - [x] 非 zh-CN/en-US/zh-TW 的 15 种语言已人工翻译补齐；`dictionaries.test.ts` 守护 18 种语言的 key 集合与占位符一致；全量联网复核见 `task.md`，脚本 `scripts/verify-i18n.mjs` + `scripts/argos-translate-server.py`。
 - [x] 需求 Review / Code Review 已输出详细设计与缺口清单：见 `docs/agentdock/design/`（00-10：索引、端到端链路、AG-UI、A2UI、Registry、渲染矩阵、CopilotKit 接入、联调调试指南、最终架构决策、渲染投影层、逐行 Code Review）。
 - [ ] 浏览器逐页视觉验收（当前环境无浏览器驱动，已用 build/test + HTTP 冒烟代替）。
@@ -247,4 +249,4 @@ src/
 - [ ] R1 端到端链路收尾：HITL wire 冻结、A2UI 后端 fixture、断线游标恢复联调验证。
 - [ ] R2 Chat/Group Chat 全量复刻：消息类型矩阵逐项对照 LobeHub（assistantGroup/reasoning/tool/task/groupTasks/supervisor/activity/a2ui/error），交互（折叠/操作栏/设置面板/成员管理）逐项补齐。
 - [x] R3 市场补齐（2026-08-20）：右上角排序条件 + 升降序；Agent 卡片 skill/mcp 数量；进入聊天按钮样式；卡片布局与分页对齐 LobeHub。分类/卡片密度/详情逐项对照继续跟进。
-- [ ] R4 其他页面全量迁移（不留占位符）：Group/Tasks/Documents/Memory/Channel/Artifact/Page/Settings 按 LobeHub 迁移并改写 hooks。
+- [x] R4 其他页面全量迁移（不留占位符）：Group（既有实现）+ Tasks/Documents/Memory/Channel/Artifact/Page/Settings 按 LobeHub 迁移并改写 hooks（见上方 2026-08-20 记录）。

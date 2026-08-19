@@ -90,7 +90,7 @@
 | M3 市场列表 | Agent/Skill/MCP 市场，FAB 前置，all/permissioned | ✅ 核心完成（竞态/locale 已修）；R3 排序/升降序、skill/mcp 数量、进入聊天按钮样式已补并 CDP 验证 | `design/04` |
 | M4 详情页 | 三类详情，FAB 前置，Version 不分区 | ✅ 完成（竞态/locale 已修；Reviews/Security/Info 静态样例 P2） | `design/04` |
 | M5 Skill 创建 | 三步表单 + 立即发布 | ✅ 完成（受控表单 + detailUrl + Mock 详情注册） | `design/04` |
-| M6 隐藏模块 | Channel/Artifact/Page/Group/Tasks/Documents/Memory/Settings | ⚠️ 本月模式隐藏完成；R4 全量迁移进行中（当前部分为占位/简化） | `docs/agentdock/00` |
+| M6 隐藏模块 | Channel/Artifact/Page/Group/Tasks/Documents/Memory/Settings | ✅ R4 全量迁移完成（2026-08-20）：八类页面按 LobeHub 源码迁移并改写 hooks，无占位符 | `docs/agentdock/00` |
 | M7 i18n | 覆盖 LobeHub 全部语言；UI 静态字段 | ✅ 18 种语言词典 + 测试 | `src/i18n` |
 | R 运行时链路 | agentId/fab/sessionId/threadId/runId 携带；FAB 路由；AG-UI/A2UI 流式回显 | ⚠️ 官方集成已落地（Provider/hook/server/A2UI catalog），HITL wire 与后端 A2UI fixture 待联调 | `design/01`、`design/02`、`design/03`、`design/06`、`design/08`、`design/09` |
 | D 调试 | 公司内无缝调试 Registry + Orchestration + 事件消费回显 | ✅ 文档已输出 | `design/07` |
@@ -169,13 +169,23 @@
 - 发布成功跳转硬编码 `/market/skill/document-summary`，应使用返回 `detailUrl`；Mock 无该详情（P1）。
 - 表单全部 defaultValue，用户输入未收集；错误无展示（P1）。
 
-### 2.6 M6 隐藏模块
+### 2.6 M6 隐藏模块（R4 全量迁移完成）
 
-**需求**：全部菜单可见，本月模式隐藏且不请求。
+**需求**：全部菜单可见，本月模式隐藏且不请求；其余页面不留占位符，按 LobeHub 完整迁移功能与嵌套 UI/UX。
 
-**方案**：`WorkspacePage` 按 type 分发；channel/artifact/page 为占位；Group/Tasks/Documents/Memory 有 Mock 实现；Settings 含 18 语言切换。
+**方案（2026-08-20 落地）**：
 
-**状态**：完成。Group 成员为虚拟列表（P2）；Settings 暗色/推理开关无实际效果（P2）。
+- `/tasks`：迁移 `AgentTasksPage`——NavHeader（可见性筛选/新建/列表⇄看板/显示设置），列表分组 Accordion（状态/执行 Agent/优先级 + 次级分组 + 排序），看板五列（HTML5 DnD 拖拽改状态），任务卡片（优先级/状态/私密/编号/子任务进度/头像/时间/右键菜单），创建弹窗（名称/指令/执行 Agent/优先级/可见性/自动化/cron），隐藏完成项页脚，任务详情抽屉。
+- `/memory`：迁移 memory `_layout` 侧栏（首页/身份/上下文/偏好/经验/活动）+ 首页（Persona + 角色标签云 + 记忆分析触发 + 空态）+ 五类子页（网格/时间线视图、右侧详情栏、编辑/新建弹窗、置顶/删除）。
+- `/documents`：迁移 `AgentDocumentPage`——搜索/筛选（最近/我的/共享）、置顶卡片、详情页 Markdown 阅读（含 CSV 原文）、新建文档弹窗、删除。
+- `/channel`：迁移 `agent/channel`——平台渠道网格（状态色点/标签/coming soon）、右侧详情面板（连接信息/配置字段）、连接弹窗（凭证表单）、断开。
+- `/artifact`：迁移 `Portal/Artifacts`——按会话分组的产物列表（类型图标/预览摘要）、预览 Modal（Markdown/代码高亮/下载/删除）。
+- `/page`：迁移 `Pages/PageExplorer`——页面列表（状态筛选/搜索）、全屏轻量编辑器（标题/正文/保存/发布）。
+- `/settings`：迁移 `Settings/Layout`——侧栏分栏（通用/外观/记忆/关于），保留既有功能（18 语言、主题模式、推理摘要、Mock/HTTP 运行时切换、会话历史说明）。
+
+**hooks 改写**：原 LobeHub `useGlobalStore/useUserStore/useTaskStore/useUserMemoryStore/SWR/TRPC` 全部改写为本地 hooks + Service（`scheduledTaskService/documentService/memoryService/channelService/artifactService/pageService`），Mock 与 HTTP 同构；`MotionProvider` 全局挂载修复 Accordion 运行时崩溃；Memory 子页按路径识别 tab。
+
+**状态**：✅ 完成。浏览器冒烟 13 条 R4 路由全部渲染无异常，交互验证通过；build 通过；i18n 新增 ~110 个 key 并补齐 18 种语言翻译。
 
 ### 2.7 M7 i18n
 
@@ -355,6 +365,19 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **浏览器实测**：hub 输入 `@` → 提及菜单 → 点击 CodeReview_Agent → 输入变为 `@CodeReview_Agent-F15B …` → 发送 → `/chat/:id?agent=code-review&fab=F15B` 全链路通过。
 - **补充（输入框改版，按用户反馈）**：移除「记住上次使用的 Agent」（localStorage 读写全部删除，每次打开需选择或 @）；移除输入框顶部大 Select（太丑）；候选问题改为悬浮在输入框外部左上角（无输入时展示）；Agent 选择/附件/语音移入输入框内左下角工具栏（紧凑 Select + 禁用按钮），对话页输入框同样在左下角增加「切换 Agent」选择（新建该 Agent 会话并跳转）；`home.placeholder` 文案更新（18 语言）。
 - **提交纪律**：工作区出现用户/其他会话的未提交 WIP（runReducer/sessionHistoryService/useAgentDockConversation/市场排序相关），本轮起只暂存本任务文件，不再 `git add -A`。
+
+第十一轮（2026-08-20，R4 其余页面全量迁移，不留占位符）：
+
+- **Tasks**：LobeHub `AgentTasksPage` 全量搬移（列表/看板/分组/排序/创建/隐藏完成项/详情抽屉），hooks 改为本地 `scheduledTaskService`（Task 全字段模型：status/priority/visibility/automation/subtasks/assignee）。
+- **Memory**：`/memory` 布局 + home/contexts/experiences/preferences/identities/activities 六页；网格/时间线 + 右栏 + 编辑/新建；`memoryService` 扩展 persona/roleTags/analysis/CRUD。
+- **Documents**：搜索/筛选/置顶/详情 Markdown 阅读/新建/删除；`documentService` 扩展内容与分类字段。
+- **Channel**：平台渠道网格 + 状态/连接/断开/凭证配置；`channelService` 扩展平台定义与连接语义。
+- **Artifact / Page**：产物分组列表 + 预览下载；页面列表 + 轻量编辑器/发布；新增 `pageService`。
+- **Settings**：LobeHub 分栏布局（通用/外观/记忆/关于），既有功能全部保留接线。
+- **全局修复**：`MotionProvider(motion)` 挂载（@lobehub/ui Accordion 需要），新增 `motion` 依赖（离线链接）；Memory 子页按 `location.pathname` 识别 tab。
+- **i18n**：新增约 110 个 key（tasks/memory/documents/channel/artifact/page/settings/nav.page/common.retry|refresh），18 种语言全部翻译并过 `dictionaries.test.ts`。
+- **验证**：`pnpm run build` 通过；Chrome headless + CDP 冒烟 13 条路由全部 PASS、无 JS 异常；交互（显示隐藏完成项、设置分栏、Memory 数据分流）验证通过；26/26 测试通过（注：工作区存在其他会话未提交 WIP，见下）。
+- **并行会话说明**：工作区同时存在用户其他会话的提交与未提交 WIP（runReducer/sessionHistoryService/useAgentDockConversation/chat 相关），本轮仅提交本任务文件（`providers.tsx`/`MemoryListPage.tsx`/`package.json`/`pnpm-lock.yaml`），未触碰其他会话 WIP；若其 WIP 使 `pnpm run test` 变红，属该会话进行中状态。
 - **补充（输入框全站统一）**：首页 hub 输入框改为直接复用 `ChatInput`（唯一输入框组件，彻底统一样式：圆角 16、左下角工具栏 Agent 选择/附件/语音/@/斜杠、底部 Agent 信息行）；`ChatInput` 新增 `sendDisabled`（未选 Agent 且无 @ 前缀时禁用发送）与 `placeholder` 透传；群聊页传 `hideMentionButton`——不强制 @/选 Agent（成员已组队），发送始终可用，也不显示「切换 Agent」选择。
 - **浏览器实测**：hub 输入框与对话页同款（左下角 Agent 选择 + 附件/语音，未选 Agent 时发送禁用）；群聊页无 @ 按钮、无切换 Agent、发送不禁用；25/25 测试通过。
 
