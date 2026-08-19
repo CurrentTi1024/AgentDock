@@ -40,6 +40,7 @@
 | [design/12-message-history-rendering-fixes.md](agentdock/design/12-message-history-rendering-fixes.md) | 消息历史与渲染修复：落库竞态、lc_run-- 去重、chat=mock 根因、构建修复、thinking 自动折叠 |
 | [design/13-concurrent-run-guard.md](agentdock/design/13-concurrent-run-guard.md) | 并发 run 防护：hook 防重入、runtime 幂等守卫、陈旧 checkpoint 不自动 resume、流中断兜底 |
 | [design/14-a2ui-surface-persistence.md](agentdock/design/14-a2ui-surface-persistence.md) | A2UI Surface 持久化与前端 catalog 补齐（Metric/Title 等组件名对齐） |
+| [design/15-orchestration-integration-guide.md](agentdock/design/15-orchestration-integration-guide.md) | 公司内接入真实 Orchestration Service 指南：核心链路 mermaid、关键代码、payload/response 约定、坑清单 |
 
 ## 阅读顺序
 

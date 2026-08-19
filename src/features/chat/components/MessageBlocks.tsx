@@ -3,9 +3,10 @@ import { ActionIcon, Block, Button, Flexbox, Icon, Tag, Text } from '@lobehub/ui
 import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { Brain, CheckCircle2, ChevronDown, Crown, Layers, ListTodo, Play, Users, Wrench, XCircle } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useI18n } from '@/i18n';
+import { getChatServiceMode } from '@/api/core/serviceMode';
 import type { RuntimeReasoningMeta, RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
 import type { SessionMessageRecord } from '@/api/session/sessionHistoryService';
 
@@ -334,17 +335,19 @@ export const StoredA2uiSurface = ({
   const surfaceId = String(payload.surfaceId ?? 'surface');
   const operations = Array.isArray(payload.a2ui_operations) ? payload.a2ui_operations : [];
   if (operations.length > 0) {
-    // http 实时链路：快照 payload 是官方 a2ui_operations。复用 CopilotKit 自己的
-    // activity renderer（useRenderActivityMessage），content 必须严格符合其 schema：
-    // 只带 a2ui_operations，不能附加 surfaceId 等额外字段，否则校验失败返回 null。
-    const { renderActivityMessage } = useRenderActivityMessage();
-    const rendered = renderActivityMessage({
-      activityType: 'a2ui-surface',
-      content: { a2ui_operations: operations },
-      id: `surface-${surfaceId}`,
-      role: 'activity',
-    } as never);
-    if (rendered) return <>{rendered}</>;
+    // http 实时链路：快照 payload 是官方 a2ui_operations。仅 http 模式挂载了
+    // CopilotKit Provider（useRenderActivityMessage 依赖其 context），mock 模式
+    // 遇 ops 快照回退 raw JSON 块，避免 hook 在无 Provider 时抛错。
+    if (getChatServiceMode() === 'http') {
+      return (
+        <HttpStoredA2uiSurface
+          key={`surface-${surfaceId}`}
+          operations={operations}
+          payload={payload}
+          surfaceId={surfaceId}
+        />
+      );
+    }
     return <A2uiSurfaceBlock payload={payload} />;
   }
   if (payload.components === undefined) return <A2uiSurfaceBlock payload={payload} />;
@@ -354,6 +357,34 @@ export const StoredA2uiSurface = ({
       payload={{ ...payload, surfaceId }}
     />
   );
+};
+
+/** CopilotKit 官方 activity renderer 内层：消息对象用 useMemo 稳定，避免每帧重建触发重复处理。 */
+const HttpStoredA2uiSurface = ({
+  operations,
+  payload,
+  surfaceId,
+}: {
+  operations: Array<Record<string, unknown>>;
+  payload: Record<string, unknown>;
+  surfaceId: string;
+}) => {
+  const { renderActivityMessage } = useRenderActivityMessage();
+  const message = useMemo(
+    () =>
+      ({
+        activityType: 'a2ui-surface',
+        // content 必须严格符合官方 schema：只带 a2ui_operations，
+        // 不能附加 surfaceId 等额外字段，否则校验失败返回 null。
+        content: { a2ui_operations: operations },
+        id: `surface-${surfaceId}`,
+        role: 'activity',
+      }) as never,
+    [operations, surfaceId],
+  );
+  const rendered = renderActivityMessage(message);
+  if (rendered) return <>{rendered}</>;
+  return <A2uiSurfaceBlock payload={payload} />;
 };
 
 export const ErrorBlock = ({ code, message }: { code?: string; message: string }) => (

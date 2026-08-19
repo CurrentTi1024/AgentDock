@@ -39,7 +39,18 @@ export class FabRoutingAgent extends AbstractAgent {
     const isRunAction = forwarded.action === 'run';
     const key = runKey(input.threadId, input.runId);
     if (isRunAction && inFlightRuns.has(key)) {
-      throw new Error(`FAB_DUPLICATE_RUN: ${input.runId}`);
+      // 返回结构化 AG-UI 错误事件而非抛异常：客户端能渲染 RUN_ERROR，
+      // 不会因为连接被直接掐断而误报 network error。
+      return new Observable<BaseEvent>((subscriber) => {
+        subscriber.next({
+          code: 'FAB_DUPLICATE_RUN',
+          message: `Duplicate run rejected: ${input.runId}`,
+          runId: input.runId,
+          threadId: input.threadId,
+          type: 'RUN_ERROR',
+        } as unknown as BaseEvent);
+        subscriber.complete();
+      });
     }
     if (isRunAction) inFlightRuns.set(key, fab);
     const baseUrl = this.config.fabToBaseUrl[fab];

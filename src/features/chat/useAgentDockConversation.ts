@@ -265,6 +265,9 @@ const useOfficialConversation = (
       } catch (error) {
         // runAgent 网络/流错误兜底：写入 RUN_ERROR 让 UI 退出 running，
         // 避免后端已完成但客户端流中断时页面永远卡在“停止生成”。
+        // 若事件流已经给出终态（success/error/cancelled），不覆盖为网络错误。
+        const terminal = runRef.current?.status;
+        if (terminal === 'success' || terminal === 'error' || terminal === 'cancelled') return;
         console.error('[AgentDock] runAgent failed', error);
         applyEvent({
           code: 'NETWORK_ERROR',

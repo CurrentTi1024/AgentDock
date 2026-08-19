@@ -419,3 +419,14 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   - 坑：renderActivityMessage 的 content 只能含 `a2ui_operations`（额外字段致 schema 校验失败）；不要自包 A2UIProvider（react-core 自带同包 context）。
 - **验证**：快速连发只发 1 个 run；刷新后 surface 仍渲染（CPU/45%/内存/62%/磁盘/78%）；真实 A2UI 运行渲染真实 Metric 组件、无 Unknown、无控制台错误；`pnpm run test` 28/28、`pnpm run build` 通过。
 - 设计文档：`docs/agentdock/design/13-concurrent-run-guard.md`、`14-a2ui-surface-persistence.md`。
+
+第十四轮（2026-08-20，最终代码评审 + 全面二次批量验证 + 接入指南）：
+
+- **代码评审修复**：
+  - `StoredA2uiSurface` 增加 http 模式门控并拆分 `HttpStoredA2uiSurface`（mock 模式无 CopilotKit Provider，遇 ops 快照回退 raw JSON，避免 hook 崩溃）；消息对象 useMemo 稳定，避免每帧重建触发 renderer 重复处理。
+  - `runAgent` 失败兜底增加终态保护：事件流已给 success/error/cancelled 时不覆盖为网络错误。
+  - `FabRoutingAgent` 幂等拒绝改为返回结构化 `RUN_ERROR(FAB_DUPLICATE_RUN)` 事件（而非抛异常断连）。
+- **全面二次批量验证（无头 Chrome，10+ 场景）**：文本完成态（含 settle 等待）、两轮历史顺序/去重、工具调用、A2UI 实时渲染（模型生成时 Metric 组件叶子节点，无 Unknown）、停止生成、快速连发只发 1 run、陈旧 checkpoint 刷新不卡死、mock thinking 自动折叠、mock HITL 批准续跑、全链路工具/文本/surface；`pnpm run test` 30/30、`pnpm run build` 通过。
+- **运行时间发现**：CopilotKit Runtime 自带 `InMemoryAgentRunner` 的 Thread already running 防护（并发同线程 run 在 Runtime 层即被拒）；FabRoutingAgent 幂等守卫为第二层，前端 send 防重入为第一层。
+- **已知残余**：客户端 SSE 偶发 network error（后端已完成但浏览器流被中断，工具类 run 偶发）——已兜底不卡 UI、内容保留，接入真实 Orchestration 后按其 streamId 重连协议观察。
+- **接入指南**：`docs/agentdock/design/15-orchestration-integration-guide.md`（核心链路 mermaid、关键代码、payload/response 约定、14 条坑清单）。
