@@ -3,8 +3,10 @@ import { create } from 'zustand';
 const STORAGE_KEY = 'agentdock-ui-state';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
+export type ApprovalMode = 'auto' | 'manual';
 
 interface PersistedUiState {
+  approvalMode: ApprovalMode;
   leftPanelExpand: boolean;
   leftPanelWidth: number;
   thisMonthOnly: boolean;
@@ -13,6 +15,7 @@ interface PersistedUiState {
 }
 
 const DEFAULTS: PersistedUiState = {
+  approvalMode: 'manual',
   leftPanelExpand: true,
   leftPanelWidth: 280,
   thisMonthOnly: false,
@@ -31,6 +34,7 @@ const readPersisted = (): PersistedUiState => {
 };
 
 interface UiStore extends PersistedUiState {
+  setApprovalMode(approvalMode: ApprovalMode): void;
   setThemeMode(themeMode: ThemeMode): void;
   setLeftPanelWidth(width: number): void;
   toggleShowReasoning(): void;
@@ -48,6 +52,11 @@ const persist = (state: PersistedUiState) => {
 
 export const useUiStore = create<UiStore>((set, get) => ({
   ...readPersisted(),
+  setApprovalMode: (approvalMode) => {
+    const next = { ...get(), approvalMode };
+    set(next);
+    persist(next);
+  },
   setThemeMode: (themeMode) => {
     const next = { ...get(), themeMode };
     set(next);

@@ -1,6 +1,6 @@
-// Adapted from: src/features/ChatInput/Desktop + SendArea (LobeHub canary)
-// 桌面输入区：边框圆角容器 + 自动高度输入 + 底部操作栏（attach/@Agent/键盘提示/发送或停止）。
-import { ActionIcon, Avatar, Button, Flexbox, Text, TextArea } from '@lobehub/ui';
+// Adapted from: src/features/ChatInput/Desktop + SendArea + ControlBar (LobeHub canary)
+// 桌面输入区：圆角容器 + 自动高度输入 + 底部发送/停止 + 外部功能行（左工具、右审批模式）。
+import { ActionIcon, Avatar, Button, Flexbox, Select, Text, TextArea } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { ArrowBigUp, AtSign, CornerDownLeft, Paperclip, Send, Square } from 'lucide-react';
 import { type KeyboardEvent, memo, useRef, useState } from 'react';
@@ -8,11 +8,13 @@ import { type KeyboardEvent, memo, useRef, useState } from 'react';
 import { type MentionAgent } from '@/api/market/agentMarketService';
 import { useI18n } from '@/i18n';
 
+export type ApprovalMode = 'auto' | 'manual';
+
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
   composer: css`
     overflow: hidden;
     border: 1px solid ${token.colorBorder};
-    border-radius: ${token.borderRadiusLG}px;
+    border-radius: 16px;
     background: ${token.colorBgContainer};
     box-shadow: ${token.boxShadowSecondary};
     transition: border-color 200ms ${token.motionEaseOut}, box-shadow 200ms ${token.motionEaseOut};
@@ -20,6 +22,9 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
       border-color: ${token.colorPrimary};
       box-shadow: 0 0 0 2px ${token.colorPrimaryBg};
     }
+  `,
+  footer: css`
+    padding-block: 8px 2px;
   `,
   mentionMenu: css`
     position: absolute;
@@ -48,8 +53,12 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
 }));
 
 interface ChatInputProps {
+  approvalMode?: ApprovalMode;
   mentions: MentionAgent[];
+  mentionsLoading?: boolean;
   onChange: (value: string) => void;
+  onApprovalModeChange?: (mode: ApprovalMode) => void;
+  onMentionTrigger: () => void;
   onSend: () => void;
   onSelectMention: (mention: MentionAgent) => void;
   onStop: () => void;
@@ -58,7 +67,19 @@ interface ChatInputProps {
 }
 
 const ChatInput = memo<ChatInputProps>(
-  ({ mentions, onChange, onSelectMention, onSend, onStop, running, value }) => {
+  ({
+    approvalMode = 'manual',
+    mentions,
+    mentionsLoading = false,
+    onChange,
+    onApprovalModeChange,
+    onMentionTrigger,
+    onSelectMention,
+    onSend,
+    onStop,
+    running,
+    value,
+  }) => {
     const { t } = useI18n();
     const [mentionOpen, setMentionOpen] = useState(false);
     const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -70,108 +91,148 @@ const ChatInput = memo<ChatInputProps>(
       }
     };
 
+    const openMentionMenu = () => {
+      setMentionOpen(true);
+      onMentionTrigger();
+    };
+
     return (
-      <Flexbox className={styles.composer} gap={4} padding={12} style={{ position: 'relative' }}>
-        {mentionOpen && (
-          <Flexbox className={styles.mentionMenu} gap={3}>
-            {mentions.length === 0 ? (
-              <Text fontSize={12} type="secondary" style={{ padding: '8px 10px' }}>
-                {t('chat.mentionEmpty')}
-              </Text>
-            ) : (
-              <>
-                <Text fontSize={11} type="secondary" style={{ padding: '6px 10px' }}>
-                  {t('chat.mentionHint')}
+      <Flexbox gap={0}>
+        <Flexbox className={styles.composer} gap={4} padding={12} style={{ position: 'relative' }}>
+          {mentionOpen && (
+            <Flexbox className={styles.mentionMenu} gap={3}>
+              {mentionsLoading ? (
+                <Text fontSize={12} type="secondary" style={{ padding: '8px 10px' }}>
+                  {t('common.loading')}
                 </Text>
-                {mentions.map((mention) => (
-                  <div
-                    className={styles.mentionItem}
-                    key={`${mention.agentId}-${mention.fab}`}
-                    onClick={() => {
-                      setMentionOpen(false);
-                      onSelectMention(mention);
-                    }}
-                  >
-                    <Avatar avatar={mention.icon} size={30} />
-                    <Flexbox flex={1} style={{ minWidth: 0 }}>
-                      <Text ellipsis weight={500}>
-                        {mention.agentFullName}
-                      </Text>
-                      <Text ellipsis fontSize={11} type="secondary">
-                        v{mention.version} · {mention.description}
-                      </Text>
-                    </Flexbox>
-                  </div>
-                ))}
-              </>
-            )}
-          </Flexbox>
-        )}
-        <TextArea
-          autoSize={{ minRows: 2, maxRows: 8 }}
-          data-testid="chat-input"
-          onKeyDown={handleKeyDown}
-          placeholder={t('chat.placeholder')}
-          value={value}
-          variant="borderless"
-          onChange={(event) => {
-            const next = event.target.value;
-            onChange(next);
-            setMentionOpen(next.startsWith('@'));
-            if (timerRef.current) clearTimeout(timerRef.current);
-            if (next.startsWith('@')) {
-              timerRef.current = setTimeout(() => setMentionOpen(true), 80);
-            }
-          }}
-        />
-        <Flexbox horizontal align="center" justify="space-between">
-          <Flexbox horizontal gap={2}>
-            <ActionIcon aria-label={t('chat.attach')} disabled icon={Paperclip} title={t('chat.attach')} />
-            <Button
-              size="small"
-              type="text"
-              onClick={() => setMentionOpen((open) => !open && value.startsWith('@'))}
-            >
-              <AtSign size={14} /> {t('chat.mentionButton')}
-            </Button>
-          </Flexbox>
-          <Flexbox horizontal align="center" gap={12}>
-            {!running && (
-              <Flexbox
-                horizontal
-                gap={4}
-                style={{ color: cssVar.colorTextDescription, fontSize: 12 }}
-              >
-                <CornerDownLeft size={13} />
-                {t('chat.input.sendHint')}
-                <span>/</span>
-                <ArrowBigUp size={13} />
-                <CornerDownLeft size={13} />
-                {t('chat.input.warpHint')}
-              </Flexbox>
-            )}
-            {running ? (
-              <Button
-                data-testid="chat-stop"
-                icon={Square}
-                onClick={onStop}
-                size="small"
-                type="primary"
-              >
-                {t('chat.stop')}
+              ) : mentions.length === 0 ? (
+                <Text fontSize={12} type="secondary" style={{ padding: '8px 10px' }}>
+                  {t('chat.mentionEmpty')}
+                </Text>
+              ) : (
+                <>
+                  <Text fontSize={11} type="secondary" style={{ padding: '6px 10px' }}>
+                    {t('chat.mentionHint')}
+                  </Text>
+                  {mentions.map((mention) => (
+                    <div
+                      className={styles.mentionItem}
+                      key={`${mention.agentId}-${mention.fab}`}
+                      onClick={() => {
+                        setMentionOpen(false);
+                        onSelectMention(mention);
+                      }}
+                    >
+                      <Avatar avatar={mention.icon} size={30} />
+                      <Flexbox flex={1} style={{ minWidth: 0 }}>
+                        <Text ellipsis weight={500}>
+                          {mention.agentFullName}
+                        </Text>
+                        <Text ellipsis fontSize={11} type="secondary">
+                          v{mention.version} · {mention.description}
+                        </Text>
+                      </Flexbox>
+                    </div>
+                  ))}
+                </>
+              )}
+            </Flexbox>
+          )}
+          <TextArea
+            autoSize={{ minRows: 2, maxRows: 8 }}
+            data-testid="chat-input"
+            onKeyDown={handleKeyDown}
+            placeholder={t('chat.placeholder')}
+            value={value}
+            variant="borderless"
+            onChange={(event) => {
+              const next = event.target.value;
+              onChange(next);
+              setMentionOpen(next.startsWith('@'));
+              if (timerRef.current) clearTimeout(timerRef.current);
+              if (next.startsWith('@')) {
+                timerRef.current = setTimeout(() => {
+                  setMentionOpen(true);
+                  onMentionTrigger();
+                }, 80);
+              }
+            }}
+          />
+          <Flexbox horizontal align="center" justify="space-between">
+            <Flexbox horizontal gap={2} style={{ minHeight: 24 }}>
+              <ActionIcon aria-label={t('chat.attach')} disabled icon={Paperclip} title={t('chat.attach')} />
+              <Button size="small" type="text" onClick={() => openMentionMenu()}>
+                <AtSign size={14} /> {t('chat.mentionButton')}
               </Button>
-            ) : (
-              <Button
-                data-testid="chat-send"
-                icon={Send}
-                onClick={onSend}
-                size="small"
-                type="primary"
-              >
-                {t('chat.send')}
-              </Button>
-            )}
+            </Flexbox>
+            <Flexbox horizontal align="center" gap={12}>
+              {!running && (
+                <Flexbox
+                  horizontal
+                  gap={4}
+                  style={{ color: cssVar.colorTextDescription, fontSize: 12 }}
+                >
+                  <CornerDownLeft size={13} />
+                  {t('chat.input.sendHint')}
+                  <span>/</span>
+                  <ArrowBigUp size={13} />
+                  <CornerDownLeft size={13} />
+                  {t('chat.input.warpHint')}
+                </Flexbox>
+              )}
+              {running ? (
+                <Button
+                  data-testid="chat-stop"
+                  icon={Square}
+                  onClick={onStop}
+                  size="small"
+                  type="primary"
+                >
+                  {t('chat.stop')}
+                </Button>
+              ) : (
+                <Button
+                  data-testid="chat-send"
+                  icon={Send}
+                  onClick={onSend}
+                  size="small"
+                  type="primary"
+                >
+                  {t('chat.send')}
+                </Button>
+              )}
+            </Flexbox>
           </Flexbox>
+        </Flexbox>
+        <Flexbox
+          className={styles.footer}
+          horizontal
+          align="center"
+          justify="space-between"
+          paddingInline={4}
+        >
+          <Flexbox horizontal gap={8}>
+            <Text fontSize={12} type="secondary">
+              {t('chat.footer.hint')}
+            </Text>
+          </Flexbox>
+          {onApprovalModeChange && (
+            <Flexbox horizontal align="center" gap={8}>
+              <Text fontSize={12} type="secondary">
+                {t('chat.approval.label')}
+              </Text>
+              <Select
+                data-testid="approval-mode"
+                options={[
+                  { label: t('chat.approval.manual'), value: 'manual' },
+                  { label: t('chat.approval.auto'), value: 'auto' },
+                ]}
+                size="small"
+                value={approvalMode}
+                onChange={(mode) => onApprovalModeChange(mode as ApprovalMode)}
+              />
+            </Flexbox>
+          )}
         </Flexbox>
       </Flexbox>
     );

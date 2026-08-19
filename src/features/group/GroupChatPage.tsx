@@ -451,6 +451,7 @@ const GroupChatPage = () => {
               running={running}
               value={input}
               onChange={setInput}
+              onMentionTrigger={() => undefined}
               onSelectMention={() => undefined}
               onSend={() => void sendMessage(input)}
               onStop={() => void stop()}

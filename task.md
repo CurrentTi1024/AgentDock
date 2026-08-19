@@ -289,4 +289,13 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **群聊页**：同步使用官方 ChatItem + 操作栏。
 - **浏览器实测**（Chrome headless + CDP）：欢迎页 → 发送 → 推理耗时块 → 工作流步骤 → HITL 批准 → 工具耗时 → 任务卡片 → A2UI 指标卡/按钮全部渲染；截图存于本机可视化目录。22/22 测试通过，build 通过。
 
+第六轮（2026-08-19，按用户反馈收尾对话页视觉/交互细节）：
+
+- 用户气泡右侧显示本人头像（LC），标题隐藏（LobeHub 个人模式）；agent 消息改用官方 docs 变体（无外边框），过程块保留自身边框卡片。
+- 消息动作栏不再与气泡同行：docs 变体天然纵向布局，用户气泡用 `actionsWrapWidth` 强制换行，hover 时显示在气泡下方。
+- 输入框圆角 16px + focus 高亮；输入区外新增底部功能行（左侧提示、右侧「审批模式」Select，自动/手动持久化到 uiStore；自动模式下 HITL 出现即自动批准）。
+- `@` 懒加载：输入 `@` 或点击 Agent-FAB 按钮才经 `agentMarketService.getMentionAgentsList` 拉取（mock 模式返回 mock 数据，带 loading/缓存），不再挂载时预取。
+- i18n 新增 4 个 key（approval label/auto/manual、footer hint）同步 18 语言；修复 fr-FR 同值越界。
+- Chrome headless + CDP 实测：圆角 16px、审批模式显示、@ 触发 mention、用户头像在右侧、动作栏独立行全部符合；22/22 测试通过。
+
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。

@@ -4,7 +4,7 @@ import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { LoadingDots } from '@lobehub/ui/chat';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { FileBarChart, X } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useParams, useSearchParams } from 'react-router-dom';
 
 import { resolveChatAgentId } from '@/features/chat/agentDetail';
@@ -77,6 +77,7 @@ export default function ChatPage() {
 
   const [input, setInput] = useState('');
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
+  const [mentionsLoading, setMentionsLoading] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<MentionAgent>();
   const [agent, setAgent] = useState('FlightAnalysis_Agent-F15B');
   const [session, setSession] = useState<SessionRecord>();
@@ -108,14 +109,45 @@ export default function ChatPage() {
     .at(-1)?.content;
   const surface = Object.entries(run?.surfaces || {}).at(-1);
 
-  useEffect(() => {
-    void agentMarketService
-      .getMentionAgentsList({ locale: 'zh-CN' })
-      .then(({ items }) => {
-        setMentions(items);
-        setSelectedAgent(items[0]);
-      });
+  // @ 触发时经 Service 拉取可提及 Agent（mock 模式返回 mock 数据），只拉一次并缓存。
+  const mentionsLoadedRef = useRef(false);
+  const mentionsInFlightRef = useRef(false);
+  const ensureMentions = useCallback(async () => {
+    if (mentionsLoadedRef.current || mentionsInFlightRef.current) return;
+    mentionsInFlightRef.current = true;
+    setMentionsLoading(true);
+    try {
+      const { items } = await agentMarketService.getMentionAgentsList({ locale: 'zh-CN' });
+      setMentions(items);
+      mentionsLoadedRef.current = true;
+      setSelectedAgent((current) => current ?? items[0]);
+    } finally {
+      mentionsInFlightRef.current = false;
+      setMentionsLoading(false);
+    }
   }, []);
+
+  const handleInputChange = useCallback(
+    (next: string) => {
+      setInput(next);
+      if (next.startsWith('@')) void ensureMentions();
+    },
+    [ensureMentions],
+  );
+
+  const { approvalMode, setApprovalMode } = useUiStore();
+  // 自动审批模式：出现新的 HITL 请求时自动批准，避免打断流式。
+  const autoApprovedRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (approvalMode !== 'auto' || !run) return;
+    for (const activity of Object.values(run.activities || {})) {
+      const value = activity as { activityType?: string; requestId?: string };
+      if (value.activityType !== 'agentDock.hitl' || !value.requestId) continue;
+      if (autoApprovedRef.current.has(value.requestId)) continue;
+      autoApprovedRef.current.add(value.requestId);
+      void respondToHitl({ mode: 'toolAuthorization', decision: 'approve', requestId: value.requestId });
+    }
+  }, [approvalMode, respondToHitl, run]);
 
   useEffect(() => {
     const requested = mentions.find(
@@ -419,10 +451,14 @@ export default function ChatPage() {
         <Flexbox className={styles.surface}>
           <Flexbox style={{ marginInline: 'auto', maxWidth: 840, width: '100%' }}>
             <ChatInput
+              approvalMode={approvalMode}
               mentions={mentions}
+              mentionsLoading={mentionsLoading}
               running={running}
               value={input}
-              onChange={setInput}
+              onChange={handleInputChange}
+              onApprovalModeChange={setApprovalMode}
+              onMentionTrigger={() => void ensureMentions()}
               onSelectMention={selectMention}
               onSend={() => void sendMessage()}
               onStop={() => void stop()}

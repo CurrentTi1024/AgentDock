@@ -32,7 +32,8 @@ const LobeChatItemWithChildren = LobeChatItem as unknown as ComponentType<
 const ChatItem = memo<ChatItemProps>(
   ({ actions, avatar, children, content, id, loading, messageExtra, name, role, showTitle, time, titleAddon }) => {
     const isUser = role === 'user';
-    const avatarValue = avatar ?? (isUser ? '' : '🤖');
+    // 用户气泡显示本人头像（右侧）；agent 使用 docs 变体（无外边框），动作栏独立成行。
+    const avatarValue = avatar ?? (isUser ? 'LC' : '🤖');
     const meta: MetaData =
       typeof avatarValue === 'string'
         ? { avatar: avatarValue, title: name }
@@ -40,6 +41,7 @@ const ChatItem = memo<ChatItemProps>(
     return (
       <LobeChatItemWithChildren
         actions={actions}
+        actionsWrapWidth={isUser ? 10_000 : undefined}
         avatar={meta}
         id={id}
         loading={loading}
@@ -52,11 +54,11 @@ const ChatItem = memo<ChatItemProps>(
             {children}
           </Flexbox>
         )}
-        showAvatar={!isUser}
+        showAvatar
         showTitle={showTitle ?? !isUser}
         time={toEpoch(time)}
         titleAddon={titleAddon}
-        variant="bubble"
+        variant={isUser ? 'bubble' : 'docs'}
       >
         {children}
       </LobeChatItemWithChildren>
