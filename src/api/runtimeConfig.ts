@@ -1,4 +1,4 @@
-import { getServiceMode } from '@/api/core/serviceMode';
+import { getChatServiceMode } from '@/api/core/serviceMode';
 
 export type RuntimeTransport = 'direct' | 'proxy';
 const parseEndpoints = (): Record<string, string> => {
@@ -15,7 +15,7 @@ export const runtimeConfig = {
     if (this.transport === 'proxy') return this.copilotRuntimeUrl;
     const baseUrl = endpoints[fab];
     if (!baseUrl) {
-      if (getServiceMode() !== 'http') return `/mock-orchestration/${fab}/ag-ui`;
+      if (getChatServiceMode() !== 'http') return `/mock-orchestration/${fab}/ag-ui`;
       throw new Error(`FAB_ENDPOINT_NOT_CONFIGURED: ${fab}`);
     }
     return appendAgUi(baseUrl);

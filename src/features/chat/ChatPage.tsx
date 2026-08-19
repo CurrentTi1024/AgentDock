@@ -20,7 +20,7 @@ import {
   type StoredTextMessage,
 } from '@/features/chat/components/MessageBlocks';
 import { messageFeedbackService } from '@/api/conversation/messageFeedbackService';
-import { getServiceMode } from '@/api/core/serviceMode';
+import { getChatServiceMode } from '@/api/core/serviceMode';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
 import type { RuntimeStep } from '@/api/runtime/types';
 import {
@@ -277,7 +277,7 @@ export default function ChatPage() {
         sourceComponentId: 'action-button',
         surfaceId: surface[0],
       }),
-  }, { showReasoning, showSurfaces: getServiceMode() !== 'http' });
+  }, { showReasoning, showSurfaces: getChatServiceMode() !== 'http' });
 
   const lastLiveMessageId = Object.keys(run?.messages || {}).at(-1) || '';
   const feedbackTarget = {
@@ -443,7 +443,7 @@ export default function ChatPage() {
                             sourceComponentId: 'action-button',
                             surfaceId,
                           }),
-                      }, { showReasoning, showSurfaces: getServiceMode() !== 'http' })}
+                      }, { showReasoning, showSurfaces: getChatServiceMode() !== 'http' })}
                     </ChatItem>
                   )}
                 </Fragment>

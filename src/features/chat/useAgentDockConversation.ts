@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRunInput } from '@/api/runtime/agentRuntimeService';
 import { createRunState, reduceRunEvent } from '@/api/runtime/runReducer';
 import type { AgUiEvent, RunAgentInput, RuntimeRunState } from '@/api/runtime/types';
-import { getServiceMode } from '@/api/core/serviceMode';
+import { getChatServiceMode } from '@/api/core/serviceMode';
 import { runtimeConfig } from '@/api/runtimeConfig';
 import {
   flushRunCheckpoint,
@@ -336,6 +336,6 @@ const useOfficialConversation = (
 export const useAgentDockConversation = (
   options: AgentDockConversationOptions,
 ): AgentDockConversationResult => {
-  const useOfficial = getServiceMode() === 'http' && runtimeConfig.transport === 'proxy';
+  const useOfficial = getChatServiceMode() === 'http' && runtimeConfig.transport === 'proxy';
   return useOfficial ? useOfficialConversation(options) : useMockConversation(options);
 };

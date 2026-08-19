@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import NavHeader from '@/components/shell/NavHeader';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
 import { sessionHistoryService, type SessionRecord } from '@/api/session/sessionHistoryService';
+import AgentMentionMenu from '@/features/chat/components/AgentMentionMenu';
 import { useI18n } from '@/i18n';
 import { formatRelativeTime } from '@/lib/relativeTime';
 
@@ -44,6 +45,7 @@ const HomePage = memo(() => {
   const [agents, setAgents] = useState<MentionAgent[]>([]);
   const [selected, setSelected] = useState<MentionAgent>();
   const [input, setInput] = useState('');
+  const [mentionOpen, setMentionOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
 
   useEffect(() => {
@@ -81,35 +83,63 @@ const HomePage = memo(() => {
   const recentSessions = useMemo(() => sessions.slice(0, 8), [sessions]);
 
   const start = useCallback(async () => {
-    if (!selected || !input.trim()) return;
+    // 发送前必须确定 Agent：优先用下拉选择；未选择时尝试从输入里的 @名字 解析（@Agent 快速对话）。
+    let target = selected;
+    if (!target && input.includes('@')) {
+      const token = input.slice(input.lastIndexOf('@') + 1).trim().split(/\s+/)[0];
+      if (token) {
+        target = agents.find(
+          (agent) =>
+            agent.agentFullName.toLowerCase().startsWith(token.toLowerCase()) ||
+            agent.agentId.toLowerCase().startsWith(token.toLowerCase()),
+        );
+      }
+    }
+    if (!target || !input.trim()) return;
     const prompt = input.trim();
+    // 选中/解析出的 Agent 从输入里去掉 @ 前缀（保留正文）。
+    const cleanPrompt = prompt.replace(/^@\S*\s*/, '').trim() || prompt;
     const id = `session-${crypto.randomUUID()}`;
     const record = {
-      agentId: selected.agentId,
-      agentName: selected.agentFullName,
-      fab: selected.fab,
+      agentId: target.agentId,
+      agentName: target.agentFullName,
+      fab: target.fab,
       id,
       pinned: false,
       threadId: crypto.randomUUID(),
-      title: prompt.slice(0, 32) || selected.agentFullName,
+      title: cleanPrompt.slice(0, 32) || target.agentFullName,
       type: 'agent' as const,
-      version: selected.version,
+      version: target.version,
     };
     try {
       localStorage.setItem(
         LAST_AGENT_KEY,
-        JSON.stringify({ agentId: selected.agentId, fab: selected.fab }),
+        JSON.stringify({ agentId: target.agentId, fab: target.fab }),
       );
     } catch {
       // ignore quota / private-mode storage errors
     }
-    navigate(`/chat/${id}?agent=${encodeURIComponent(selected.agentId)}&fab=${encodeURIComponent(selected.fab)}`, {
+    navigate(`/chat/${id}?agent=${encodeURIComponent(target.agentId)}&fab=${encodeURIComponent(target.fab)}`, {
       state: { pendingSession: record },
     });
     void sessionHistoryService.createSession(record).catch((reason) => {
       console.warn('[AgentDock] agent session persist failed', reason);
     });
-  }, [input, navigate, selected]);
+  }, [agents, input, navigate, selected]);
+
+  const selectMention = useCallback(
+    (mention: MentionAgent) => {
+      setSelected(mention);
+      setInput((value) => `@${mention.agentFullName} ${value.replace(/^@\S*\s*/, '')}`);
+      setMentionOpen(false);
+    },
+    [],
+  );
+
+  const handleInputChange = useCallback((value: string) => {
+    setInput(value);
+    setMentionOpen(value.startsWith('@'));
+  }, []);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -157,16 +187,20 @@ const HomePage = memo(() => {
               border: `1px solid ${cssVar.colorBorder}`,
               borderRadius: 16,
               background: cssVar.colorBgContainer,
+              position: 'relative',
             }}
           >
+            {mentionOpen && (
+              <AgentMentionMenu mentions={agents} onSelect={selectMention} />
+            )}
             <TextArea
               autoSize={{ minRows: 2, maxRows: 6 }}
               data-testid="home-input"
               onKeyDown={handleKeyDown}
-              placeholder={t('chat.placeholder')}
+              placeholder={t('home.placeholder')}
               value={input}
               variant="borderless"
-              onChange={(event) => setInput(event.target.value)}
+              onChange={(event) => handleInputChange(event.target.value)}
             />
             <Flexbox horizontal align="center" justify="space-between">
               <Flexbox horizontal gap={8} wrap="wrap">

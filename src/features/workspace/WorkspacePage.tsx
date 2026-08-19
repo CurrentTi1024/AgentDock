@@ -17,7 +17,12 @@ import {
 import { useEffect, useState } from 'react';
 
 import { documentService } from '@/api/document/documentService';
-import { getServiceMode, setServiceMode } from '@/api/core/serviceMode';
+import {
+  getChatServiceMode,
+  getServiceMode,
+  setChatServiceMode,
+  setServiceMode,
+} from '@/api/core/serviceMode';
 import { memoryService } from '@/api/memory/memoryService';
 import { scheduledTaskService } from '@/api/task/scheduledTaskService';
 import { useI18n } from '@/i18n';
@@ -296,10 +301,16 @@ function SettingsPage() {
   const { locale, setLocale, t } = useI18n();
   const { showReasoning, themeMode, setThemeMode, toggleShowReasoning } = useUiStore();
   const [devPreview, setDevPreview] = useState(getServiceMode() === 'mock');
+  const [chatDevPreview, setChatDevPreview] = useState(getChatServiceMode() === 'mock');
 
   const toggleDevPreview = (checked: boolean) => {
     setDevPreview(checked);
     setServiceMode(checked ? 'mock' : 'http');
+  };
+
+  const toggleChatDevPreview = (checked: boolean) => {
+    setChatDevPreview(checked);
+    setChatServiceMode(checked ? 'mock' : 'http');
   };
 
   return (
@@ -328,6 +339,9 @@ function SettingsPage() {
         </SettingRow>
         <SettingRow description={t('workspace.settings.mockDesc')} label={t('workspace.settings.mock')}>
           <Switch checked={devPreview} onChange={toggleDevPreview} />
+        </SettingRow>
+        <SettingRow description={t('workspace.settings.chatMockDesc')} label={t('workspace.settings.chatMock')}>
+          <Switch checked={chatDevPreview} onChange={toggleChatDevPreview} />
         </SettingRow>
       </Block>
       <Block horizontal align="center" gap={12} padding={18} variant="outlined">

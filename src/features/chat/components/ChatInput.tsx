@@ -6,6 +6,7 @@ import { ArrowBigUp, AtSign, CornerDownLeft, Mic, Paperclip, Send, Slash, Square
 import { type KeyboardEvent, memo, useRef, useState } from 'react';
 
 import { type MentionAgent } from '@/api/market/agentMarketService';
+import AgentMentionMenu from '@/features/chat/components/AgentMentionMenu';
 import { useI18n } from '@/i18n';
 
 export type ApprovalMode = 'auto' | 'manual';
@@ -26,20 +27,7 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
   footer: css`
     padding-block: 8px 2px;
   `,
-  mentionMenu: css`
-    position: absolute;
-    z-index: 10;
-    inset-inline: 0;
-    inset-block-end: calc(100% + 8px);
-    overflow-y: auto;
-    max-height: 280px;
-    padding: 6px;
-    border: 1px solid ${token.colorBorder};
-    border-radius: 12px;
-    background: ${token.colorBgElevated};
-    box-shadow: ${token.boxShadowSecondary};
-  `,
-  mentionItem: css`
+  menuItem: css`
     display: flex;
     align-items: center;
     gap: 10px;
@@ -131,7 +119,7 @@ const ChatInput = memo<ChatInputProps>(
               </Text>
               {SLASH_COMMAND_KEYS.map((key) => (
                 <div
-                  className={styles.mentionItem}
+                  className={styles.menuItem}
                   key={key}
                   onClick={() => handleSlashSelect(key)}
                 >
@@ -146,43 +134,14 @@ const ChatInput = memo<ChatInputProps>(
             </Flexbox>
           )}
           {mentionOpen && (
-            <Flexbox className={styles.mentionMenu} gap={3}>
-              {mentionsLoading ? (
-                <Text fontSize={12} type="secondary" style={{ padding: '8px 10px' }}>
-                  {t('common.loading')}
-                </Text>
-              ) : mentions.length === 0 ? (
-                <Text fontSize={12} type="secondary" style={{ padding: '8px 10px' }}>
-                  {t('chat.mentionEmpty')}
-                </Text>
-              ) : (
-                <>
-                  <Text fontSize={11} type="secondary" style={{ padding: '6px 10px' }}>
-                    {t('chat.mentionHint')}
-                  </Text>
-                  {mentions.map((mention) => (
-                    <div
-                      className={styles.mentionItem}
-                      key={`${mention.agentId}-${mention.fab}`}
-                      onClick={() => {
-                        setMentionOpen(false);
-                        onSelectMention(mention);
-                      }}
-                    >
-                      <Avatar avatar={mention.icon} size={30} />
-                      <Flexbox flex={1} style={{ minWidth: 0 }}>
-                        <Text ellipsis weight={500}>
-                          {mention.agentFullName}
-                        </Text>
-                        <Text ellipsis fontSize={11} type="secondary">
-                          v{mention.version} · {mention.description}
-                        </Text>
-                      </Flexbox>
-                    </div>
-                  ))}
-                </>
-              )}
-            </Flexbox>
+            <AgentMentionMenu
+              loading={mentionsLoading}
+              mentions={mentions}
+              onSelect={(mention) => {
+                setMentionOpen(false);
+                onSelectMention(mention);
+              }}
+            />
           )}
           <TextArea
             autoSize={{ minRows: 2, maxRows: 8 }}

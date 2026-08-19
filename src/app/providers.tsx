@@ -5,7 +5,7 @@ import { createStaticStyles } from 'antd-style';
 import { type ReactNode, useEffect, useState } from 'react';
 import { BrowserRouter } from 'react-router-dom';
 
-import { getServiceMode } from '@/api/core/serviceMode';
+import { getChatServiceMode } from '@/api/core/serviceMode';
 import { runtimeConfig } from '@/api/runtimeConfig';
 import { agentDockCatalog } from '@/features/chat/a2ui/catalog';
 import { I18nProvider } from '@/i18n';
@@ -46,8 +46,8 @@ const useResolvedAppearance = (): 'light' | 'dark' => {
 
 export default function Providers({ children }: { children: ReactNode }) {
   const appearance = useResolvedAppearance();
-  const serviceMode = getServiceMode();
-  const copilotEnabled = serviceMode === 'http';
+  const chatMode = getChatServiceMode();
+  const copilotEnabled = chatMode === 'http';
 
   const app = (
     <ThemeProvider

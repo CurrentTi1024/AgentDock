@@ -187,6 +187,7 @@ pnpm run server
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `VITE_SERVICE_MODE` | `mock` | `mock` 使用内置 Mock 数据；`http` 走真实后端接口 |
+| `VITE_CHAT_MODE` | 回退到 `VITE_SERVICE_MODE` | 对话运行时单独开关：`http` 走真实 AG-UI（Copilot Runtime）；`mock` 用内置 SSE。可与市场模式分开配置（如市场 mock、对话 http） |
 | `VITE_API_BASE_URL` | `/api` | 普通业务 API 的 Base URL（同源代理） |
 | `VITE_AGENT_RUNTIME_TRANSPORT` | `proxy` | `proxy` 固定走 `/api/copilotkit`；`direct` 为本地联调直连 FAB `/ag-ui` |
 | `VITE_AGENT_ORCHESTRATION_ENDPOINTS_JSON` | `{}` | 仅 `direct` 模式使用：FAB → Orchestration Base URL 映射 |

@@ -1,5 +1,5 @@
 import { createAgentRuntimeMockEvents } from '@/mock-data/agentRuntime';
-import { getServiceMode } from '@/api/core/serviceMode';
+import { getChatServiceMode } from '@/api/core/serviceMode';
 import { runtimeConfig } from '@/api/runtimeConfig';
 import { parseSseStream } from './sse';
 import type { RunAgentInput, StreamedEvent } from './types';
@@ -16,7 +16,7 @@ export class CopilotHeadlessMockService implements AgentRuntimeService {
   async *stream(input: RunAgentInput, options: RuntimeOptions = {}) { for await (const event of createAgentRuntimeMockEvents(input, options.signal)) yield { event, streamId: event.rawEvent?.streamId }; }
 }
 const selectRuntimeService = (): AgentRuntimeService =>
-  getServiceMode() === 'http' ? new CopilotHeadlessHttpService() : new CopilotHeadlessMockService();
+  getChatServiceMode() === 'http' ? new CopilotHeadlessHttpService() : new CopilotHeadlessMockService();
 
 export const agentRuntimeService: AgentRuntimeService = new Proxy({} as AgentRuntimeService, {
   get(_target, prop) {

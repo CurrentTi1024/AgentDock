@@ -343,5 +343,7 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **新建对话入口**：侧边栏 Header「+」改为进入 hub（不再硬编码 FlightAnalysis 建会话）。
 - **i18n**：新增 home.welcome/home.selectAgent/agentSidebar.backHome，18 语言同步。
 - **浏览器实测**：根路由 → `/chat` hub；选 Agent → 发送 → `/chat/:id?agent=&fab=`（Agent 侧边栏）；返回首页 → `/chat`；最近会话显示「标题 + Agent 名 + 相对时间」，Agents 显示描述；24/24 测试通过。
+- **补充（@Agent 快速选择与对话）**：首页 hub 输入框支持 `@` 弹出 Agent 提及菜单（抽为共用 `AgentMentionMenu`，对话输入区同用）；选择即设为目标 Agent 并保留 `@名字` 前缀；发送时若未下拉选择，可从输入文本的 `@名字` 解析目标 Agent（名称/ID 前缀匹配）；无默认系统 Agent，发送前必须确定 Agent（下拉选择或 @ 解析，二者等价）。i18n 新增 home.placeholder。
+- **浏览器实测**：hub 输入 `@` → 提及菜单 → 点击 CodeReview_Agent → 输入变为 `@CodeReview_Agent-F15B …` → 发送 → `/chat/:id?agent=code-review&fab=F15B` 全链路通过。
 
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。
