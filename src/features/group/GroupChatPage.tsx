@@ -16,6 +16,7 @@ import {
 } from '@/api/session/sessionHistoryService';
 import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
+import { MessageActions } from '@/features/chat/components/MessageActions';
 import NavHeader from '@/components/shell/NavHeader';
 import { renderRunBlocks, renderStoredBlocks, type StoredTextMessage } from '@/features/chat/components/MessageBlocks';
 import { useAgentDockConversation } from '@/features/chat/useAgentDockConversation';
@@ -330,7 +331,7 @@ const GroupChatPage = () => {
         </Flexbox>
         <Flexbox className={styles.scroll}>
           <Flexbox
-            gap={24}
+            gap={8}
             style={{ marginInline: 'auto', maxWidth: 840, padding: '24px 24px 150px', width: '100%' }}
           >
             {!hasAnyMessage && (
@@ -350,21 +351,44 @@ const GroupChatPage = () => {
             {storedMessages.map(({ blocks: storedBlocks, record }) =>
               record.role === 'user' ? (
                 <ChatItem
-                  avatar="LC"
+                  actions={
+                    <MessageActions
+                      content={record.content || ''}
+                      placement="user"
+                      onCopy={(content) => void navigator.clipboard.writeText(content || '')}
+                      onDelete={() =>
+                        void sessionHistoryService.removeMessage(sessionId, record.id).then(() =>
+                          sessionHistoryService.getMessages(sessionId).then(setHistory),
+                        )
+                      }
+                    />
+                  }
                   content={record.content}
                   id={record.id}
                   key={record.id}
                   name={t('chat.you')}
                   role="user"
+                  time={new Date(record.createdAt).getTime()}
                 />
               ) : (
                 <ChatItem
-                  avatar="👥"
+                  actions={
+                    <MessageActions
+                      content={record.content || ''}
+                      onCopy={(content) => void navigator.clipboard.writeText(content || '')}
+                      onDelete={() =>
+                        void sessionHistoryService.removeMessage(sessionId, record.id).then(() =>
+                          sessionHistoryService.getMessages(sessionId).then(setHistory),
+                        )
+                      }
+                    />
+                  }
                   content={record.content}
                   id={record.id}
                   key={record.id}
                   name={session?.title || t('nav.group')}
                   role="assistant"
+                  time={new Date(record.createdAt).getTime()}
                 >
                   {renderStoredBlocks(storedBlocks, {
                     onApproveHitl: (requestId) =>
@@ -385,20 +409,34 @@ const GroupChatPage = () => {
             {(answer || running || run?.status) && (
               <>
                 <ChatItem
-                  avatar="LC"
+                  actions={
+                    <MessageActions
+                      content={currentUserMessage || input}
+                      placement="user"
+                      onCopy={(content) => void navigator.clipboard.writeText(content || '')}
+                    />
+                  }
                   content={currentUserMessage || input}
                   id="current-group-user"
                   name={t('chat.you')}
                   role="user"
+                  time={Date.now()}
                 />
                 <ChatItem
-                  avatar="👥"
+                  actions={
+                    !running && (
+                      <MessageActions
+                        content={answer || ''}
+                        onCopy={(content) => void navigator.clipboard.writeText(content || '')}
+                      />
+                    )
+                  }
                   content={answer}
                   id="current-group-assistant"
                   loading={running}
                   name={session?.title || t('nav.group')}
                   role="assistant"
-                  time={t('chat.justNow')}
+                  time={Date.now()}
                 >
                   {blocks}
                 </ChatItem>

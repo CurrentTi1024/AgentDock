@@ -280,4 +280,13 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **i18n**：新增 10 个 key（reasoning 流式/耗时/加密、tool 失败/耗时、supervisor/tasks/groupTasks/assistantGroup），18 语言词典全部翻译并过测试。
 - **测试**：runReducer 新增 6 项（reasoning 生命周期、tool 耗时、自定义事件投影、legacy HITL、快照任务类 role、activityType 合并），总计 22/22 通过；build 通过；HTTP 冒烟 5 路由 200。
 
+第五轮（2026-08-19，对话页 UI/UX 切换为官方 LobeHub chat 原语）：
+
+- **ChatItem**：弃用自研简化组件，改为包装官方 `@lobehub/ui/chat` ChatItem（LobeHub 本体同款）——bubble 卡片、头像+标题+hover 时间、hover 操作栏（role=menubar）、加载动画全部原生一致；过程块经 `renderMessage` 嵌回消息卡片内（官方发布版会丢弃 children，用 renderMessage 包装解决）。
+- **Markdown**：切换为官方 `@lobehub/ui` Markdown 渲染管线（代码高亮/mermaid/流式动画，`variant="chat"`），替换自研 react-markdown。
+- **消息动作**：新增 `MessageActions`（点赞/点踩/复制/重新生成/删除），用户消息与助手消息 hover 显示，全部走回调 props；`sessionHistoryService.removeMessage` 删除消息行+关联过程块+含该消息的 checkpoint，避免刷新复活。
+- **ChatInput**：LobeHub 桌面输入区样式（圆角边框容器、focus 高亮、自动高度、底部键盘提示 Send/Warp、primary 发送/停止按钮、@Agent 弹层）。
+- **群聊页**：同步使用官方 ChatItem + 操作栏。
+- **浏览器实测**（Chrome headless + CDP）：欢迎页 → 发送 → 推理耗时块 → 工作流步骤 → HITL 批准 → 工具耗时 → 任务卡片 → A2UI 指标卡/按钮全部渲染；截图存于本机可视化目录。22/22 测试通过，build 通过。
+
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。

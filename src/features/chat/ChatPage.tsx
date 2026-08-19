@@ -1,8 +1,9 @@
 // AgentDock conversation page — LobeHub ConversationArea + ChatItem + ChatInput adaptation.
 import { ActionIcon, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
 import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
+import { LoadingDots } from '@lobehub/ui/chat';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Copy, FileBarChart, ThumbsDown, ThumbsUp, X } from 'lucide-react';
+import { FileBarChart, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useLocation, useParams, useSearchParams } from 'react-router-dom';
 
@@ -10,18 +11,9 @@ import { resolveChatAgentId } from '@/features/chat/agentDetail';
 import ChatHeader from '@/features/chat/components/ChatHeader';
 import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
+import { MessageActions } from '@/features/chat/components/MessageActions';
 import Welcome from '@/features/chat/components/Welcome';
-import {
-  ActivityBlock,
-  A2uiSurfaceBlock,
-  HitlBlock,
-  ReasoningBlock,
-  renderStoredBlocks,
-  renderRunBlocks,
-  ToolCallBlock,
-  WorkflowStepsBlock,
-  type StoredTextMessage,
-} from '@/features/chat/components/MessageBlocks';
+import { renderStoredBlocks, renderRunBlocks, type StoredTextMessage } from '@/features/chat/components/MessageBlocks';
 import { messageFeedbackService } from '@/api/conversation/messageFeedbackService';
 import { getServiceMode } from '@/api/core/serviceMode';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
@@ -179,7 +171,8 @@ export default function ChatPage() {
     }
   }, [run?.status, sessionId]);
 
-  const sendMessage = async () => {
+  const sendMessageWith = async (prompt: string) => {
+    if (!prompt || running) return;
     setArtifactOpen(false);
     const active = session ?? (await ensureSession());
     if (!active) return;
@@ -187,11 +180,17 @@ export default function ChatPage() {
       agentId: selectedAgent?.agentId || active.agentId,
       agentName: selectedAgent?.agentFullName || active.agentName,
       fab,
-      title: active.title === t('nav.newSessionTitle') ? input.slice(0, 32) || active.title : active.title,
+      title: active.title === t('nav.newSessionTitle') ? prompt.slice(0, 32) || active.title : active.title,
       version: selectedAgent?.version || active.version,
     });
-    await send(input);
+    await send(prompt);
+  };
+
+  const sendMessage = async () => {
+    const prompt = input;
+    if (!prompt || running) return;
     setInput('');
+    await sendMessageWith(prompt);
   };
 
   const selectMention = (mention: MentionAgent) => {
@@ -243,6 +242,31 @@ export default function ChatPage() {
     threadId: session?.threadId || '',
   };
   const hasAnyMessage = storedMessages.length > 0 || Boolean(answer || running || run?.status);
+  const lastUserPrompt = useMemo(() => {
+    const fromRun = Object.values(run?.messages || {})
+      .filter((message) => message.role === 'user')
+      .at(-1)?.content;
+    if (fromRun) return fromRun;
+    return [...history].reverse().find((record) => record.role === 'user')?.content || '';
+  }, [history, run?.messages]);
+
+  const deleteMessage = useCallback(
+    (messageId: string) => {
+      void sessionHistoryService.removeMessage(sessionId, messageId).then(() =>
+        sessionHistoryService.getMessages(sessionId).then(setHistory),
+      );
+    },
+    [sessionId],
+  );
+
+  const regenerate = (prompt: string) => {
+    if (!prompt || running) return;
+    void sendMessageWith(prompt);
+  };
+
+  const copyMessage = useCallback((content: string) => {
+    void navigator.clipboard.writeText(content || '');
+  }, []);
 
   return (
     <Flexbox horizontal height="100%">
@@ -256,28 +280,58 @@ export default function ChatPage() {
           onToggleArtifact={() => setArtifactOpen((open) => !open)}
         />
         <Flexbox className={styles.scroll}>
-          <Flexbox gap={24} style={{ marginInline: 'auto', maxWidth: 840, padding: '24px 24px 150px', width: '100%' }}>
+          <Flexbox gap={8} style={{ marginInline: 'auto', maxWidth: 840, padding: '24px 24px 150px', width: '100%' }}>
             {!hasAnyMessage && (
               <Welcome agentName={agent} onSuggestion={(suggestion) => setInput(t(suggestion))} />
             )}
             {storedMessages.map(({ blocks: storedBlocks, record }) =>
               record.role === 'user' ? (
                 <ChatItem
-                  avatar="LC"
+                  actions={
+                    <MessageActions
+                      content={record.content || ''}
+                      placement="user"
+                      onCopy={copyMessage}
+                      onDelete={() => deleteMessage(record.id)}
+                      onRegenerate={() => regenerate(record.content || '')}
+                    />
+                  }
                   content={record.content}
                   id={record.id}
                   key={record.id}
                   name={t('chat.you')}
                   role="user"
+                  time={new Date(record.createdAt).getTime()}
                 />
               ) : (
                 <ChatItem
-                  avatar="🛩️"
+                  actions={
+                    <MessageActions
+                      content={record.content || ''}
+                      onCopy={copyMessage}
+                      onDelete={() => deleteMessage(record.id)}
+                      onDislike={() =>
+                        void messageFeedbackService.submitMessageFeedback({
+                          ...feedbackTarget,
+                          feedback: 'dislike',
+                          reasonCode: 'incorrect',
+                        })
+                      }
+                      onLike={() =>
+                        void messageFeedbackService.submitMessageFeedback({
+                          ...feedbackTarget,
+                          feedback: 'like',
+                        })
+                      }
+                      onRegenerate={() => regenerate(lastUserPrompt)}
+                    />
+                  }
                   content={record.content}
                   id={record.id}
                   key={record.id}
                   name={agent}
                   role="assistant"
+                  time={new Date(record.createdAt).getTime()}
                 >
                   {renderStoredBlocks(storedBlocks, {
                     onApproveHitl: (requestId) =>
@@ -298,57 +352,51 @@ export default function ChatPage() {
             {(answer || running || run?.status) && (
               <>
                 <ChatItem
-                  avatar="LC"
+                  actions={
+                    <MessageActions
+                      content={currentUserMessage || input}
+                      placement="user"
+                      onCopy={copyMessage}
+                    />
+                  }
                   content={currentUserMessage || input}
                   id="current-user"
                   name={t('chat.you')}
                   role="user"
+                  time={Date.now()}
                 />
                 <ChatItem
                   actions={
-                    !running && answer ? (
-                      <>
-                        <ActionIcon
-                          aria-label={t('chat.copy')}
-                          icon={Copy}
-                          onClick={() => void navigator.clipboard.writeText(answer || '')}
-                          size="small"
-                        />
-                        <ActionIcon
-                          aria-label={t('chat.like')}
-                          icon={ThumbsUp}
-                          size="small"
-                          onClick={() =>
-                            void messageFeedbackService.submitMessageFeedback({
-                              ...feedbackTarget,
-                              feedback: 'like',
-                            })
-                          }
-                        />
-                        <ActionIcon
-                          aria-label={t('chat.dislike')}
-                          icon={ThumbsDown}
-                          size="small"
-                          onClick={() =>
-                            void messageFeedbackService.submitMessageFeedback({
-                              ...feedbackTarget,
-                              feedback: 'dislike',
-                              reasonCode: 'incorrect',
-                            })
-                          }
-                        />
-                      </>
-                    ) : undefined
+                    !running && (
+                      <MessageActions
+                        content={answer || ''}
+                        onCopy={copyMessage}
+                        onDislike={() =>
+                          void messageFeedbackService.submitMessageFeedback({
+                            ...feedbackTarget,
+                            feedback: 'dislike',
+                            reasonCode: 'incorrect',
+                          })
+                        }
+                        onLike={() =>
+                          void messageFeedbackService.submitMessageFeedback({
+                            ...feedbackTarget,
+                            feedback: 'like',
+                          })
+                        }
+                        onRegenerate={() => regenerate(lastUserPrompt)}
+                      />
+                    )
                   }
-                  avatar="🛩️"
                   content={answer}
                   id="current-assistant"
                   loading={running}
                   name={agent}
                   role="assistant"
-                  time={t('chat.justNow')}
+                  time={Date.now()}
                 >
                   {blocks}
+                  {running && !answer && !blocks && <LoadingDots />}
                   {runtimeAgent ? (
                     <OfficialActivityMessages agent={runtimeAgent as { messages?: unknown[] }} />
                   ) : null}

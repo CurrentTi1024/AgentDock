@@ -52,6 +52,31 @@ export const sessionHistoryService = {
   async removeSession(id: string) { await db.transaction('rw', db.sessions, db.messages, db.checkpoints, async () => { await db.sessions.delete(id); await db.messages.where('sessionId').equals(id).delete(); await db.checkpoints.where('sessionId').equals(id).delete(); }); },
   async appendMessages(records: SessionMessageRecord[]) { await db.messages.bulkPut(records); },
   async getMessages(sessionId: string) { return db.messages.where('sessionId').equals(sessionId).sortBy('sequence'); },
+  /**
+   * 删除一条消息及其关联的过程块（reasoning/tool/step/activity/surface），
+   * 同时删除包含该消息的 checkpoint，避免刷新后从快照复活已删消息。
+   */
+  async removeMessage(sessionId: string, id: string) {
+    await db.transaction('rw', db.messages, db.checkpoints, async () => {
+      const all = await db.messages.where('sessionId').equals(sessionId).sortBy('sequence');
+      const targetIndex = all.findIndex((record) => record.id === `text:${id}` || record.id === id);
+      if (targetIndex < 0) return;
+      const idsToRemove = [all[targetIndex].id];
+      for (let index = targetIndex + 1; index < all.length; index += 1) {
+        const record = all[index];
+        if (record.kind === 'text') break;
+        idsToRemove.push(record.id);
+      }
+      await db.messages.bulkDelete(idsToRemove);
+      const checkpoints = await db.checkpoints.where('sessionId').equals(sessionId).toArray();
+      for (const checkpoint of checkpoints) {
+        if (checkpoint.snapshot.messages[id]) {
+          await db.checkpoints.delete(checkpoint.runId);
+        }
+      }
+    });
+    notifySessionsChanged();
+  },
   async saveRunCheckpoint(sessionId: string, input: RunAgentInput, snapshot: RuntimeRunState) {
     const updatedAt = new Date().toISOString();
     const record: RunCheckpointRecord = { input, latestStreamId: snapshot.latestStreamId, runId: snapshot.runId, sessionId, snapshot, status: snapshot.status, threadId: snapshot.threadId, updatedAt };

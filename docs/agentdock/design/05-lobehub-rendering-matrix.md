@@ -12,10 +12,11 @@
 
 | 信息粒度 | LobeHub 上游组件 | AgentDock 当前组件 | 状态 | 缺口 |
 |---|---|---|---|---|
-| 消息外壳（头像/名称/时间/操作区） | `Conversation/ChatItem` | `ChatItem` | ✅ 已迁移 | 基本一致；缺少消息分割线/连续同角色合并 |
-| 用户消息气泡 | ChatItem 用户分支 | `ChatItem role=user` | ✅ | 基本一致 |
-| 助手 Markdown 文本 | `Conversation/Markdown`（react-markdown） | `Markdown.tsx`（react-markdown + remark-gfm） | ✅ | 代码高亮插件可后续增强 |
-| 流式光标 | LobeHub typing indicator | `▍` 字符 | ✅ 简化 | 可用，但可换成 LobeHub 风格 |
+| 消息外壳（头像/名称/时间/操作区） | `Conversation/ChatItem` | 官方 `@lobehub/ui/chat` ChatItem 包装 | ✅ 已迁移 | 与 LobeHub 本体同款原语：bubble 卡片、头像+标题+hover 时间、hover 操作栏、加载动画 |
+| 用户消息气泡 | ChatItem 用户分支 | 官方 ChatItem `placement=right` bubble | ✅ | 右对齐气泡、无头像/标题（LobeHub 个人模式），hover 显示操作 |
+| 助手 Markdown 文本 | `Conversation/Markdown`（LobeHub 管线） | 官方 `@lobehub/ui` Markdown（`variant="chat"`） | ✅ | 代码高亮/mermaid/流式动画原生支持 |
+| 流式光标 | LobeHub typing indicator | `▍` 字符 + LoadingDots 空态 | ✅ 简化 | 空内容时显示 LobeHub LoadingDots；正文流式时保留光标 |
+| 消息动作栏 | `MessageActionBar`（copy/regenerate/delete/feedback） | `MessageActions`（hover 显示） | ✅ 已补齐 | 用户/助手消息均支持点赞/点踩/复制/重新生成/删除，动作走回调 props |
 | Reasoning/思考 | `Messages/Reasoning` + ProcessFold | `ReasoningBlock` | ✅ 已补齐 | 流式态（思考中…）、耗时、加密值展示已由 `RuntimeReasoningMeta` 投影；折叠动画可继续打磨 |
 | Tool Call | `Messages/Tool` + Tool Inspector（参数/结果/耗时/状态） | `ToolCallBlock` | ✅ 已补齐 | `startedAt/finishedAt/apiName/resultMsgId` 由投影层记录，卡片显示耗时与错误态；参数高亮/工具图标注册可继续打磨 |
 | Task/Workflow 步骤 | `Messages/Task`、`ProcessFold`、`WorkflowCollapse` | `WorkflowStepsBlock` | ✅ | 折叠动画可打磨 |

@@ -1,107 +1,65 @@
-// Adapted from: src/features/Conversation/ChatItem (LobeHub canary)
-import { Avatar, Flexbox, Text } from '@lobehub/ui';
-import { createStaticStyles, cssVar } from 'antd-style';
-import { type ReactNode } from 'react';
+// Adapted from: src/features/Conversation/ChatItem + Messages/{User,Assistant} (LobeHub canary)
+// 包装官方 @lobehub/ui/chat ChatItem：视觉与交互（bubble 卡片、hover 操作栏、标题/时间、
+// 加载动画）与 LobeHub 一致；数据由投影层以 props 注入，不绑定任何 store。
+import { ChatItem as LobeChatItem, type ChatItemProps as LobeChatItemProps } from '@lobehub/ui/chat';
+import { Flexbox } from '@lobehub/ui';
+import type { MetaData } from '@lobehub/ui/chat';
+import { type ComponentType, type ReactNode } from 'react';
 import { memo } from 'react';
-
-import { Markdown } from './Markdown';
-
-const styles = createStaticStyles(({ css, cssVar: token }) => ({
-  actions: css`
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 200ms ${token.motionEaseOut};
-  `,
-  assistant: css`
-    &:hover .message-actions,
-    &:focus-within .message-actions {
-      pointer-events: unset;
-      opacity: 1;
-    }
-  `,
-  bubble: css`
-    max-width: 72%;
-    border-radius: ${token.borderRadiusLG}px 4px ${token.borderRadiusLG}px ${token.borderRadiusLG}px;
-    padding: 10px 14px;
-    background: ${token.colorFillSecondary};
-  `,
-  container: css`
-    position: relative;
-    max-width: 100%;
-  `,
-  content: css`
-    width: 100%;
-    overflow: hidden;
-    position: relative;
-  `,
-}));
 
 export interface ChatItemProps {
   actions?: ReactNode;
-  avatar: string | ReactNode;
+  avatar?: string | ReactNode;
   children?: ReactNode;
   content?: string;
   id: string;
   loading?: boolean;
+  messageExtra?: ReactNode;
   name: string;
   role: 'assistant' | 'user';
-  time?: string;
+  showTitle?: boolean;
+  time?: number;
+  titleAddon?: ReactNode;
 }
 
-const ChatItem = memo<ChatItemProps>(
-  ({ actions, avatar, children, content, id, loading, name, role, time }) => {
-    const isUser = role === 'user';
-    const avatarNode =
-      typeof avatar === 'string' ? (
-        <Avatar avatar={avatar} shape={isUser ? undefined : 'square'} size={32} />
-      ) : (
-        avatar
-      );
+const toEpoch = (time?: number) => (typeof time === 'number' && Number.isFinite(time) ? time : undefined);
 
+// 官方 ChatItem 的类型声明省略了 children（运行时 MessageContent 支持），这里显式补上。
+const LobeChatItemWithChildren = LobeChatItem as unknown as ComponentType<
+  LobeChatItemProps & { children?: ReactNode }
+>;
+
+const ChatItem = memo<ChatItemProps>(
+  ({ actions, avatar, children, content, id, loading, messageExtra, name, role, showTitle, time, titleAddon }) => {
+    const isUser = role === 'user';
+    const avatarValue = avatar ?? (isUser ? '' : '🤖');
+    const meta: MetaData =
+      typeof avatarValue === 'string'
+        ? { avatar: avatarValue, title: name }
+        : { title: name };
     return (
-      <Flexbox
-        align={isUser ? 'flex-end' : 'flex-start'}
-        className={`${styles.container} ${isUser ? '' : styles.assistant}`}
-        data-message-id={id}
-        gap={8}
-        paddingBlock={8}
-        style={{ paddingInlineStart: isUser ? 36 : 0 }}
-      >
-        <Flexbox
-          align="center"
-          direction={isUser ? 'horizontal-reverse' : 'horizontal'}
-          gap={8}
-        >
-          {avatarNode}
-          <Flexbox horizontal align="center" gap={8}>
-            <Text fontSize={13} weight={500}>
-              {name}
-            </Text>
-            {time && (
-              <Text fontSize={11} type="secondary">
-                {time}
-              </Text>
-            )}
-          </Flexbox>
-        </Flexbox>
-        <Flexbox className={styles.content} gap={8} style={{ maxWidth: '100%' }}>
-          {children}
-          {content !== undefined &&
-            (isUser ? (
-              <div className={styles.bubble}>{content}</div>
-            ) : (
-              <div>
-                <Markdown content={content} />
-                {loading && <span style={{ color: cssVar.colorPrimary }}> ▍</span>}
-              </div>
-            ))}
-        </Flexbox>
-        {actions && (
-          <Flexbox className={`${styles.actions} message-actions`} gap={2}>
-            {actions}
+      <LobeChatItemWithChildren
+        actions={actions}
+        avatar={meta}
+        id={id}
+        loading={loading}
+        message={content === undefined ? undefined : content}
+        messageExtra={messageExtra}
+        placement={isUser ? 'right' : 'left'}
+        renderMessage={(content) => (
+          <Flexbox gap={8} style={{ width: '100%' }}>
+            {content}
+            {children}
           </Flexbox>
         )}
-      </Flexbox>
+        showAvatar={!isUser}
+        showTitle={showTitle ?? !isUser}
+        time={toEpoch(time)}
+        titleAddon={titleAddon}
+        variant="bubble"
+      >
+        {children}
+      </LobeChatItemWithChildren>
     );
   },
 );
