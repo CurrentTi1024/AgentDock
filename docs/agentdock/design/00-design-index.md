@@ -29,6 +29,9 @@
 | [08-final-architecture-decision.md](08-final-architecture-decision.md) | 最终架构决策：官方 CopilotKit + Copilot Runtime、状态冲突解法、A2UI 渲染、FAB/SSO 分工 | 前端架构 + 联调 |
 | [09-agui-lobehub-rendering-adapter.md](09-agui-lobehub-rendering-adapter.md) | AG-UI/A2UI → LobeHub 渲染适配层：投影层方案、ViewModel 定义、组件 props 化迁移 | 前端 |
 | [10-end-to-end-code-review.md](10-end-to-end-code-review.md) | 端到端逐行 Code Review：AG-UI/A2UI/流式回显/信息粒度渲染，review 模块、发现与修复、待办清单 | 前端 + 联调 |
+| [11-e2e-joint-test-report.md](11-e2e-joint-test-report.md) | 前后端联合端到端测试报告：AG-UI/A2UI 组件渲染矩阵、已知限制 | 前后端联调 |
+| [12-message-history-rendering-fixes.md](12-message-history-rendering-fixes.md) | 消息历史与渲染修复记录：落库竞态、`lc_run--` 去重、chat mock 根因、构建修复 | 前端 |
+| [13-r4-pages-migration-design.md](13-r4-pages-migration-design.md) | R4 其余页面全量迁移设计与实现：Tasks/Memory/Documents/Channel/Artifact/Page/Settings、Service 契约、hooks 改写、运行时修复、验证 | 前端 |
 
 ## 3. 与权威文档的关系
 
