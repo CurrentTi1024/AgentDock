@@ -2,7 +2,7 @@
 // 桌面输入区：圆角容器 + 自动高度输入 + 底部发送/停止 + 外部功能行（左工具、右审批模式）。
 import { ActionIcon, Avatar, Button, Flexbox, Select, Tag, Text, TextArea } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { ArrowBigUp, AtSign, CornerDownLeft, Mic, Paperclip, Send, Slash, Square } from 'lucide-react';
+import { ArrowBigUp, AtSign, CornerDownLeft, Mic, Paperclip, Send, Square } from 'lucide-react';
 import { type KeyboardEvent, memo, useMemo, useRef, useState } from 'react';
 
 import { type MentionAgent } from '@/api/market/agentMarketService';
@@ -48,33 +48,7 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
   footer: css`
     padding-block: 8px 2px;
   `,
-  menuItem: css`
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    border-radius: 8px;
-    cursor: pointer;
-    &:hover {
-      background: ${token.colorFillTertiary};
-    }
-  `,
-  slashMenu: css`
-    position: absolute;
-    z-index: 10;
-    inset-inline: 0;
-    inset-block-end: calc(100% + 8px);
-    overflow-y: auto;
-    max-height: 280px;
-    padding: 6px;
-    border: 1px solid ${token.colorBorder};
-    border-radius: 12px;
-    background: ${token.colorBgElevated};
-    box-shadow: ${token.boxShadowSecondary};
-  `,
 }));
-
-const SLASH_COMMAND_KEYS = ['chat.suggestion.analyze', 'chat.suggestion.compare', 'chat.suggestion.summary'] as const;
 
 interface ChatInputProps {
   agentName?: string;
@@ -120,8 +94,7 @@ const ChatInput = memo<ChatInputProps>(
   }) => {
     const { t } = useI18n();
     const [mentionOpen, setMentionOpen] = useState(false);
-  const [slashOpen, setSlashOpen] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // 切换 Agent 下拉：选中态显示当前 Agent（头像+名称），无边框紧凑样式。
   const switchValue = useMemo(() => {
@@ -144,35 +117,9 @@ const ChatInput = memo<ChatInputProps>(
       onMentionTrigger();
     };
 
-    const handleSlashSelect = (key: (typeof SLASH_COMMAND_KEYS)[number]) => {
-      onChange(t(key));
-      setSlashOpen(false);
-    };
-
     return (
       <Flexbox gap={0}>
         <Flexbox className={styles.composer} gap={4} padding={12} style={{ position: 'relative' }}>
-          {slashOpen && (
-            <Flexbox className={styles.slashMenu} gap={3}>
-              <Text fontSize={11} type="secondary" style={{ padding: '6px 10px' }}>
-                {t('chat.slashHint')}
-              </Text>
-              {SLASH_COMMAND_KEYS.map((key) => (
-                <div
-                  className={styles.menuItem}
-                  key={key}
-                  onClick={() => handleSlashSelect(key)}
-                >
-                  <Slash size={14} />
-                  <Flexbox flex={1} style={{ minWidth: 0 }}>
-                    <Text ellipsis weight={500}>
-                      /{t(key)}
-                    </Text>
-                  </Flexbox>
-                </div>
-              ))}
-            </Flexbox>
-          )}
           {mentionOpen && (
             <AgentMentionMenu
               loading={mentionsLoading}
@@ -194,16 +141,11 @@ const ChatInput = memo<ChatInputProps>(
               const next = event.target.value;
               onChange(next);
               setMentionOpen(next.startsWith('@'));
-              setSlashOpen(next.startsWith('/'));
               if (timerRef.current) clearTimeout(timerRef.current);
-              if (next.startsWith('@') || next.startsWith('/')) {
+              if (next.startsWith('@')) {
                 timerRef.current = setTimeout(() => {
-                  if (next.startsWith('@')) {
-                    setMentionOpen(true);
-                    onMentionTrigger();
-                  } else {
-                    setSlashOpen(true);
-                  }
+                  setMentionOpen(true);
+                  onMentionTrigger();
                 }, 80);
               }
             }}
@@ -233,9 +175,6 @@ const ChatInput = memo<ChatInputProps>(
               )}
               <ActionIcon aria-label={t('chat.attach')} disabled icon={Paperclip} title={t('chat.attach')} />
               <ActionIcon aria-label={t('chat.voice')} disabled icon={Mic} title={t('chat.voice')} />
-              <Button size="small" type="text" onClick={() => setSlashOpen((open) => !open)}>
-                <Slash size={14} />
-              </Button>
               {!hideMentionButton && (
                 <Button size="small" type="text" onClick={() => openMentionMenu()}>
                   <AtSign size={14} /> {t('chat.mentionButton')}
