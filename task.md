@@ -28,9 +28,13 @@
 - Agent 列表卡片补回每个 agent 的 skill/mcp 数量等元信息。
 - “进入聊天”按钮颜色/样式与 LobeHub 一致。
 - 分类侧栏、卡片密度、详情 Tabs/侧栏、分页等逐项对照补齐（✅ 已核对：菜单仅保留 Agent/Skills/MCP）。
+- Agent/Skill/MCP 卡片布局统一：FAB 版本置于右上角，不再显示“已验证”，左下角时间精确到时分，右下角显示 ownerName。
+- 市场页搜索框随屏幕宽度自适应（移除 maxWidth: 480，与 LobeHub 一致 width: 100%）。
+- 分页改用 LobeHub 原版 antd `Pagination`（数字分页，`alignSelf: flex-end` 位于列表底部右侧）。
 
 > 2026-08-20 更新：R3 前三项已完成并通过 Chrome headless + CDP 验证
 > （sortBy 下拉 + 升降序切换、Agent 卡片 skill/mcp 数量标签、
+> 三类卡片右上角 FAB 版本/底部时间到时分/右下角 ownerName、搜索框自适应、
 > 主色切换为 LobeHub neutral 'primary'：#eeeeee 暗色 / #222222 亮色，
 > 详情页“开始对话”按钮颜色与 LobeHub 一致；FAB 选择器 UI/UX 未变）。
 

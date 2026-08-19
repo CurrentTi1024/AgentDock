@@ -184,7 +184,7 @@ export default {
   "agentSidebar.backHome": "Ana sayfaya dön",
   "home.selectAgent": "Başlamak için bir ajan seçin",
   "home.welcome": "Merhaba, kiminle konuşmak istersin?",
-  "home.placeholder": "Yukarıdan bir ajan seçin veya seçmek için @ yazın, ardından gönderin",
+  "home.placeholder": "Solda alttan bir ajan seçin veya başlamak için @ yazın",
   'nav.channel': 'Kanal',
   "nav.agents": "Ajanlar",
   "nav.emptyAgents": "Kullanılabilir ajan yok",

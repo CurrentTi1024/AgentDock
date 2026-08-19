@@ -181,7 +181,7 @@ export default {
   "agentSidebar.backHome": "Back to home",
   "home.selectAgent": "Choose an agent to start",
   "home.welcome": "Hello, who would you like to talk to?",
-  "home.placeholder": "Choose an agent above or type @ to pick one, then send",
+  "home.placeholder": "Pick an agent in the bottom-left or type @ to start",
   'nav.channel': 'Channel',
   "nav.agents": "Agents",
   "nav.emptyAgents": "No accessible agents",

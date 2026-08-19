@@ -184,7 +184,7 @@ export default {
   "agentSidebar.backHome": "Về trang chủ",
   "home.selectAgent": "Chọn agent để bắt đầu",
   "home.welcome": "Xin chào, bạn muốn trò chuyện với ai?",
-  "home.placeholder": "Chọn agent ở trên hoặc gõ @ để chọn, rồi gửi",
+  "home.placeholder": "Chọn agent ở góc trái dưới hoặc gõ @ để bắt đầu",
   'nav.channel': 'Kênh',
   "nav.agents": "Agent",
   "nav.emptyAgents": "Không có agent khả dụng",

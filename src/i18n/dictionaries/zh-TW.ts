@@ -184,7 +184,7 @@ export default {
   "agentSidebar.backHome": "返回首頁",
   "home.selectAgent": "選擇 Agent 開始對話",
   "home.welcome": "你好，想和誰聊聊？",
-  "home.placeholder": "選擇上方 Agent，或輸入 @ 快速選擇後傳送",
+  "home.placeholder": "選擇左下角 Agent，或輸入 @ 後傳送",
   'nav.channel': 'Channel',
   "nav.agents": "可用 Agent",
   "nav.emptyAgents": "暫無可用 Agent",

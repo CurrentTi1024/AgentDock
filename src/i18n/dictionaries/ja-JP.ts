@@ -184,7 +184,7 @@ export default {
   "agentSidebar.backHome": "ホームに戻る",
   "home.selectAgent": "エージェントを選択して開始",
   "home.welcome": "こんにちは、誰と話しますか？",
-  "home.placeholder": "上のエージェントを選択するか、@ を入力して選択してから送信",
+  "home.placeholder": "左下でエージェントを選択するか、@ を入力して開始",
   'nav.channel': 'チャネル',
   "nav.agents": "エージェント",
   "nav.emptyAgents": "利用可能なエージェントがありません",

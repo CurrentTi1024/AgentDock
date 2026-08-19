@@ -5,7 +5,7 @@ import { LoadingDots } from '@lobehub/ui/chat';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { FileBarChart, X } from 'lucide-react';
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useLocation, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { resolveChatAgentId } from '@/features/chat/agentDetail';
 import ChatHeader from '@/features/chat/components/ChatHeader';
@@ -79,6 +79,7 @@ export default function ChatPage() {
   const { t } = useI18n();
   const { id = 'session-inbox' } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const sessionId = id === 'inbox' ? 'session-inbox' : id;
   const pendingSession = (location.state as { pendingSession?: SessionRecord } | null)?.pendingSession;
@@ -243,6 +244,30 @@ export default function ChatPage() {
     setAgent(mention.agentFullName);
     setInput((value) => `@${mention.agentFullName} ${value.replace(/^@\S*\s*/, '')}`);
   };
+
+  const switchAgent = useCallback(
+    (agent: MentionAgent) => {
+      const newId = `session-${crypto.randomUUID()}`;
+      const record = {
+        agentId: agent.agentId,
+        agentName: agent.agentFullName,
+        fab: agent.fab,
+        id: newId,
+        pinned: false,
+        threadId: crypto.randomUUID(),
+        title: agent.agentFullName,
+        type: 'agent' as const,
+        version: agent.version,
+      };
+      navigate(`/chat/${newId}?agent=${encodeURIComponent(agent.agentId)}&fab=${encodeURIComponent(agent.fab)}`, {
+        state: { pendingSession: record },
+      });
+      void sessionHistoryService.createSession(record).catch((reason) => {
+        console.warn('[AgentDock] agent session persist failed', reason);
+      });
+    },
+    [navigate],
+  );
   const showReasoning = useUiStore((s) => s.showReasoning);
 
   const storedMessages = useMemo<StoredTextMessage[]>(() => {
@@ -532,6 +557,8 @@ export default function ChatPage() {
               onSelectMention={selectMention}
               onSend={() => void sendMessage()}
               onStop={() => void stop()}
+              onSwitchAgent={(agent) => switchAgent(agent)}
+              switchAgents={mentions}
             />
           </Flexbox>
         </Flexbox>

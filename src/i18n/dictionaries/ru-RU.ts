@@ -184,7 +184,7 @@ export default {
   "agentSidebar.backHome": "На главную",
   "home.selectAgent": "Выберите агента для начала",
   "home.welcome": "Привет, с кем хотите поговорить?",
-  "home.placeholder": "Выберите агента выше или введите @, чтобы выбрать, затем отправьте",
+  "home.placeholder": "Выберите агента внизу слева или введите @, чтобы начать",
   'nav.channel': 'Канал',
   "nav.agents": "Агенты",
   "nav.emptyAgents": "Нет доступных агентов",

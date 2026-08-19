@@ -184,7 +184,7 @@ export default {
   "agentSidebar.backHome": "العودة إلى الرئيسية",
   "home.selectAgent": "اختر وكيلًا للبدء",
   "home.welcome": "مرحبًا، مع من تريد التحدث؟",
-  "home.placeholder": "اختر وكيلًا أعلاه أو اكتب @ لاختيار واحد، ثم أرسل",
+  "home.placeholder": "اختر وكيلًا في الأسفل يسارًا أو اكتب @ للبدء",
   'nav.channel': 'القناة',
   "nav.agents": "الوكلاء",
   "nav.emptyAgents": "لا يوجد وكلاء متاحون",

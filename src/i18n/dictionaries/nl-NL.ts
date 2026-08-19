@@ -184,7 +184,7 @@ export default {
   "agentSidebar.backHome": "Terug naar home",
   "home.selectAgent": "Kies een agent om te starten",
   "home.welcome": "Hallo, met wie wil je praten?",
-  "home.placeholder": "Kies hierboven een agent of typ @ om er een te kiezen, en verzend",
+  "home.placeholder": "Kies linksonder een agent of typ @ om te starten",
   'nav.channel': 'Kanaal',
   "nav.agents": "Agents",
   "nav.emptyAgents": "Geen beschikbare agents",

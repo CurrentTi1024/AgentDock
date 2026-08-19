@@ -67,7 +67,9 @@ interface ChatInputProps {
   onSend: () => void;
   onSelectMention: (mention: MentionAgent) => void;
   onStop: () => void;
+  onSwitchAgent?: (agent: MentionAgent) => void;
   running: boolean;
+  switchAgents?: MentionAgent[];
   value: string;
 }
 
@@ -84,7 +86,9 @@ const ChatInput = memo<ChatInputProps>(
     onSelectMention,
     onSend,
     onStop,
+    onSwitchAgent,
     running,
+    switchAgents,
     value,
   }) => {
     const { t } = useI18n();
@@ -170,6 +174,23 @@ const ChatInput = memo<ChatInputProps>(
           />
           <Flexbox horizontal align="center" justify="space-between">
             <Flexbox horizontal gap={2} style={{ minHeight: 24 }}>
+              {switchAgents && onSwitchAgent && (
+                <Select
+                  options={switchAgents.map((agent) => ({
+                    label: `${agent.icon} ${agent.agentFullName}`,
+                    value: `${agent.agentId}@${agent.fab}`,
+                  }))}
+                  placeholder={t('agentSidebar.switchAgent')}
+                  size="small"
+                  style={{ minWidth: 140 }}
+                  onChange={(value) => {
+                    const agent = switchAgents.find(
+                      (item) => `${item.agentId}@${item.fab}` === value,
+                    );
+                    if (agent) onSwitchAgent(agent);
+                  }}
+                />
+              )}
               <ActionIcon aria-label={t('chat.attach')} disabled icon={Paperclip} title={t('chat.attach')} />
               <ActionIcon aria-label={t('chat.voice')} disabled icon={Mic} title={t('chat.voice')} />
               <Button size="small" type="text" onClick={() => setSlashOpen((open) => !open)}>

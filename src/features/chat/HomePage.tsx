@@ -1,9 +1,9 @@
-// AgentDock 首页 hub：不绑定默认 Agent——选择 Agent 后发消息进入其会话空间；
-// 记住上次使用的 Agent（localStorage），首次使用需显式选择。
+// AgentDock 首页 hub：不绑定默认 Agent、不记住上次——发送前在输入框左下角选择 Agent
+// 或输入 @ 快速选择；候选问题悬浮在输入框外部左上角。
 // Adapted from: src/features/Home + AgentSidebar/Header/Agent/SwitchPanel (LobeHub canary)
-import { Avatar, Button, Flexbox, Select, Text, TextArea } from '@lobehub/ui';
+import { ActionIcon, Avatar, Button, Flexbox, Select, Text, TextArea } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Send, Sparkles } from 'lucide-react';
+import { Mic, Paperclip, Send, Sparkles } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -13,8 +13,6 @@ import { sessionHistoryService, type SessionRecord } from '@/api/session/session
 import AgentMentionMenu from '@/features/chat/components/AgentMentionMenu';
 import { useI18n } from '@/i18n';
 import { formatRelativeTime } from '@/lib/relativeTime';
-
-const LAST_AGENT_KEY = 'agentdock-last-agent';
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
   row: css`
@@ -51,17 +49,6 @@ const HomePage = memo(() => {
   useEffect(() => {
     void agentMarketService.getMentionAgentsList({ locale: 'zh-CN' }).then(({ items }) => {
       setAgents(items);
-      try {
-        const raw = localStorage.getItem(LAST_AGENT_KEY);
-        if (raw) {
-          const last = JSON.parse(raw) as { agentId: string; fab: string };
-          setSelected(
-            items.find((item) => item.agentId === last.agentId && item.fab === last.fab),
-          );
-        }
-      } catch {
-        // ignore corrupt or unavailable storage
-      }
     });
   }, []);
 
@@ -111,14 +98,6 @@ const HomePage = memo(() => {
       type: 'agent' as const,
       version: target.version,
     };
-    try {
-      localStorage.setItem(
-        LAST_AGENT_KEY,
-        JSON.stringify({ agentId: target.agentId, fab: target.fab }),
-      );
-    } catch {
-      // ignore quota / private-mode storage errors
-    }
     navigate(`/chat/${id}?agent=${encodeURIComponent(target.agentId)}&fab=${encodeURIComponent(target.fab)}`, {
       state: { pendingSession: record },
     });
@@ -140,6 +119,13 @@ const HomePage = memo(() => {
     setInput(value);
     setMentionOpen(value.startsWith('@'));
   }, []);
+
+  const openMention = useCallback(() => {
+    if (!input.startsWith('@')) {
+      setInput((value) => `@${value}`);
+    }
+    setMentionOpen(true);
+  }, [input]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -166,19 +152,16 @@ const HomePage = memo(() => {
             </Flexbox>
           </Flexbox>
 
-          <Select
-            options={agents.map((agent) => ({
-              label: `${agent.icon} ${agent.agentFullName} · ${agent.fab}`,
-              value: `${agent.agentId}@${agent.fab}`,
-            }))}
-            placeholder={t('home.selectAgent')}
-            size="large"
-            value={selected ? `${selected.agentId}@${selected.fab}` : undefined}
-            onChange={(value) => {
-              const agent = agents.find((item) => `${item.agentId}@${item.fab}` === value);
-              setSelected(agent);
-            }}
-          />
+          {/* 候选问题：悬浮在输入框外部左上角（无输入时展示） */}
+          {!input.trim() && (
+            <Flexbox horizontal gap={8} paddingInline={2}>
+              {SUGGESTIONS.map((key) => (
+                <Button key={key} size="small" onClick={() => setInput(t(key))}>
+                  {t(key)}
+                </Button>
+              ))}
+            </Flexbox>
+          )}
 
           <Flexbox
             gap={10}
@@ -203,12 +186,36 @@ const HomePage = memo(() => {
               onChange={(event) => handleInputChange(event.target.value)}
             />
             <Flexbox horizontal align="center" justify="space-between">
-              <Flexbox horizontal gap={8} wrap="wrap">
-                {SUGGESTIONS.map((key) => (
-                  <Button key={key} size="small" onClick={() => setInput(t(key))}>
-                    {t(key)}
-                  </Button>
-                ))}
+              <Flexbox horizontal align="center" gap={4}>
+                <Select
+                  options={agents.map((agent) => ({
+                    label: `${agent.icon} ${agent.agentFullName} · ${agent.fab}`,
+                    value: `${agent.agentId}@${agent.fab}`,
+                  }))}
+                  placeholder={t('home.selectAgent')}
+                  size="small"
+                  style={{ minWidth: 150 }}
+                  value={selected ? `${selected.agentId}@${selected.fab}` : undefined}
+                  onChange={(value) => {
+                    const agent = agents.find((item) => `${item.agentId}@${item.fab}` === value);
+                    setSelected(agent);
+                  }}
+                />
+                <ActionIcon
+                  aria-label={t('chat.attach')}
+                  disabled
+                  icon={Paperclip}
+                  title={t('chat.attach')}
+                />
+                <ActionIcon
+                  aria-label={t('chat.voice')}
+                  disabled
+                  icon={Mic}
+                  title={t('chat.voice')}
+                />
+                <Button size="small" type="text" onClick={openMention}>
+                  @
+                </Button>
               </Flexbox>
               <Button
                 data-testid="home-send"

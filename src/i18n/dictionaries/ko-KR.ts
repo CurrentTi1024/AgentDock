@@ -184,7 +184,7 @@ export default {
   "agentSidebar.backHome": "홈으로 돌아가기",
   "home.selectAgent": "에이전트를 선택하여 시작",
   "home.welcome": "안녕하세요, 누구와 대화하고 싶으세요?",
-  "home.placeholder": "위에서 에이전트를 선택하거나 @를 입력해 선택한 후 보내기",
+  "home.placeholder": "왼쪽 아래에서 에이전트를 선택하거나 @를 입력해 시작",
   'nav.channel': '채널',
   "nav.agents": "에이전트",
   "nav.emptyAgents": "사용 가능한 에이전트가 없습니다",
