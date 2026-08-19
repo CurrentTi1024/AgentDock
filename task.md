@@ -318,4 +318,13 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **i18n**：新增 nav.files / nav.agents / nav.emptyAgents，18 语言同步；修复 fr-FR/zh-TW 同值越界。
 - **浏览器实测**：侧边栏结构、商场子菜单展开与 Skill 跳转、Agent 点击新建会话（URL 带 agent/fab）、输入区底部元素全部验证通过；24/24 测试通过。
 
+第九轮（2026-08-20，Agent 会话页侧边栏对齐 LobeHub AgentSidebar）：
+
+- **路由分发**：`/chat/:id`（非默认 inbox）展示 Agent 侧边栏，`/chat/session-inbox` 保持主页侧边栏，`/group` 保持群聊侧边栏（LobeHub agent chat 布局）。
+- **Header**：当前 Agent 头像 + 名称 + 切换 Agent 下拉（选择后新建该 Agent 会话并跳转，数据来自 `getMentionAgentsList`）。
+- **Body 常驻项**：「开启新话题」（同 Agent 新建会话）、搜索框（过滤话题）、「话题」折叠区（该 Agent 的历史会话，来自 IndexedDB sessionHistoryService，兼容现有 AG-UI/A2UI/落库）。
+- **自研折叠区**：`SidebarSection` 抽为共享组件（HomeSidebar/AgentSidebar 共用），箭头旋转 + 数量角标 + hover 操作。
+- **i18n**：新增 agentSidebar.newTopic/switchAgent/topics，18 语言同步。
+- **浏览器实测**：默认 inbox 仍是主页侧边栏；点击 Agent 进入 `/chat/:id?agent=&fab=` 显示 Agent 侧边栏（agent 名/切换按钮/新话题/搜索/话题折叠区）；新话题新建同 Agent 会话；话题列表显示历史会话并支持跳转；24/24 测试通过。
+
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。

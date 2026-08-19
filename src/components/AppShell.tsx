@@ -6,6 +6,7 @@ import { type ReactNode, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 
 import DesktopLayoutContainer from '@/components/shell/DesktopLayoutContainer';
+import AgentSidebar from '@/components/shell/AgentSidebar';
 import GroupSidebar from '@/components/shell/GroupSidebar';
 import HomeSidebar from '@/components/shell/HomeSidebar';
 import NavPanelDraggable from '@/components/shell/NavPanelDraggable';
@@ -16,6 +17,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const { t } = useI18n();
   const isGroup = location.pathname.startsWith('/group');
+  // 进入具体 Agent 会话（/chat/:id，非默认 inbox）时展示 Agent 侧边栏（LobeHub agent chat 布局）。
+  const isAgentChat = location.pathname.startsWith('/chat/') && !location.pathname.startsWith('/chat/session-inbox');
 
   useEffect(() => {
     const onBlocked = () => {
@@ -27,7 +30,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <Flexbox horizontal height="100%" style={{ background: cssVar.colorBgLayout }} width="100%">
-      <NavPanelDraggable>{isGroup ? <GroupSidebar /> : <HomeSidebar />}</NavPanelDraggable>
+      <NavPanelDraggable>
+        {isGroup ? <GroupSidebar /> : isAgentChat ? <AgentSidebar /> : <HomeSidebar />}
+      </NavPanelDraggable>
       <DesktopLayoutContainer>{children}</DesktopLayoutContainer>
       <GroupCreateModal />
     </Flexbox>

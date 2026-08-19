@@ -1,18 +1,11 @@
 // Adapted from: src/features/HomeSidebar/Body + Home/Recents + Body/Agent (LobeHub canary)
 // 侧边栏结构对齐 LobeHub 主页：顶部搜索 + 功能导航（chat/群聊/任务/文档/商城/记忆/channel/文件）、
 // 下方「最近对话」手风琴、再下方「Agents」手风琴（直接展开有权限的全部 Agent，数据来自 getMentionAgentsList）。
-import {
-  ActionIcon,
-  Avatar,
-  Flexbox,
-  SearchBar,
-  Text,
-} from '@lobehub/ui';
+import { ActionIcon, Avatar, Flexbox, SearchBar, Text } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import {
   ArrowRight,
   Brain,
-  ChevronDown,
   ChevronRight,
   FileCode2,
   FileText,
@@ -28,6 +21,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
 import { sessionHistoryService, type SessionRecord } from '@/api/session/sessionHistoryService';
 import NavItem from '@/components/shell/NavItem';
+import SidebarSection from '@/components/shell/SidebarSection';
 import { useI18n } from '@/i18n';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -38,54 +32,7 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     font-size: 11px;
     font-weight: 500;
   `,
-  accordionTitle: css`
-    font-size: 12px;
-    font-weight: 500;
-    color: ${token.colorTextSecondary};
-  `,
 }));
-
-// LobeHub Accordion 的轻量替代（framer-motion 未引入）：折叠区标题 + 展开箭头 + hover 操作。
-const SidebarSection = ({
-  action,
-  children,
-  defaultExpand = true,
-  title,
-}: {
-  action?: React.ReactNode;
-  children: React.ReactNode;
-  defaultExpand?: boolean;
-  title: React.ReactNode;
-}) => {
-  const [open, setOpen] = useState(defaultExpand);
-  return (
-    <Flexbox gap={2}>
-      <Flexbox
-        horizontal
-        align="center"
-        justify="space-between"
-        paddingBlock={7}
-        paddingInline={10}
-        style={{ cursor: 'pointer' }}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <Flexbox horizontal align="center" gap={4}>
-          <ChevronDown
-            size={12}
-            style={{
-              color: cssVar.colorTextDescription,
-              transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
-              transition: 'transform 200ms ease',
-            }}
-          />
-          {title}
-        </Flexbox>
-        {action}
-      </Flexbox>
-      {open && children}
-    </Flexbox>
-  );
-};
 
 interface MenuItem {
   icon: typeof MessageSquare;
@@ -264,7 +211,7 @@ const Body = () => {
         </Flexbox>
       )}
 
-      <SidebarSection title={<span className={styles.accordionTitle}>{t('nav.recent')}</span>}>
+      <SidebarSection title={t('nav.recent')}>
         <Flexbox gap={1} paddingBlock={1}>
           {visibleSessions.length === 0 ? (
             <Text fontSize={12} type="secondary" style={{ padding: '8px 12px' }}>
@@ -298,7 +245,7 @@ const Body = () => {
             onClick={() => navigate('/market/agent')}
           />
         }
-        title={<span className={styles.accordionTitle}>{t('nav.agents')}</span>}
+        title={t('nav.agents')}
       >
         <Flexbox gap={1} paddingBlock={1}>
           {filteredAgents.length === 0 ? (

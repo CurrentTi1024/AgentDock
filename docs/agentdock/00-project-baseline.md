@@ -4,7 +4,7 @@
 > 文档版本：0.1  
 > 日期：2026-08-17  
 > 适用范围：AgentDock 公司内部版本，不保留 LobeHub 原版运行模式
-[https://github.com/lobehub/lobehub](https://github.com/lobehub/lobehub) lobehub源码，已经下载到：/private/tmp/lobehub-canary
+[https://github.com/lobehub/lobehub](https://github.com/lobehub/lobehub) lobehub源码，已经下载到：/private/tmp/lobehub-canary 或者 /Users/chenguo/lobehub
 
 ## 1. 文档目的
 
