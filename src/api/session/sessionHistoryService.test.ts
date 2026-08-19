@@ -272,3 +272,77 @@ test('updateMessageContent 同步消息行与 checkpoint 快照', async () => {
   const checkpoint = await sessionHistoryService.getLatestRun(sessionId);
   assert.equal(checkpoint?.snapshot.messages[userMessageId].content, '编辑后的新问题');
 });
+
+test('多轮 run 快照累积（MESSAGES_SNAPSHOT）后文本消息顺序保持时间线', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-multi-run-order';
+  const threadId = `thread-${sessionId}`;
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId,
+    title: sessionId,
+    type: 'agent',
+    version: '2.1.0',
+  });
+
+  const buildRun = (runId: string, user: { id: string; content: string }, assistantId: string, assistantDelta: string, prior: Array<{ id: string; role: 'user' | 'assistant'; content: string }>) => {
+    let state = createRunState(runId, threadId);
+    state.messages[user.id] = { id: user.id, role: 'user', content: user.content };
+    if (prior.length) {
+      state = reduceRunEvent(state, { event: { type: 'MESSAGES_SNAPSHOT', messages: prior } });
+    }
+    state = reduceRunEvent(state, { event: { type: 'TEXT_MESSAGE_START', messageId: assistantId, role: 'assistant' } });
+    state = reduceRunEvent(state, { event: { type: 'TEXT_MESSAGE_CONTENT', messageId: assistantId, delta: assistantDelta } });
+    state = reduceRunEvent(state, { event: { type: 'TEXT_MESSAGE_END', messageId: assistantId } });
+    return state;
+  };
+
+  const inputFor = (runId: string, user: { id: string; content: string }) => ({
+    context: [],
+    forwardedProps: { action: 'run' as const, agentId: 'flight-analysis', fab: 'F15B', sessionId },
+    messages: [{ id: user.id, role: 'user' as const, content: user.content }],
+    runId,
+    state: {},
+    threadId,
+    tools: [],
+  });
+
+  const u1 = { id: 'u1', content: 'hi' };
+  const u2 = { id: 'u2', content: '今天周几' };
+  const u3 = { id: 'u3', content: '天气如何' };
+
+  // 第一轮：u1 + a1
+  const run1 = buildRun('run-order-1', u1, 'a1', 'Hi there!', []);
+  scheduleRunCheckpoint(sessionId, inputFor('run-order-1', u1), run1);
+  await flushRunCheckpoint();
+
+  // 第二轮：快照携带 [u1,a1]，再追加 u2/a2（http 累积模式）
+  const run2 = buildRun('run-order-2', u2, 'a2', '今天是周几…', [
+    { id: 'u1', role: 'user', content: 'hi' },
+    { id: 'a1', role: 'assistant', content: 'Hi there!' },
+  ]);
+  scheduleRunCheckpoint(sessionId, inputFor('run-order-2', u2), run2);
+  await flushRunCheckpoint();
+
+  // 第三轮：快照携带 [u1,a1,u2,a2]，再追加 u3/a3
+  const run3 = buildRun('run-order-3', u3, 'a3', '天气无法实时获取', [
+    { id: 'u1', role: 'user', content: 'hi' },
+    { id: 'a1', role: 'assistant', content: 'Hi there!' },
+    { id: 'u2', role: 'user', content: '今天周几' },
+    { id: 'a2', role: 'assistant', content: '今天是周几…' },
+  ]);
+  scheduleRunCheckpoint(sessionId, inputFor('run-order-3', u3), run3);
+  await flushRunCheckpoint();
+
+  const records = await sessionHistoryService.getMessages(sessionId);
+  const textIds = records.filter((record) => record.kind === 'text').map((record) => record.id);
+  assert.deepEqual(
+    textIds,
+    ['text:u1', 'text:a1', 'text:u2', 'text:a2', 'text:u3', 'text:a3'],
+    '多轮累积后文本消息必须保持时间线顺序',
+  );
+});

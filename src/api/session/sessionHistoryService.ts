@@ -131,8 +131,25 @@ export const sessionHistoryService = {
     return record;
   },
   async persistRunSnapshot(sessionId: string, snapshot: RuntimeRunState) {
+    // 多轮 run 快照会累积完整会话（MESSAGES_SNAPSHOT），每轮 flush 都会重写全部行。
+    // 已存在的消息必须保留原 sequence/createdAt/runId，否则后一轮 flush 会把
+    // 早前消息重新排序、时间戳覆盖，导致聊天时间线错乱；新消息才分配新序号。
+    const existingRows = await db.messages.where('sessionId').equals(sessionId).toArray();
+    const existingById = new Map(existingRows.map((record) => [record.id, record]));
     const records: SessionMessageRecord[] = [];
-    const push = (kind: SessionMessageKind, id: string, value: Omit<SessionMessageRecord, 'createdAt' | 'id' | 'kind' | 'sequence' | 'sessionId'>) => records.push({ ...value, createdAt: new Date().toISOString(), id: `${kind}:${id}`, kind, sequence: nextSequence(), sessionId });
+    const push = (kind: SessionMessageKind, id: string, value: Omit<SessionMessageRecord, 'createdAt' | 'id' | 'kind' | 'sequence' | 'sessionId'>) => {
+      const key = `${kind}:${id}`;
+      const existing = existingById.get(key);
+      records.push({
+        ...value,
+        createdAt: existing?.createdAt ?? new Date().toISOString(),
+        id: key,
+        kind,
+        runId: existing?.runId ?? snapshot.runId,
+        sequence: existing?.sequence ?? nextSequence(),
+        sessionId,
+      });
+    };
     for (const message of Object.values(snapshot.messages)) {
       if (!message || !message.id) continue;
       // 只持久化用户与助手文本；system/developer 上下文消息（如 A2UI catalog）
