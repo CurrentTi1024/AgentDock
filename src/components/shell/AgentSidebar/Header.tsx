@@ -22,6 +22,7 @@ const AgentSidebarHeader = memo<AgentSidebarHeaderProps>(
     const { t } = useI18n();
     return (
       <SideBarHeaderLayout
+        backTo="/chat/session-inbox"
         left={
           <DropdownMenu
             items={agents.map((agent) => ({
@@ -51,7 +52,7 @@ const AgentSidebarHeader = memo<AgentSidebarHeaderProps>(
             </Flexbox>
           </DropdownMenu>
         }
-        showBack={false}
+        showBack
         showTogglePanelButton={false}
       />
     );

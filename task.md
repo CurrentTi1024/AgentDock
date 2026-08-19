@@ -326,5 +326,7 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **自研折叠区**：`SidebarSection` 抽为共享组件（HomeSidebar/AgentSidebar 共用），箭头旋转 + 数量角标 + hover 操作。
 - **i18n**：新增 agentSidebar.newTopic/switchAgent/topics，18 语言同步。
 - **浏览器实测**：默认 inbox 仍是主页侧边栏；点击 Agent 进入 `/chat/:id?agent=&fab=` 显示 Agent 侧边栏（agent 名/切换按钮/新话题/搜索/话题折叠区）；新话题新建同 Agent 会话；话题列表显示历史会话并支持跳转；24/24 测试通过。
+- **补充**：Agent 侧边栏 Header 顶部增加「返回首页」按钮（ChevronLeft，backTo `/chat/session-inbox`），浏览器实测点击后回到主页侧边栏。
+- **构建修正**：排查发现 `dist` 曾被 `VITE_SERVICE_MODE=http` 构建污染（默认走 HTTP 导致 Agents 列表 404 为空），重新构建后默认恢复 mock；构建环境未配置该变量时请勿携带 `VITE_SERVICE_MODE=http`。
 
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。
