@@ -234,3 +234,47 @@ next.messages[existingId].content === message.content
 - 单测：快照先于流式完成到达（占位“我” vs 规范全文）→ 只剩规范消息、
   `messageOrder` 无占位 id；持久化跳过占位行、只落 user + 规范 assistant。
 - 30/30 测试通过，build 通过。
+
+## 十、追加：聊天页滚到底最后一条消息被输入框遮挡
+
+### 现象
+
+聊天页滚动到底后，最后一条消息仍被底部输入区挡住一段高度，无法继续下滚。
+
+### 根因
+
+消息列的底部留白是固定值（`paddingBottom: 150px`），而输入区高度是动态的：
+`ChatInput` 的 textarea 自动增高（2–8 行）+ 底部工具栏/审批行会显著改变高度，
+固定留白在小输入框时浪费、大输入框时不够，最后一条消息被绝对定位的输入区遮住。
+
+### 修复
+
+用 `ResizeObserver` 实时测量输入区外层（`surface` 容器）的实际高度，
+消息列 `paddingBottom = composerHeight + 32`：
+
+```ts
+const surfaceRef = useRef<HTMLDivElement>(null);
+const [composerHeight, setComposerHeight] = useState(0);
+useEffect(() => {
+  const node = surfaceRef.current;
+  if (!node) return;
+  const update = () => setComposerHeight(node.offsetHeight);
+  update();
+  const observer = new ResizeObserver(update);
+  observer.observe(node);
+  return () => observer.disconnect();
+}, []);
+// 消息列：paddingBottom: composerHeight + 32
+```
+
+`ChatPage` 与 `GroupChatPage` 同步修改。
+
+### 验证（页面实测）
+
+输入框输入 6 行（textarea 自动变高到 325px）后滚动到底：
+
+```text
+最后一条消息 bottom = 127
+输入框 top          = 155
+notBlocked = true（最后一条完整显示在输入框上方）
+```

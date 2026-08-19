@@ -4,7 +4,7 @@ import { DropdownMenu } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { message } from 'antd';
 import { ChevronLeft, Clock3, Info, Play, Plus, Users, X } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { agentGroupService } from '@/api/agent-group/agentGroupService';
@@ -82,6 +82,8 @@ const GroupChatPage = () => {
   const [members, setMembers] = useState(DEFAULT_GROUP_MEMBERS);
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(0);
+  const surfaceRef = useRef<HTMLDivElement>(null);
 
   const groupConfig = useMemo<StoredGroupConfig | undefined>(() => {
     const value = session?.group;
@@ -209,6 +211,17 @@ const GroupChatPage = () => {
   }, { showReasoning });
 
   const hasAnyMessage = storedMessages.length > 0 || (isActiveRun && Boolean(answer || running || run?.status));
+
+  // 消息列底部留白跟随输入区实际高度（textarea 自动变高时也能滚到最后一条）。
+  useEffect(() => {
+    const node = surfaceRef.current;
+    if (!node) return;
+    const update = () => setComposerHeight(node.offsetHeight);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   const sendMessage = async (message: string) => {
     if (!session) return;
@@ -351,7 +364,13 @@ const GroupChatPage = () => {
         <Flexbox className={styles.scroll}>
           <Flexbox
             gap={8}
-            style={{ marginInline: 'auto', maxWidth: 840, padding: '24px 24px 150px', width: '100%' }}
+            style={{
+              marginInline: 'auto',
+              maxWidth: 840,
+              padding: '24px 24px',
+              paddingBottom: composerHeight + 32,
+              width: '100%',
+            }}
           >
             {!hasAnyMessage && (
               <Flexbox align="center" gap={16} paddingBlock={48}>
@@ -481,7 +500,7 @@ const GroupChatPage = () => {
             )}
           </Flexbox>
         </Flexbox>
-        <Flexbox className={styles.surface}>
+        <Flexbox className={styles.surface} ref={surfaceRef}>
           <Flexbox style={{ marginInline: 'auto', maxWidth: 840, width: '100%' }}>
             <ChatInput
               agentName={session?.title || t('nav.group')}

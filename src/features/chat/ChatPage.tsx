@@ -87,6 +87,8 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [editingId, setEditingId] = useState<string>();
   const [editDraft, setEditDraft] = useState('');
+  const [composerHeight, setComposerHeight] = useState(0);
+  const surfaceRef = useRef<HTMLDivElement>(null);
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
   const [mentionsLoading, setMentionsLoading] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<MentionAgent>();
@@ -398,6 +400,17 @@ export default function ChatPage() {
     void navigator.clipboard.writeText(content || '');
   }, []);
 
+  // 消息列底部留白跟随输入区实际高度（textarea 自动变高时也能滚到最后一条）。
+  useEffect(() => {
+    const node = surfaceRef.current;
+    if (!node) return;
+    const update = () => setComposerHeight(node.offsetHeight);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <Flexbox horizontal height="100%">
       <Flexbox flex={1} height="100%" style={{ minWidth: 0, position: 'relative' }}>
@@ -410,7 +423,16 @@ export default function ChatPage() {
           onToggleArtifact={() => setArtifactOpen((open) => !open)}
         />
         <Flexbox className={styles.scroll}>
-          <Flexbox gap={8} style={{ marginInline: 'auto', maxWidth: 840, padding: '24px 24px 150px', width: '100%' }}>
+          <Flexbox
+            gap={8}
+            style={{
+              marginInline: 'auto',
+              maxWidth: 840,
+              padding: '24px 24px',
+              paddingBottom: composerHeight + 32,
+              width: '100%',
+            }}
+          >
             {!hasAnyMessage && (
               <Welcome agentName={agent} onSuggestion={(suggestion) => setInput(t(suggestion))} />
             )}
@@ -576,7 +598,7 @@ export default function ChatPage() {
             )}
           </Flexbox>
         </Flexbox>
-        <Flexbox className={styles.surface}>
+        <Flexbox className={styles.surface} ref={surfaceRef}>
           <Flexbox style={{ marginInline: 'auto', maxWidth: 840, width: '100%' }}>
             <ChatInput
               agentName={agent}
