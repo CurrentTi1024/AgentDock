@@ -2,7 +2,7 @@
 // 桌面输入区：圆角容器 + 自动高度输入 + 底部发送/停止 + 外部功能行（左工具、右审批模式）。
 import { ActionIcon, Avatar, Button, Flexbox, Select, Tag, Text, TextArea } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { ArrowBigUp, AtSign, CornerDownLeft, Mic, Paperclip, Send, Square } from 'lucide-react';
+import { ArrowBigUp, CornerDownLeft, Mic, Paperclip, Send, Square } from 'lucide-react';
 import { type KeyboardEvent, memo, useMemo, useRef, useState } from 'react';
 
 import { type MentionAgent } from '@/api/market/agentMarketService';
@@ -54,7 +54,8 @@ interface ChatInputProps {
   agentName?: string;
   approvalMode?: ApprovalMode;
   fab?: string;
-  hideMentionButton?: boolean;
+  /** 关闭 @ 提及（输入 @ 不再弹出菜单），群聊等无需选 Agent 的场景使用。 */
+  mentionEnabled?: boolean;
   mentions: MentionAgent[];
   mentionsLoading?: boolean;
   onChange: (value: string) => void;
@@ -76,7 +77,7 @@ const ChatInput = memo<ChatInputProps>(
     agentName,
     approvalMode = 'manual',
     fab,
-    hideMentionButton = false,
+    mentionEnabled = true,
     mentions,
     mentionsLoading = false,
     onChange,
@@ -112,11 +113,6 @@ const ChatInput = memo<ChatInputProps>(
       }
     };
 
-    const openMentionMenu = () => {
-      setMentionOpen(true);
-      onMentionTrigger();
-    };
-
     return (
       <Flexbox gap={0}>
         <Flexbox className={styles.composer} gap={4} padding={12} style={{ position: 'relative' }}>
@@ -140,9 +136,9 @@ const ChatInput = memo<ChatInputProps>(
             onChange={(event) => {
               const next = event.target.value;
               onChange(next);
-              setMentionOpen(next.startsWith('@'));
+              setMentionOpen(mentionEnabled && next.startsWith('@'));
               if (timerRef.current) clearTimeout(timerRef.current);
-              if (next.startsWith('@')) {
+              if (mentionEnabled && next.startsWith('@')) {
                 timerRef.current = setTimeout(() => {
                   setMentionOpen(true);
                   onMentionTrigger();
@@ -175,11 +171,6 @@ const ChatInput = memo<ChatInputProps>(
               )}
               <ActionIcon aria-label={t('chat.attach')} disabled icon={Paperclip} title={t('chat.attach')} />
               <ActionIcon aria-label={t('chat.voice')} disabled icon={Mic} title={t('chat.voice')} />
-              {!hideMentionButton && (
-                <Button size="small" type="text" onClick={() => openMentionMenu()}>
-                  <AtSign size={14} /> {t('chat.mentionButton')}
-                </Button>
-              )}
             </Flexbox>
             <Flexbox horizontal align="center" gap={12}>
               {!running && (

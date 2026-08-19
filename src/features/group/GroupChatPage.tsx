@@ -478,7 +478,7 @@ const GroupChatPage = () => {
             <ChatInput
               agentName={session?.title || t('nav.group')}
               fab={fab}
-              hideMentionButton
+              mentionEnabled={false}
               mentions={[]}
               running={running}
               value={input}
