@@ -41,3 +41,94 @@ test('records per-message streamId and dedupes replay', () => {
   assert.equal(state.latestStreamId, '2');
   assert.deepEqual(state.processedStreamIds, ['1', '2']);
 });
+
+test('tracks reasoning streaming state and duration across REASONING events', () => {
+  let state = createRunState('run-5', 'thread-5');
+  state = reduceRunEvent(state, { streamId: '1', event: { type: 'REASONING_MESSAGE_START', messageId: 'reasoning-5' } });
+  assert.equal(state.reasoningMeta['reasoning-5'].streaming, true);
+  assert.ok(state.reasoningMeta['reasoning-5'].startedAt);
+  state = reduceRunEvent(state, { streamId: '2', event: { type: 'REASONING_MESSAGE_CONTENT', messageId: 'reasoning-5', delta: '分析中' } });
+  assert.equal(state.reasoning['reasoning-5'], '分析中');
+  assert.equal(state.reasoningMeta['reasoning-5'].streaming, true);
+  state = reduceRunEvent(state, { streamId: '3', event: { type: 'REASONING_MESSAGE_END', messageId: 'reasoning-5' } });
+  assert.equal(state.reasoningMeta['reasoning-5'].streaming, false);
+  assert.ok(state.reasoningMeta['reasoning-5'].finishedAt);
+  assert.deepEqual(state.orderedBlocks, [{ id: 'reasoning-5', kind: 'reasoning' }]);
+});
+
+test('records tool call timing, apiName and result message id', () => {
+  let state = createRunState('run-6', 'thread-6');
+  state = reduceRunEvent(state, { streamId: '1', event: { type: 'TOOL_CALL_START', toolCallId: 'tool-6', toolCallName: 'flightData.queryMetrics', apiName: 'flightData.queryMetrics' } });
+  assert.equal(state.toolCalls['tool-6'].status, 'running');
+  assert.equal(state.toolCalls['tool-6'].apiName, 'flightData.queryMetrics');
+  assert.ok(state.toolCalls['tool-6'].startedAt);
+  state = reduceRunEvent(state, { streamId: '2', event: { type: 'TOOL_CALL_END', toolCallId: 'tool-6' } });
+  assert.equal(state.toolCalls['tool-6'].status, 'called');
+  assert.ok(state.toolCalls['tool-6'].finishedAt);
+  state = reduceRunEvent(state, { streamId: '3', event: { type: 'TOOL_CALL_RESULT', toolCallId: 'tool-6', content: { ok: true }, result_msg_id: 'result-6' } });
+  assert.equal(state.toolCalls['tool-6'].status, 'completed');
+  assert.equal(state.toolCalls['tool-6'].resultMsgId, 'result-6');
+  assert.deepEqual(state.toolCalls['tool-6'].result, { ok: true });
+  assert.ok(state.toolCalls['tool-6'].finishedAt);
+});
+
+test('projects company custom events into activity blocks (supervisor/groupTasks/tasks)', () => {
+  let state = createRunState('run-7', 'thread-7');
+  state = reduceRunEvent(state, { streamId: '1', event: { type: 'CUSTOM_EVENT', name: 'agentDock.supervisor', messageId: 'supervisor-7', value: { description: 'Supervisor 汇总' } } });
+  state = reduceRunEvent(state, { streamId: '2', event: { type: 'CUSTOM_EVENT', name: 'agentDock.groupTasks', messageId: 'group-tasks-7', value: { description: '群组任务' } } });
+  state = reduceRunEvent(state, { streamId: '3', event: { type: 'CUSTOM_EVENT', name: 'agentDock.tasks', messageId: 'tasks-7', value: { description: '子任务' } } });
+  assert.equal(state.activities['supervisor-7'].activityType, 'agentDock.supervisor');
+  assert.equal(state.activities['supervisor-7'].description, 'Supervisor 汇总');
+  assert.equal(state.activities['group-tasks-7'].activityType, 'agentDock.groupTasks');
+  assert.equal(state.activities['tasks-7'].activityType, 'agentDock.tasks');
+  assert.deepEqual(state.orderedBlocks, [
+    { id: 'supervisor-7', kind: 'activity' },
+    { id: 'group-tasks-7', kind: 'activity' },
+    { id: 'tasks-7', kind: 'activity' },
+  ]);
+});
+
+test('projects legacy on_interrupt custom event as a HITL pause', () => {
+  let state = createRunState('run-8', 'thread-8');
+  state = reduceRunEvent(state, { streamId: '1', event: { type: 'CUSTOM_EVENT', name: 'on_interrupt', value: { id: 'request-8', message: '需要确认' } } });
+  assert.equal(state.status, 'paused');
+  assert.equal(state.activities['hitl-request-8'].activityType, 'agentDock.hitl');
+  assert.equal(state.activities['hitl-request-8'].requestId, 'request-8');
+});
+
+test('projects LobeHub task roles from MESSAGES_SNAPSHOT as activity blocks', () => {
+  let state = createRunState('run-9', 'thread-9');
+  state = reduceRunEvent(state, {
+    streamId: '1',
+    event: {
+      type: 'MESSAGES_SNAPSHOT',
+      messages: [
+        { id: 'user-9', role: 'user', content: 'hi' },
+        { id: 'task-9', role: 'task', content: '读取数据' },
+        { id: 'supervisor-9', role: 'supervisor', content: '汇总' },
+        { id: 'assistant-9', role: 'assistant', content: '完成' },
+      ],
+    },
+  });
+  assert.equal(state.messages['user-9'].content, 'hi');
+  assert.equal(state.messages['assistant-9'].content, '完成');
+  assert.equal(state.activities['task-9'].activityType, 'agentDock.task');
+  assert.equal(state.activities['supervisor-9'].activityType, 'agentDock.supervisor');
+  assert.equal(Object.keys(state.messages).length, 2);
+});
+
+test('ACTIVITY_SNAPSHOT stores activityType alongside content for live rendering', () => {
+  let state = createRunState('run-10', 'thread-10');
+  state = reduceRunEvent(state, {
+    streamId: '1',
+    event: {
+      type: 'ACTIVITY_SNAPSHOT',
+      messageId: 'task-10',
+      activityType: 'agentDock.task',
+      content: { status: 'completed', fab: 'F15B' },
+    },
+  });
+  assert.equal(state.activities['task-10'].activityType, 'agentDock.task');
+  assert.equal(state.activities['task-10'].status, 'completed');
+  assert.deepEqual(state.orderedBlocks, [{ id: 'task-10', kind: 'activity' }]);
+});

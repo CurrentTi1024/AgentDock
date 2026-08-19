@@ -16,15 +16,15 @@
 | 用户消息气泡 | ChatItem 用户分支 | `ChatItem role=user` | ✅ | 基本一致 |
 | 助手 Markdown 文本 | `Conversation/Markdown`（react-markdown） | `Markdown.tsx`（react-markdown + remark-gfm） | ✅ | 代码高亮插件可后续增强 |
 | 流式光标 | LobeHub typing indicator | `▍` 字符 | ✅ 简化 | 可用，但可换成 LobeHub 风格 |
-| Reasoning/思考 | `Messages/Reasoning` + ProcessFold | `ReasoningBlock` | ⚠️ P1 | 无流式状态、无加密值展示、折叠动画简化 |
-| Tool Call | `Messages/Tool` + Tool Inspector（参数/结果/耗时/状态） | `ToolCallBlock` | ⚠️ P1 | 无耗时、无工具图标注册、无参数高亮 |
+| Reasoning/思考 | `Messages/Reasoning` + ProcessFold | `ReasoningBlock` | ✅ 已补齐 | 流式态（思考中…）、耗时、加密值展示已由 `RuntimeReasoningMeta` 投影；折叠动画可继续打磨 |
+| Tool Call | `Messages/Tool` + Tool Inspector（参数/结果/耗时/状态） | `ToolCallBlock` | ✅ 已补齐 | `startedAt/finishedAt/apiName/resultMsgId` 由投影层记录，卡片显示耗时与错误态；参数高亮/工具图标注册可继续打磨 |
 | Task/Workflow 步骤 | `Messages/Task`、`ProcessFold`、`WorkflowCollapse` | `WorkflowStepsBlock` | ✅ | 折叠动画可打磨 |
-| Agent Delegation | `AssistantGroup` / activity | `ActivityBlock` | ✅ | 完整 delegation 详情 P2 |
+| Agent Delegation / Supervisor / Tasks / GroupTasks | `AssistantGroup` / activity | `ActivityBlock` | ✅ 已补齐 | `agentDock.supervisor/tasks/groupTasks/agentDelegation/assistantGroup` 统一投影为 activity 卡片（Crown/Layers/Users/ListTodo 图标 + i18n 文案）；完整 delegation 详情 P2 |
 | HITL 审批 | `Intervention`（approve/reject/edit/input/select/form） | `HitlBlock`（approve/reject + requestId） | ⚠️ | 其余 mode 待后端 wire 冻结后逐项启用 |
 | A2UI Surface | A2UI Renderer | 官方 renderer（http）+ `A2uiStoredSurface`（恢复/Mock） | ✅ | 动态 schema 联调验证 |
-| 错误卡片 | LobeHub error message | `ErrorBlock` | ⚠️ P1 | 无 code、无重试按钮 |
+| 错误卡片 | LobeHub error message | `ErrorBlock` | ✅ 已补齐 | 展示 error code + message；重试按钮 P2 |
 | 状态快照/State | LobeHub debug 面板 | 无 UI | P2 | 可加诊断折叠块 |
-| Activity/Task 摘要 | LobeHub activity selectors | 仅 HITL/Surface 命中 | ⚠️ P1 | 通用 activity 渲染器 |
+| Activity/Task 摘要 | LobeHub activity selectors | 通用 activity 渲染器 | ✅ | `CUSTOM_EVENT` 与 `MESSAGES_SNAPSHOT` 任务类 role 均投影为 activity 卡片；未知类型进 rawEvents 不白屏 |
 | 欢迎页 | `AgentHome` | `Welcome` | ✅ | 建议按钮只 setInput 不自动发送（当前行为） |
 | 会话历史列表 | `HomeSidebar/Body` | `HomeSidebar` | ✅ | 已接 sessionHistoryService |
 | 市场列表卡片 | `community/(list)/{agent,skill,mcp}/Item` | `MarketItem` | ✅ | 结构已迁移；日期 locale P1 |

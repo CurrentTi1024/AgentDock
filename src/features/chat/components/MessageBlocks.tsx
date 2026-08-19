@@ -1,11 +1,11 @@
 // Adapted from: src/features/Conversation/Messages + Tool/AssistantGroup (LobeHub canary)
 import { ActionIcon, Block, Button, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Brain, CheckCircle2, ChevronDown, ListTodo, Play, Users, Wrench, XCircle } from 'lucide-react';
+import { Brain, CheckCircle2, ChevronDown, Crown, Layers, ListTodo, Play, Users, Wrench, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 import { useI18n } from '@/i18n';
-import type { RuntimeRunState, RuntimeStep } from '@/api/runtime/types';
+import type { RuntimeReasoningMeta, RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
 import type { SessionMessageRecord } from '@/api/session/sessionHistoryService';
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
@@ -32,47 +32,65 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
   `,
 }));
 
-export const ReasoningBlock = ({ id, text }: { id: string; text: string }) => {
+const formatDuration = (startedAt?: number, finishedAt?: number) => {
+  if (!startedAt || !finishedAt) return undefined;
+  const seconds = Math.max(0, Math.round((finishedAt - startedAt) / 100) / 10);
+  return seconds;
+};
+
+export const ReasoningBlock = ({ id, meta, text }: { id: string; meta?: RuntimeReasoningMeta; text: string }) => {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
+  const streaming = Boolean(meta?.streaming);
+  const duration = formatDuration(meta?.startedAt, meta?.finishedAt);
+  const [open, setOpen] = useState(streaming);
   return (
     <div className={styles.block} key={id}>
       <div className={styles.header} onClick={() => setOpen((value) => !value)}>
         <Icon color={cssVar.colorTextDescription} icon={Brain} size={15} />
         <Flexbox flex={1}>
           <Text fontSize={12} weight={500}>
-            {t('chat.reasoning')}
+            {streaming ? t('chat.reasoningStreaming') : t('chat.reasoning')}
           </Text>
           <Text fontSize={11} type="secondary">
-            {t('chat.reasoningDone')}
+            {streaming ? t('chat.reasoningInProgress') : duration !== undefined ? t('chat.reasoningDuration', { seconds: duration }) : t('chat.reasoningDone')}
           </Text>
         </Flexbox>
         <Icon icon={ChevronDown} size={14} />
       </div>
-      {open && <div className={styles.content}>{text}</div>}
+      {open && <div className={styles.content}>{meta?.encrypted ? t('chat.reasoningEncrypted') : text}</div>}
     </div>
   );
 };
 
-export const ToolCallBlock = ({ call }: { call: { args: string; name?: string; result?: unknown; status: string } }) => {
+export const ToolCallBlock = ({ call }: { call: RuntimeToolCall }) => {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const statusKeys: Record<string, 'chat.toolStatus.called' | 'chat.toolStatus.completed' | 'chat.toolStatus.running'> = {
+  const duration = formatDuration(call.startedAt, call.finishedAt);
+  const statusKeys: Record<RuntimeToolCall['status'], 'chat.toolStatus.called' | 'chat.toolStatus.completed' | 'chat.toolStatus.error' | 'chat.toolStatus.running'> = {
     called: 'chat.toolStatus.called',
     completed: 'chat.toolStatus.completed',
+    error: 'chat.toolStatus.error',
     running: 'chat.toolStatus.running',
   };
-  const statusKey = statusKeys[call.status];
+  const statusKey = statusKeys[call.status] as string | undefined;
   const meta = statusKey
-    ? { color: call.status === 'completed' ? ('success' as const) : ('processing' as const), label: t(statusKey) }
+    ? {
+        color: (call.status === 'completed' ? ('success' as const) : call.status === 'error' ? ('error' as const) : ('processing' as const)),
+        label: t(statusKey as 'chat.toolStatus.called'),
+      }
     : { color: 'default' as const, label: call.status };
   return (
     <div className={styles.block}>
       <div className={styles.header} onClick={() => setOpen((value) => !value)}>
         <Icon color={cssVar.colorTextDescription} icon={Wrench} size={15} />
         <Text fontSize={12} weight={500} style={{ flex: 1 }}>
-          {call.name || t('chat.toolCall')}
+          {call.apiName || call.name || t('chat.toolCall')}
         </Text>
+        {duration !== undefined && (
+          <Text fontSize={11} type="secondary">
+            {t('chat.toolDuration', { seconds: duration })}
+          </Text>
+        )}
         <Tag color={meta.color} size="small">
           {meta.label}
         </Tag>
@@ -128,18 +146,28 @@ export const WorkflowStepsBlock = ({ steps }: { steps: RuntimeStep[] }) => {
   );
 };
 
+const ACTIVITY_TYPE_META: Record<string, { icon: typeof ListTodo; labelKey: string }> = {
+  'agentDock.agentDelegation': { icon: Users, labelKey: 'chat.activity.agentDelegation' },
+  'agentDock.assistantGroup': { icon: Layers, labelKey: 'chat.activity.assistantGroup' },
+  'agentDock.groupTasks': { icon: Layers, labelKey: 'chat.activity.groupTasks' },
+  'agentDock.supervisor': { icon: Crown, labelKey: 'chat.activity.supervisor' },
+  'agentDock.task': { icon: ListTodo, labelKey: 'chat.activity.task' },
+  'agentDock.tasks': { icon: ListTodo, labelKey: 'chat.activity.tasks' },
+};
+
 export const ActivityBlock = ({ activity }: { activity: { activityType?: string; description?: string; title?: string; [key: string]: unknown } }) => {
   const { t } = useI18n();
-  const isDelegation = activity.activityType === 'agentDock.agentDelegation';
+  const typeMeta = ACTIVITY_TYPE_META[String(activity.activityType || '')];
+  const IconComponent = typeMeta?.icon ?? ListTodo;
   return (
     <Block gap={10} padding={14} variant="outlined">
       <Flexbox horizontal align="center" gap={9}>
-        <Icon color={cssVar.colorInfo} icon={isDelegation ? Users : ListTodo} />
+        <Icon color={cssVar.colorInfo} icon={IconComponent} />
         <Text weight={500}>
-          {isDelegation ? t('chat.activity.agentDelegation') : t('chat.activity.task')}
+          {typeMeta ? t(typeMeta.labelKey) : t('chat.activity.task')}
         </Text>
       </Flexbox>
-      {activity.description && <Text type="secondary">{activity.description}</Text>}
+      {(activity.description || activity.title) && <Text type="secondary">{activity.description || activity.title}</Text>}
     </Block>
   );
 };
@@ -274,17 +302,18 @@ export const A2uiStoredSurface = ({
   return <Flexbox gap={8} wrap="wrap">{nodes}</Flexbox>;
 };
 
-export const ErrorBlock = ({ message }: { message: string }) => (
-  <ErrorBlockInner message={message} />
+export const ErrorBlock = ({ code, message }: { code?: string; message: string }) => (
+  <ErrorBlockInner code={code} message={message} />
 );
 
-const ErrorBlockInner = ({ message }: { message: string }) => {
+const ErrorBlockInner = ({ code, message }: { code?: string; message: string }) => {
   const { t } = useI18n();
   return (
   <Block gap={10} padding={16} variant="outlined">
     <Flexbox horizontal align="center" gap={9}>
       <Icon color={cssVar.colorError} icon={XCircle} />
       <Text weight={500}>{t('chat.error.title')}</Text>
+      {code && <Tag color="error" size="small">{code}</Tag>}
     </Flexbox>
     <Text type="secondary">{message}</Text>
   </Block>
@@ -338,10 +367,14 @@ export const renderStoredBlocks = (
       nodes.push(
         <ToolCallBlock
           call={{
+            apiName: typeof payload.apiName === 'string' ? payload.apiName : undefined,
             args: record.content || String(payload.args || ''),
+            finishedAt: typeof payload.finishedAt === 'number' ? payload.finishedAt : undefined,
             name: typeof payload.name === 'string' ? payload.name : undefined,
             result: payload.result,
-            status: String(payload.status || 'completed'),
+            resultMsgId: typeof payload.resultMsgId === 'string' ? payload.resultMsgId : undefined,
+            startedAt: typeof payload.startedAt === 'number' ? payload.startedAt : undefined,
+            status: (payload.status === 'error' || payload.status === 'called' || payload.status === 'running' ? payload.status : 'completed') as RuntimeToolCall['status'],
           }}
           key={record.id}
         />,
@@ -399,7 +432,7 @@ export const renderRunBlocks = (
   if (ordered.length === 0) {
     // 旧检查点兼容：按 map 分组渲染
     if (options.showReasoning !== false) {
-      for (const [id, text] of Object.entries(run.reasoning || {})) blocks.push(<ReasoningBlock id={id} key={`reasoning-${id}`} text={text} />);
+      for (const [id, text] of Object.entries(run.reasoning || {})) blocks.push(<ReasoningBlock id={id} key={`reasoning-${id}`} meta={run.reasoningMeta?.[id]} text={text} />);
     }
     for (const [id, call] of Object.entries(run.toolCalls || {})) blocks.push(<ToolCallBlock call={call} key={`tool-${id}`} />);
     const steps = Object.values(run.steps || {}).sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0));
@@ -414,7 +447,7 @@ export const renderRunBlocks = (
       if (ref.kind === 'reasoning') {
         if (options.showReasoning === false) continue;
         const text = run.reasoning?.[ref.id];
-        if (text !== undefined) blocks.push(<ReasoningBlock id={ref.id} key={`reasoning-${ref.id}`} text={text} />);
+        if (text !== undefined) blocks.push(<ReasoningBlock id={ref.id} key={`reasoning-${ref.id}`} meta={run.reasoningMeta?.[ref.id]} text={text} />);
       } else if (ref.kind === 'step') {
         const step = run.steps?.[ref.id];
         if (step) stepBuffer.push(step);
@@ -430,7 +463,17 @@ export const renderRunBlocks = (
         if (value.activityType === 'a2ui.surface' || value.activityType === 'a2ui-surface') continue;
         if (value.requestId) {
           blocks.push(<HitlBlock description={value.description} key={`hitl-${ref.id}`} onApprove={handlers.onApproveHitl} onReject={handlers.onRejectHitl} requestId={value.requestId} />);
-        } else if (value.activityType === 'agentDock.agentDelegation' || value.activityType === 'agentDock.task') {
+        } else if (value.activityType === 'agentDock.hitl') {
+          blocks.push(
+            <HitlBlock
+              description={typeof value.description === 'string' ? value.description : undefined}
+              key={`hitl-${ref.id}`}
+              onApprove={handlers.onApproveHitl}
+              onReject={handlers.onRejectHitl}
+              requestId={String(value.requestId || ref.id)}
+            />,
+          );
+        } else if (typeof value.activityType === 'string' && value.activityType.startsWith('agentDock.')) {
           blocks.push(<ActivityBlock activity={value} key={`activity-${ref.id}`} />);
         }
       } else if (ref.kind === 'surface') {
@@ -442,6 +485,6 @@ export const renderRunBlocks = (
     }
     flushSteps();
   }
-  if (run.error) blocks.push(<ErrorBlock key="error" message={run.error.message} />);
+  if (run.error) blocks.push(<ErrorBlock code={run.error.code} key="error" message={run.error.message} />);
   return blocks;
 };

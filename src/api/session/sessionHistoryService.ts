@@ -70,7 +70,7 @@ export const sessionHistoryService = {
       push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, streamId: message.streamId ?? snapshot.latestStreamId });
     }
     for (const [id, content] of Object.entries(snapshot.reasoning || {})) push('reasoning', id, { content, runId: snapshot.runId, streamId: snapshot.latestStreamId });
-    for (const [id, call] of Object.entries(snapshot.toolCalls || {})) push('tool', id, { content: call.args, payload: { args: call.args, name: call.name, result: call.result, status: call.status }, runId: snapshot.runId, streamId: snapshot.latestStreamId });
+    for (const [id, call] of Object.entries(snapshot.toolCalls || {})) push('tool', id, { content: call.args, payload: { apiName: call.apiName, args: call.args, finishedAt: call.finishedAt, name: call.name, result: call.result, resultMsgId: call.resultMsgId, startedAt: call.startedAt, status: call.status }, runId: snapshot.runId, streamId: snapshot.latestStreamId });
     for (const [id, step] of Object.entries(snapshot.steps || {})) push('step', id, { payload: { finishedAt: step.finishedAt, name: step.name, startedAt: step.startedAt, status: step.status }, runId: snapshot.runId, streamId: snapshot.latestStreamId });
     for (const [id, activity] of Object.entries(snapshot.activities || {})) {
       const payload = (activity && typeof activity === 'object') ? (activity as Record<string, unknown>) : {};

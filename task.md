@@ -272,4 +272,12 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - 群聊导航：群侧边栏新增“对话”入口、群聊页头部新增返回按钮；群设置面板默认收起（头部信息图标开关）；成员标签超长省略。
 - UI 测试稳定选择器：`chat-input / chat-send / chat-stop`（design/07 §10）。
 
+第四轮（2026-08-19，投影层补齐 AG-UI 全事件面 + LobeHub 信息粒度渲染）：
+
+- **投影层（runReducer）**：REASONING_START/END/ENCRYPTED_VALUE 流式态与耗时（`reasoningMeta`）；TOOL_CALL 记录 `apiName/startedAt/finishedAt/resultMsgId` 与错误态；`CUSTOM_EVENT`（agentDock.supervisor/tasks/groupTasks/agentDelegation/assistantGroup/task + legacy on_interrupt）投影为 activity；`MESSAGES_SNAPSHOT` 的 LobeHub 任务类 role（task/tasks/groupTasks/supervisor/assistantGroup）投影为 activity 卡片；`ACTIVITY_SNAPSHOT` 内容合并 activityType，实时路径 activity 卡片可渲染。
+- **渲染（MessageBlocks）**：Reasoning 思考中/耗时/加密值；Tool 卡片耗时 + apiName + 错误 Tag；ActivityBlock 全类型图标与 i18n；ErrorBlock 展示 code。
+- **Mock fixture**：补 STEP_FINISHED、reasoning 流式延迟、群聊 supervisor/tasks/groupTasks 自定义事件，页面可直接演示完整消息类型矩阵。
+- **i18n**：新增 10 个 key（reasoning 流式/耗时/加密、tool 失败/耗时、supervisor/tasks/groupTasks/assistantGroup），18 语言词典全部翻译并过测试。
+- **测试**：runReducer 新增 6 项（reasoning 生命周期、tool 耗时、自定义事件投影、legacy HITL、快照任务类 role、activityType 合并），总计 22/22 通过；build 通过；HTTP 冒烟 5 路由 200。
+
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。
