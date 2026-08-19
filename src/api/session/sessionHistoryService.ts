@@ -135,6 +135,9 @@ export const sessionHistoryService = {
     const push = (kind: SessionMessageKind, id: string, value: Omit<SessionMessageRecord, 'createdAt' | 'id' | 'kind' | 'sequence' | 'sessionId'>) => records.push({ ...value, createdAt: new Date().toISOString(), id: `${kind}:${id}`, kind, sequence: nextSequence(), sessionId });
     for (const message of Object.values(snapshot.messages)) {
       if (!message || !message.id) continue;
+      // 只持久化用户与助手文本；system/developer 上下文消息（如 A2UI catalog）
+      // 不进入可见历史，避免以 assistant 气泡误渲染。
+      if (message.role !== 'user' && message.role !== 'assistant') continue;
       // 文本消息记录自己最后一次更新时的 streamId；其余类型记录 run 当前游标。
       push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, streamId: message.streamId ?? snapshot.latestStreamId });
     }

@@ -30,10 +30,10 @@
 |---|---|---|---|
 | `getFabOptions` | `marketService` (`/api/market/getFabOptions`) | `marketMockService`（permissioned 固定 F15B） | MarketPage/DetailPage |
 | `getAgentCategories` | `agentMarketHttpService` | 按 fab/mode 过滤计数 | MarketPage |
-| `getAgentsListByCategoryAndKW` | 同上 | `filterMarketItems + page` | MarketPage |
+| `getAgentsListByCategoryAndKW` | 同上 | `filterMarketItems + sortMarketItems + page` | MarketPage |
 | `getAgentDetailById` | 同上 | `details[agentId@fab]` | DetailPage |
 | `getMentionAgentsList` | 同上 | 全部有权限组合 | ChatPage @菜单 |
-| Skill/MCP 系列 | `skillMarketHttpService` / `mcpMarketHttpService` | 同上 | MarketPage/DetailPage |
+| Skill/MCP 系列 | `skillMarketHttpService` / `mcpMarketHttpService` | `filterMarketItems + sortMarketItems + page` | MarketPage/DetailPage |
 | `createAndPublishSkill` | HTTP | 生成 `skill-{slug}` | CreateSkillPage |
 
 ## 3. Mock → HTTP 切换
@@ -51,8 +51,8 @@ HTTP Client（`src/lib/httpClient.ts`）已统一处理 envelope（`code !== 0` 
 
 ### 4.1 竞态与错误处理（P1）
 
-- MarketPage：FAB options 有 `cancelled` 保护，但 **分类/列表请求没有 AbortController、没有过期保护、没有 loading/error 状态**。快速切换 FAB/分类时旧响应可能覆盖新数据。
-- DetailPage：`getFabOptions` 有 cancelled；**详情请求没有**，且无错误提示（请求失败会一直 loading）。
+- ~~MarketPage：分类/列表请求没有 AbortController、没有过期保护、没有 loading/error 状态~~ ✅ 已修复：列表/分类请求带 AbortController + requestId 过期保护 + loading/error 态，快速切换 FAB/分类不会出现旧响应覆盖。
+- ~~DetailPage：详情请求没有 AbortController 且无错误提示~~ ✅ 已修复：详情请求带 AbortController + loading/error。
 - CreateSkillPage：`publish` 的 `finally` 只关 loading，错误无展示；表单全部 `defaultValue`，用户输入未收集。
 
 建议统一做法：
@@ -74,15 +74,15 @@ useEffect(() => {
 
 以下位置写死 locale，应改为 `useI18n().locale`（详情页已用 `locale` 格式化日期，但请求仍写死）：
 
-- MarketPage：`getFabOptions` ×2、列表、分类。
-- DetailPage：`getFabOptions` ×2、详情。
-- CreateSkillPage：`createAndPublishSkill`。
-- WorkspacePage GroupPage：`getSupportedAgentGroupOrchestrationModes`。
-- ChatPage：`getMentionAgentsList`。
+- ~~MarketPage：`getFabOptions` ×2、列表、分类~~ ✅ 已改 `useI18n().locale`。
+- ~~DetailPage：`getFabOptions` ×2、详情~~ ✅ 已改 `useI18n().locale`。
+- CreateSkillPage：`createAndPublishSkill`（仍写死 `zh-CN`）。
+- ~~WorkspacePage GroupPage：`getSupportedAgentGroupOrchestrationModes`~~ → 现位于 GroupChatPage / GroupCreateModal；GroupCreateModal ✅ 已改 `useI18n().locale`，GroupChatPage 仍写死 `zh-CN`。
+- ChatPage / HomePage：`getMentionAgentsList`（仍写死 `zh-CN`）。
 
 日期格式化写死：
 
-- `MarketItem`：`toLocaleDateString('zh-CN')`。
+- ~~`MarketItem`：`toLocaleDateString('zh-CN')`~~ ✅ 已改：使用 `useI18n().locale` 且时间精确到时分（`toLocaleString` + hour/minute）。
 - `PublishedTime`：`Intl.DateTimeFormat('en-US')`。
 - WorkspacePage Documents/Memory：`toLocaleDateString('zh-CN')`。
 
@@ -107,7 +107,7 @@ Mock Service 返回 `detailUrl: /market/skill/skill-${slug}`（例如 `skill-fli
 | # | 行动 | 优先级 |
 |---|---|---|
 | G1 | OAuth2 Proxy 配置 `/api/* → AGENT_REGISTRY_BASE_URL`、`/api/copilotkit → Copilot Runtime`（本地联调可用临时 nginx 等价替代）；仓库不实现反向代理 | P0 |
-| G2 | MarketPage/DetailPage 请求统一 AbortController + loading/error/竞态保护 | P1 |
-| G3 | 全部请求 locale 改用 `useI18n().locale`；日期格式化统一 locale | P1 |
+| G2 | MarketPage/DetailPage 请求统一 AbortController + loading/error/竞态保护 | ✅ 已完成 |
+| G3 | 全部请求 locale 改用 `useI18n().locale`；日期格式化统一 locale | ⚠️ 部分完成：MarketPage/DetailPage/GroupCreateModal 已改；ChatPage/HomePage/GroupChatPage/CreateSkillPage 仍写死 `zh-CN`（P1） |
 | G4 | CreateSkillPage 使用 `detailUrl` 跳转；Mock 补新建 skill 详情 | P1 |
 | G5 | ChatPage mention 空态 | P2 |

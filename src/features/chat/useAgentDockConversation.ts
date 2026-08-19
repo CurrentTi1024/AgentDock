@@ -244,6 +244,8 @@ const useOfficialConversation = (
       };
       inputRef.current = input;
       runRef.current = createRunState(runId, threadId);
+      // 立即把本次用户消息放进投影状态，事件流到达前页面就能显示用户气泡。
+      runRef.current.messages[input.messages[0].id] = input.messages[0];
       setHttpRun(runRef.current);
       agent.addMessage({ content: message, id: input.messages[0].id, role: 'user' });
       await copilotkit.runAgent({

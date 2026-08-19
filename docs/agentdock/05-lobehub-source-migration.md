@@ -41,6 +41,6 @@
 ## 当前迁移状态
 
 - 已替换全局主题为 LobeHub `ThemeProvider` 与语义 token。
-- 已从三类 Community List Item 源码迁移统一市场卡片结构。
+- 已从三类 Community List Item 源码迁移统一市场卡片结构（FAB 版本右上角、skill/mcp 数量标签、底部时间到时分 + ownerName）；分页迁移为 antd `Pagination`（右下角），排序迁移为 `SortButton` 下拉 + 升降序切换。
 - 已从 Conversation ChatItem 源码迁移消息头、消息体、过程折叠和悬浮操作结构。
 - 后续按上表逐个替换现有临时页面；临时页面不作为验收结果。

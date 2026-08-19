@@ -30,6 +30,40 @@ test('tracks workflow step lifecycle from STEP events', () => {
   assert.ok(state.steps['plan'].finishedAt);
 });
 
+test('ignores system/developer context messages in MESSAGES_SNAPSHOT', () => {
+  let state = createRunState('run-snap-1', 'thread-snap-1');
+  state = reduceRunEvent(state, {
+    streamId: '1',
+    event: {
+      type: 'MESSAGES_SNAPSHOT',
+      messages: [
+        { id: 'user-1', role: 'user', content: 'hi' },
+        { id: 'ctx-1', role: 'system', content: 'App Context: [A2UI catalog]' },
+        { id: 'assistant-1', role: 'assistant', content: 'Hello!' },
+      ],
+    },
+  });
+  assert.deepEqual(Object.keys(state.messages).sort(), ['assistant-1', 'user-1']);
+  assert.equal(state.messages['ctx-1'], undefined);
+});
+
+test('drops CopilotKit internal duplicate message ids from MESSAGES_SNAPSHOT', () => {
+  let state = createRunState('run-snap-2', 'thread-snap-2');
+  state = reduceRunEvent(state, {
+    streamId: '1',
+    event: {
+      type: 'MESSAGES_SNAPSHOT',
+      messages: [
+        { id: 'user-2', role: 'user', content: 'hi' },
+        { id: 'lc_run--01a01afa-5bd9', role: 'assistant', content: 'Hi!' },
+        { id: 'assistant-2', role: 'assistant', content: 'Hi!' },
+      ],
+    },
+  });
+  assert.deepEqual(Object.keys(state.messages).sort(), ['assistant-2', 'user-2']);
+  assert.equal(state.messages['lc_run--01a01afa-5bd9'], undefined);
+});
+
 test('records per-message streamId and dedupes replay', () => {
   let state = createRunState('run-4', 'thread-4');
   state = reduceRunEvent(state, { streamId: '1', event: { type: 'TEXT_MESSAGE_START', messageId: 'assistant-4', role: 'assistant' } });

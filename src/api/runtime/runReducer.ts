@@ -79,6 +79,13 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
           pushOrderedBlock(next, 'activity', message.id);
           continue;
         }
+        // 只投影用户与助手文本消息。system/developer/tool 等上下文消息
+        // （例如 runtime 注入的 A2UI catalog “App Context”）不得渲染为可见对话消息。
+        if (message.role !== 'user' && message.role !== 'assistant') continue;
+        // 跳过 CopilotKit/checkpoint 内部重复消息（lc_run--<langgraph run id>）：
+        // 同一助手回复同时会以 AG-UI 规范 messageId 出现在快照与 TEXT 事件里，
+        // 保留内部 id 会导致历史渲染重复。
+        if (String(message.id).startsWith('lc_run--')) continue;
         next.messages[message.id] = message;
       }
       break;

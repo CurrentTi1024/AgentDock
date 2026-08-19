@@ -213,9 +213,9 @@ src/
 | 模块 | 状态 | 备注 |
 |---|---|---|
 | M0 基础迁移组件 | 已完成 | NavHeader/SideBarLayout/SideBarHeaderLayout/NavItem/PublishedTime/WideScreenContainer |
-| M1 应用壳与导航 | 已完成 | NavPanelDraggable + DesktopLayoutContainer + HomeSidebar + 本月模式开关 |
+| M1 应用壳与导航 | 已完成 | NavPanelDraggable + DesktopLayoutContainer + HomeSidebar + 本月模式开关 + 侧栏折叠/展开（状态持久化） |
 | M2 对话页 | 已完成 | ChatHeader/ChatItem/ChatInput/MessageBlocks/Welcome；官方 CopilotKit v2 headless（http+proxy）+ 自研 SSE（mock/direct）；IndexedDB v3 全量历史 |
-| M3 市场列表 | 已完成 | 三类市场 FAB 前置（getFabOptions→分类/列表），分页、emoji 分类、LobeHub 列表项 |
+| M3 市场列表 | 已完成 | 三类市场 FAB 前置（getFabOptions→分类/列表），排序（sortBy 下拉 + 升降序）、antd 分页（右下角）、emoji 分类、LobeHub 列表项（skill/mcp 数量 + FAB 版本右上角 + 时间到时分/ownerName） |
 | M4 详情页 | 已完成 | 三类市场详情 FAB 前置；Agent 展平单版本 Version 页；Skill/MCP 单版本 |
 | M5 Skill 创建页 | 已完成 | 表单/步骤/发布态，接入 createAndPublishSkill mock |
 | M6 隐藏模块占位与路由 | 已完成 | /channel /artifact /page 占位；本月模式不触发业务请求 |
@@ -228,13 +228,15 @@ src/
 - [x] 全量 UI 文案迁移到 i18n key；设置页提供 18 种语言切换；语言优先级：用户显式设置 → 后端 preferredLocale → 浏览器语言。
 - [x] 设置页开关接线：主题模式（跟随系统/浅色/深色）、显示推理摘要、开发预览环境（运行时 Mock/HTTP 切换）已实现并持久化。
 - [x] 布局修复与群聊：外层全屏（100dvh）、对话输入区锚定底部并 840 居中、侧边栏按路由切换、群聊首页/会话页与群组历史落地。
-- [x] 新增入口与 FAB 交互：侧边栏 + 下拉菜单仅保留「新建对话 / 新建群聊」（用户不允许新建 Agent，移除市场 Agent 入口）；新建群聊为创建向导（群组名称 + 选择成员 Agent + 后端支持的编排模式，配置随会话持久化，群聊页按配置初始化成员与模式）；市场 FAB 切换改为 Select 下拉（适配 14–20 个 FAB，不再挤压搜索框）；详情页移除 FAB 切换，仅展示列表带入的当前 FAB 版本。
+- [x] 新增入口与 FAB 交互：侧边栏 + 下拉菜单仅保留「新建对话 / 新建群聊」（用户不允许新建 Agent，移除市场 Agent 入口）；新建群聊为创建向导（群组名称 + 选择成员 Agent（支持名称搜索与滚动列表）+ 后端支持的编排模式，配置随会话持久化，群聊页按配置初始化成员与模式）；市场 FAB 切换改为 Select 下拉（适配 14–20 个 FAB，不再挤压搜索框）；详情页移除 FAB 切换，仅展示列表带入的当前 FAB 版本。
 - [x] mock 模式不再挂载 CopilotKit Provider（消除 `/api/copilotkit` 404 报错与错误提示）；对话 hook 按模式拆分为 mock/official 两条路径，页面渲染与发送链路不变。
 - [x] 新建会话/群聊统一“先跳转 + 路由携带 pendingSession + 后台落库”，写入完成广播 `sessions-changed` 刷新侧边栏，避免 IndexedDB 慢/卡住时无法进入新会话或列表不更新。
 - [x] 会话列表兜底刷新：HomeSidebar/GroupSidebar/GroupHomePage 对路由 `pendingSession` 乐观插入，并监听 focus/visibilitychange 重载。
 - [x] 会话主键 = 路由 id：默认入口 `session-inbox` 与 UUID 会话同键；消息落库 id 带 kind 前缀，刷新过滤去前缀，避免重复渲染。
 - [x] 群聊会话页与单 Agent 对话对齐：顶部展示成员 Agent（超长省略，带叉可移除，至少保留 2 个）与「添加 Agent」下拉；右侧群组设置面板默认收起，由头部信息图标打开；头部不再显示 runtime 端点；成员增删即时更新会话 `group` 配置并持久化。
-- [x] 群聊返回 Agent 主页：群侧边栏顶部「对话」入口 + 群聊页头部返回按钮。
+- [x] 群聊返回 Agent 主页：群侧边栏头部 Home 图标（原顶部「对话」菜单项已移除）+ 群聊页头部返回按钮。
+- [x] 市场补齐（2026-08-20）：右上角排序条件（sortBy 下拉）+ 升降序（sortOrder 切换）；Agent/Skill/MCP 卡片统一布局（FAB 版本右上角、去掉已验证、时间到时分、ownerName 右下角）；进入聊天按钮颜色对齐 LobeHub（主色切换为 neutral `primary`，暗色 #eeeeee / 亮色 #222222）；搜索框随宽度自适应；分页改为 antd Pagination 置于列表右下角。
+- [x] 侧边栏折叠与群组交互（2026-08-20）：左侧菜单栏可折叠/展开（侧栏头部折叠按钮 + 折叠后顶部 NavHeader 展开按钮，状态持久化）；群聊发送后清空输入框（与单聊一致）。
 - [x] 非 zh-CN/en-US/zh-TW 的 15 种语言已人工翻译补齐；`dictionaries.test.ts` 守护 18 种语言的 key 集合与占位符一致；全量联网复核见 `task.md`，脚本 `scripts/verify-i18n.mjs` + `scripts/argos-translate-server.py`。
 - [x] 需求 Review / Code Review 已输出详细设计与缺口清单：见 `docs/agentdock/design/`（00-10：索引、端到端链路、AG-UI、A2UI、Registry、渲染矩阵、CopilotKit 接入、联调调试指南、最终架构决策、渲染投影层、逐行 Code Review）。
 - [ ] 浏览器逐页视觉验收（当前环境无浏览器驱动，已用 build/test + HTTP 冒烟代替）。
@@ -244,5 +246,5 @@ src/
 
 - [ ] R1 端到端链路收尾：HITL wire 冻结、A2UI 后端 fixture、断线游标恢复联调验证。
 - [ ] R2 Chat/Group Chat 全量复刻：消息类型矩阵逐项对照 LobeHub（assistantGroup/reasoning/tool/task/groupTasks/supervisor/activity/a2ui/error），交互（折叠/操作栏/设置面板/成员管理）逐项补齐。
-- [ ] R3 市场补齐：右上角排序条件 + 升降序；Agent 卡片 skill/mcp 数量；进入聊天按钮样式；分类/卡片密度/详情逐项对照。
+- [x] R3 市场补齐（2026-08-20）：右上角排序条件 + 升降序；Agent 卡片 skill/mcp 数量；进入聊天按钮样式；卡片布局与分页对齐 LobeHub。分类/卡片密度/详情逐项对照继续跟进。
 - [ ] R4 其他页面全量迁移（不留占位符）：Group/Tasks/Documents/Memory/Channel/Artifact/Page/Settings 按 LobeHub 迁移并改写 hooks。

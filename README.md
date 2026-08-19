@@ -8,9 +8,10 @@ AgentDock 是公司内部使用的 Agent 前端工作台：复用 LobeHub 打磨
 
 - 单 Agent 对话：流式文本、Reasoning、Tool Call、HITL 暂停/继续、A2UI Surface、停止与错误展示。
 - 会话历史：IndexedDB（Dexie）本地保存会话、可见消息和 Run 检查点，刷新可回看、HITL 可恢复。
-- 市场：Agent / Skill / MCP 三类市场，**FAB 前置**（`getFabOptions` → 分类/列表/详情），支持 `all / permissioned` 两种模式。
+- 市场：Agent / Skill / MCP 三类市场，**FAB 前置**（`getFabOptions` → 分类/列表/详情），支持 `all / permissioned` 两种模式；列表提供排序（sortBy 下拉 + 升降序切换），Agent 卡片展示 skill/mcp 数量，分页（antd Pagination）位于列表右下角。
 - Skill 创建与立即发布（Mock）。
 - 本月模式：一键只显示本月需要的菜单与路由，其余占位模块不渲染、不触发请求。
+- 左侧菜单栏：可拖拽调整宽度，支持一键折叠/展开（折叠状态持久化，折叠后内容区头部提供展开入口）。
 - 国际化：支持 LobeHub 全部 18 种语言（全部提供本地化词典）；语言优先级为用户设置 → 浏览器语言。
 
 ## 技术栈
@@ -132,7 +133,7 @@ ChatPage / MessageBlocks / Markdown / A2UI renderer（只读投影，纯展示�
 - 乐观插入：新建会话/群聊通过路由 `pendingSession` 立即插入侧边栏，不依赖 IndexedDB 写入与事件时序；focus / visibilitychange 变化时兜底刷新。
 - 标题规则：创建时为“新对话/New chat”（群聊为“新建群聊/New group chat”），发送首条消息后用消息前 32 字符更新标题。
 - 路由切换：`ensureSession` 仅在内存 session.id 与路由 id 一致时复用，避免把消息更新到上一个会话。
-- 群聊返回主页：群侧边栏顶部「对话」入口、群聊页头部返回按钮均可回到 `/chat/session-inbox`；群设置面板由头部信息图标开关。
+- 群聊返回主页：群侧边栏头部 Home 图标、群聊页头部返回按钮均可回到 `/chat/session-inbox`；群设置面板由头部信息图标开关。
 
 **机制完备性说明**：
 

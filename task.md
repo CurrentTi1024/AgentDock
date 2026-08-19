@@ -137,13 +137,13 @@
 
 **需求**（FAB 前置）：先 `getFabOptions(type, mode)` 再按 FAB 查分类/列表；`all / permissioned`；分页；分类 emoji 图标。
 
-**方案**：`marketService.getFabOptions` + `agent/skill/mcpMarketService` 三类 Service；Mock 与 HTTP 同构；`filterMarketItems + page` 实现 Mock 过滤。
+**方案**：`marketService.getFabOptions` + `agent/skill/mcpMarketService` 三类 Service；Mock 与 HTTP 同构；`filterMarketItems + sortMarketItems + page` 实现 Mock 过滤与排序；分页使用 antd `Pagination`（右下角）。
 
 **状态**：功能完成。缺口：
 
-- 列表/分类请求无 AbortController、无 loading/error、FAB 切换竞态（P1）。
-- locale 硬编码 `zh-CN`（P1）。
-- `MarketItem` 日期 `toLocaleDateString('zh-CN')`（P1）。
+- ~~列表/分类请求无 AbortController、无 loading/error、FAB 切换竞态（P1）~~ ✅ 已修：AbortController + requestId 过期保护 + loading/error 态。
+- ~~locale 硬编码 `zh-CN`（P1）~~ ✅ MarketPage/DetailPage/GroupCreateModal 已用 `useI18n().locale`；ChatPage/HomePage/GroupChatPage/CreateSkillPage 仍写死。
+- ~~`MarketItem` 日期 `toLocaleDateString('zh-CN')`（P1）~~ ✅ 已改：跟随 `useI18n().locale` 且时间精确到时分。
 
 ### 2.4 M4 详情页
 

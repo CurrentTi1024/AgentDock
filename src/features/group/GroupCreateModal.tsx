@@ -54,7 +54,7 @@ const memberKey = (mention: MentionAgent) => `${mention.agentId}@${mention.fab}`
 const GroupCreateContent = () => {
   const navigate = useNavigate();
   const closeModal = useGroupCreateStore((s) => s.closeModal);
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
   const [modes, setModes] = useState<Array<{ modeId: string; name: string; description?: string }>>([]);
   const [name, setName] = useState('');
@@ -64,12 +64,12 @@ const GroupCreateContent = () => {
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    void agentMarketService.getMentionAgentsList({ locale: 'zh-CN' }).then(({ items }) => setMentions(items));
-    void agentGroupService.getSupportedAgentGroupOrchestrationModes({ locale: 'zh-CN' }).then((data) => {
+    void agentMarketService.getMentionAgentsList({ locale }).then(({ items }) => setMentions(items));
+    void agentGroupService.getSupportedAgentGroupOrchestrationModes({ locale }).then((data) => {
       setModes(data.modes);
       setMode(data.defaultModeId);
     });
-  }, []);
+  }, [locale]);
 
   const selectedMode = useMemo(() => modes.find((item) => item.modeId === mode), [mode, modes]);
   const filteredMentions = useMemo(() => {

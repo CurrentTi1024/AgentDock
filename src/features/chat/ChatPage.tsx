@@ -213,7 +213,12 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (run && ['success', 'cancelled', 'error'].includes(run.status)) {
-      void sessionHistoryService.getMessages(sessionId).then(setHistory);
+      // 运行终态时 flushRunCheckpoint 异步落库；延迟到落库完成后刷新历史，
+      // 避免读到缺少助手回复的中间快照（竞态会导致完成后消息消失）。
+      const timer = setTimeout(() => {
+        void sessionHistoryService.getMessages(sessionId).then(setHistory);
+      }, 600);
+      return () => clearTimeout(timer);
     }
   }, [run?.status, sessionId]);
 

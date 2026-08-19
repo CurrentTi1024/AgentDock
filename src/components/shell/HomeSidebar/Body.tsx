@@ -50,6 +50,7 @@ const moduleItems: MenuItem[] = [
   { icon: FileText, key: 'documents', label: 'documents', month: false, path: '/documents' },
   { icon: Brain, key: 'memory', label: 'memory', month: false, path: '/memory' },
   { icon: Plug, key: 'channel', label: 'Channel', month: false, path: '/channel' },
+  { icon: FileCode2, key: 'page', label: 'Page', month: false, path: '/page' },
   { icon: FileCode2, key: 'files', label: 'files', month: false, path: '/artifact' },
 ];
 
@@ -147,6 +148,7 @@ const Body = () => {
     files: t('nav.files'),
     group: t('nav.group'),
     memory: t('nav.memory'),
+    page: t('nav.page'),
     tasks: t('nav.tasks'),
   };
   const marketActive = location.pathname.startsWith('/market');

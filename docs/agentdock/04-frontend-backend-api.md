@@ -582,7 +582,7 @@ env:
 
 规则：
 
-- `sortBy` 首期支持 `recommended`、`installCount`、`updatedAt`。
+- `sortBy` 支持 `installCount`、`updatedAt`、`createdAt`、`stars`、`name`；`recommended` 作为默认推荐序兼容（Mock 已实现）。
 - `fab` 必填；`versions` 只返回当前 FAB 的当前激活版本（单元素），`mode` 对权限与整个 item 的过滤规则与 Agent 一致。
 - `repositoryUrl`、统计字段可为空；UI 对空值隐藏对应区域，不能显示伪造的 0。
 - `createTimeAt` 为资源首次创建时间，命名与 Agent、MCP 列表保持一致。
@@ -903,7 +903,7 @@ env:
 规则：
 
 - `connectionType` 可为 `http`、`sse`、`stdio` 或 `null`；首期 UI 可只开放公司实际支持的类型。
-- `sortBy` 首期支持 `recommended`、`installCount`、`updatedAt`。
+- `sortBy` 支持 `recommended`、`isFeatured`、`isValidated`、`installCount`、`ratingCount`、`updatedAt`、`createdAt`（Mock 已实现）。
 - `fab` 必填；`versions` 只返回当前 FAB 的当前激活版本（单元素），`mode` 对权限与整个 item 的过滤规则与 Agent 一致。
 - 不向前端返回 MCP 密钥、Token、实际用户配置值或内部网络凭据。
 - `createTimeAt` 为资源首次创建时间，命名与 Agent、Skill 列表保持一致。

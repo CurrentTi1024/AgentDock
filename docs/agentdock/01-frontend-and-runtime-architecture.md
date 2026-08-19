@@ -331,7 +331,7 @@ Service 模式默认由 `VITE_SERVICE_MODE` 决定（构建期）；设置页「
 ## 9.1 布局与群聊
 
 - 应用外壳由 `providers.tsx` 的 ThemeProvider 撑满视口（`height: 100%` + `min/max-height: 100dvh`），`AppShell` 左右分栏：左侧 `NavPanelDraggable` 侧边栏，右侧 `DesktopLayoutContainer` 内容容器。
-- 侧边栏按路由切换：`/group*` 显示群组侧边栏（最近群聊 + 新建群聊），其余路由显示 HomeSidebar（功能导航 + 最近会话）。
+- 侧边栏按路由切换：`/group*` 显示群组侧边栏（最近群聊 + 新建群聊），其余路由显示 HomeSidebar（功能导航 + 最近会话）；左侧菜单栏支持拖拽调宽与一键折叠/展开（状态持久化，折叠后内容区 NavHeader 提供展开按钮）。
 - 对话页参照 LobeHub：消息列最大宽度 840 居中，输入区绝对定位于底部通栏，内部同样 840 居中；历史会话（agent 与 group 两类）统一在侧边栏「最近会话/最近群聊」按类型展示。
 - `/group` 为群聊首页（创建 + 最近群聊），`/group/:id` 为群聊会话页（主会话区 + 右侧配置面板：成员/编排模式/启动停止）。
 
