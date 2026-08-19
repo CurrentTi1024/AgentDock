@@ -37,6 +37,7 @@
 | [design/09-agui-lobehub-rendering-adapter.md](agentdock/design/09-agui-lobehub-rendering-adapter.md) | AG-UI/A2UI → LobeHub 渲染适配层：投影层方案（不做事件 Adapter） |
 | [design/10-end-to-end-code-review.md](agentdock/design/10-end-to-end-code-review.md) | 端到端逐行 Code Review：AG-UI/A2UI/流式回显/信息粒度渲染与待办清单 |
 | [design/11-e2e-joint-test-report.md](agentdock/design/11-e2e-joint-test-report.md) | 前后端联合端到端测试报告：完整请求链路、关键代码链路、组件渲染矩阵与已知限制 |
+| [design/12-message-history-rendering-fixes.md](agentdock/design/12-message-history-rendering-fixes.md) | 消息历史与渲染修复：落库竞态、lc_run-- 去重、chat=mock 根因、构建修复、thinking 自动折叠 |
 
 ## 阅读顺序
 
