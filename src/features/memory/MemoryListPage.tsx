@@ -20,7 +20,7 @@ import {
 import { cssVar } from 'antd-style';
 import { LayoutGrid, List, MoreHorizontal, Pencil, Pin, Plus, Rows3, Trash2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import NavHeader from '@/components/shell/NavHeader';
 import WideScreenContainer from '@/components/shell/WideScreenContainer';
@@ -64,8 +64,8 @@ const CATEGORY_OPTIONS = [
 const MemoryListPage = memo(() => {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const params = useParams();
-  const tab = (params['*'] as MemoryTabKey | undefined) ?? 'contexts';
+  const location = useLocation();
+  const tab = (location.pathname.split('/memory/')[1] as MemoryTabKey | undefined) ?? 'contexts';
   const kind = KIND_BY_TAB[tab];
   const titleKey = kind ? KIND_META[kind].titleKey : 'memory.tab.contexts';
 

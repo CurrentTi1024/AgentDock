@@ -1,7 +1,8 @@
-import { ThemeProvider } from '@lobehub/ui';
+import { MotionProvider, ThemeProvider } from '@lobehub/ui';
 import type { PrimaryColors } from '@lobehub/ui';
 import { CopilotKit } from '@copilotkit/react-core/v2';
 import { createStaticStyles } from 'antd-style';
+import { motion } from 'motion/react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { BrowserRouter } from 'react-router-dom';
 
@@ -58,7 +59,9 @@ export default function Providers({ children }: { children: ReactNode }) {
       customTheme={{ neutralColor: 'slate', primaryColor: LOBE_NEUTRAL_PRIMARY }}
       theme={{ cssVar: { key: 'agentdock-vars' } }}
     >
-      <BrowserRouter>{children}</BrowserRouter>
+      <MotionProvider motion={motion}>
+        <BrowserRouter>{children}</BrowserRouter>
+      </MotionProvider>
     </ThemeProvider>
   );
 
