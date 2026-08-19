@@ -222,6 +222,15 @@ export default function ChatPage() {
     }
   }, [run?.status, sessionId]);
 
+  // 落库完成事件：确定性刷新历史（大 run 落库可能超过 600ms，时间兜底不可靠）。
+  useEffect(() => {
+    const refresh = () => {
+      void sessionHistoryService.getMessages(sessionId).then(setHistory);
+    };
+    window.addEventListener('agentdock:run-persisted', refresh);
+    return () => window.removeEventListener('agentdock:run-persisted', refresh);
+  }, [sessionId]);
+
   const sendMessageWith = async (prompt: string) => {
     if (!prompt || running) return;
     setArtifactOpen(false);

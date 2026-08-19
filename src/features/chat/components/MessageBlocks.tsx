@@ -2,7 +2,7 @@
 import { ActionIcon, Block, Button, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { Brain, CheckCircle2, ChevronDown, Crown, Layers, ListTodo, Play, Users, Wrench, XCircle } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { useI18n } from '@/i18n';
 import type { RuntimeReasoningMeta, RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
@@ -54,6 +54,10 @@ export const ReasoningBlock = ({ id, meta, text }: { id: string; meta?: RuntimeR
   const streaming = Boolean(meta?.streaming);
   const duration = formatDuration(meta?.startedAt, meta?.finishedAt);
   const [open, setOpen] = useState(streaming);
+  // 流式结束自动折叠（完成后默认收起；用户可点击重新展开）。
+  useEffect(() => {
+    if (!streaming) setOpen(false);
+  }, [streaming]);
   return (
     <div className={styles.block} key={id}>
       <div className={styles.header} onClick={() => setOpen((value) => !value)}>

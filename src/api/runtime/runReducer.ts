@@ -1,5 +1,9 @@
 import { LOBE_TASK_ROLES, type RuntimeMessage, type RuntimeRunState, type StreamedEvent } from './types.ts';
-export const createRunState = (runId: string, threadId: string): RuntimeRunState => ({ activities: {}, messages: {}, orderedBlocks: [], processedStreamIds: [], rawEvents: [], reasoning: {}, reasoningMeta: {}, runId, state: {}, status: 'idle', steps: {}, surfaces: {}, threadId, toolCalls: {} });
+export const createRunState = (runId: string, threadId: string): RuntimeRunState => ({ activities: {}, messageOrder: [], messages: {}, orderedBlocks: [], processedStreamIds: [], rawEvents: [], reasoning: {}, reasoningMeta: {}, runId, state: {}, status: 'idle', steps: {}, surfaces: {}, threadId, toolCalls: {} });
+/** 消息首次出现时追加到时间线（幂等）；持久化依赖 messageOrder 分配稳定序号。 */
+const appendMessageId = (next: RuntimeRunState, id: string) => {
+  if (id && !next.messageOrder.includes(id)) next.messageOrder.push(id);
+};
 const pushOrderedBlock = (next: RuntimeRunState, kind: RuntimeRunState['orderedBlocks'][number]['kind'], id: string) => {
   const key = `${kind}:${id}`;
   if (!next.orderedBlocks.some((block) => `${block.kind}:${block.id}` === key)) next.orderedBlocks.push({ id, kind });
@@ -37,9 +41,9 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
     case 'RUN_STARTED': next.status = 'running'; break;
     case 'RUN_FINISHED': next.status = 'success'; break;
     case 'RUN_ERROR': next.status = event.code === 'CANCELLED' ? 'cancelled' : 'error'; next.error = { code: String(event.code || ''), message: String(event.message || 'Run failed') }; break;
-    case 'TEXT_MESSAGE_START': next.messages[id] = { id, role: String(event.role || 'assistant') as RuntimeMessage['role'], content: '', streamId: input.streamId }; break;
-    case 'TEXT_MESSAGE_CONTENT': next.messages[id] ||= { id, role: 'assistant', content: '' }; next.messages[id].content += String(event.delta || ''); if (input.streamId) next.messages[id].streamId = input.streamId; break;
-    case 'TEXT_MESSAGE_CHUNK': next.messages[id] ||= { id, role: 'assistant', content: '' }; next.messages[id].content += String(event.delta || event.content || ''); if (input.streamId) next.messages[id].streamId = input.streamId; break;
+    case 'TEXT_MESSAGE_START': next.messages[id] = { id, role: String(event.role || 'assistant') as RuntimeMessage['role'], content: '', streamId: input.streamId }; appendMessageId(next, id); break;
+    case 'TEXT_MESSAGE_CONTENT': next.messages[id] ||= { id, role: 'assistant', content: '' }; appendMessageId(next, id); next.messages[id].content += String(event.delta || ''); if (input.streamId) next.messages[id].streamId = input.streamId; break;
+    case 'TEXT_MESSAGE_CHUNK': next.messages[id] ||= { id, role: 'assistant', content: '' }; appendMessageId(next, id); next.messages[id].content += String(event.delta || event.content || ''); if (input.streamId) next.messages[id].streamId = input.streamId; break;
     case 'TEXT_MESSAGE_END': if (input.streamId && next.messages[id]) next.messages[id].streamId = input.streamId; break;
     case 'REASONING_START': next.reasoningMeta[id] = { ...next.reasoningMeta[id], startedAt: Date.now(), streaming: true }; break;
     case 'REASONING_MESSAGE_START': next.reasoning[id] = ''; next.reasoningMeta[id] = { ...next.reasoningMeta[id], startedAt: Date.now(), streaming: true }; pushOrderedBlock(next, 'reasoning', id); break;
@@ -70,7 +74,13 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
     case 'STATE_SNAPSHOT': next.state = event.snapshot ?? event.state; break;
     case 'STATE_DELTA': next.state = applyStateDelta(next.state, event.delta); break;
     case 'MESSAGES_SNAPSHOT': {
-      for (const message of (event.messages as RuntimeMessage[] || [])) {
+      const snapshotMessages = (event.messages as RuntimeMessage[] || []);
+      // 协议快照是整段会话的权威顺序：时间线按快照数组重建，本地先插入但快照未覆盖的消息追加在末尾。
+      next.messageOrder = snapshotMessages.map((message) => message.id).filter(Boolean);
+      for (const messageId of Object.keys(next.messages)) {
+        if (!next.messageOrder.includes(messageId)) next.messageOrder.push(messageId);
+      }
+      for (const message of snapshotMessages) {
         // LobeHub 任务/编排类消息（task/tasks/groupTasks/supervisor/assistantGroup）投影为 activity 卡片，
         // 不进入普通 text 消息列表，避免污染 answer/currentUserMessage 的渲染。
         const activityType = taskRoleToActivityType(String(message.role || ''));
@@ -83,9 +93,19 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
         // （例如 runtime 注入的 A2UI catalog “App Context”）不得渲染为可见对话消息。
         if (message.role !== 'user' && message.role !== 'assistant') continue;
         // 跳过 CopilotKit/checkpoint 内部重复消息（lc_run--<langgraph run id>）：
-        // 同一助手回复同时会以 AG-UI 规范 messageId 出现在快照与 TEXT 事件里，
-        // 保留内部 id 会导致历史渲染重复。
+        // 流式 TEXT 事件用 lc_run-- 占位 id，快照带规范 UUID；保留内部 id 会导致历史重复。
         if (String(message.id).startsWith('lc_run--')) continue;
+        // 快照到达时用规范 UUID 替换流式阶段产生的 lc_run-- 占位消息（同角色同内容），
+        // 保证同一回复只有一个规范 id，同时不丢失流式期间已经渲染的内容。
+        if (message.role === 'assistant') {
+          const placeholderId = Object.keys(next.messages).find(
+            (existingId) =>
+              existingId.startsWith('lc_run--') &&
+              next.messages[existingId].role === 'assistant' &&
+              next.messages[existingId].content === message.content,
+          );
+          if (placeholderId) delete next.messages[placeholderId];
+        }
         next.messages[message.id] = message;
       }
       break;

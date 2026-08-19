@@ -49,17 +49,26 @@ test('ignores system/developer context messages in MESSAGES_SNAPSHOT', () => {
 
 test('drops CopilotKit internal duplicate message ids from MESSAGES_SNAPSHOT', () => {
   let state = createRunState('run-snap-2', 'thread-snap-2');
+  // 流式阶段先产生 lc_run-- 占位消息
   state = reduceRunEvent(state, {
     streamId: '1',
+    event: { type: 'TEXT_MESSAGE_START', messageId: 'lc_run--01a01afa-5bd9', role: 'assistant' },
+  });
+  state = reduceRunEvent(state, {
+    streamId: '2',
+    event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'lc_run--01a01afa-5bd9', delta: 'Hi!' },
+  });
+  state = reduceRunEvent(state, {
+    streamId: '3',
     event: {
       type: 'MESSAGES_SNAPSHOT',
       messages: [
         { id: 'user-2', role: 'user', content: 'hi' },
-        { id: 'lc_run--01a01afa-5bd9', role: 'assistant', content: 'Hi!' },
         { id: 'assistant-2', role: 'assistant', content: 'Hi!' },
       ],
     },
   });
+  // 快照用规范 UUID 替换流式占位：同一回复只剩一个 id
   assert.deepEqual(Object.keys(state.messages).sort(), ['assistant-2', 'user-2']);
   assert.equal(state.messages['lc_run--01a01afa-5bd9'], undefined);
 });

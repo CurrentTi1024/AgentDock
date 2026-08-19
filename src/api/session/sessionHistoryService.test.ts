@@ -26,6 +26,7 @@ const buildSingleAgentRun = (sessionId: string, runId: string): { input: RunAgen
   };
   let state = createRunState(runId, `thread-${sessionId}`);
   state.messages[input.messages[0].id] = input.messages[0];
+  state.messageOrder.push(input.messages[0].id);
   state = reduceRunEvent(state, { streamId: '1', event: { type: 'RUN_STARTED', threadId: state.threadId, runId } });
   state = reduceRunEvent(state, { streamId: '2', event: { type: 'STEP_STARTED', stepId: 'plan', stepName: 'plan' } });
   state = reduceRunEvent(state, { streamId: '3', event: { type: 'REASONING_MESSAGE_START', messageId: `reasoning-${runId}` } });
@@ -292,6 +293,7 @@ test('多轮 run 快照累积（MESSAGES_SNAPSHOT）后文本消息顺序保持�
   const buildRun = (runId: string, user: { id: string; content: string }, assistantId: string, assistantDelta: string, prior: Array<{ id: string; role: 'user' | 'assistant'; content: string }>) => {
     let state = createRunState(runId, threadId);
     state.messages[user.id] = { id: user.id, role: 'user', content: user.content };
+    state.messageOrder.push(user.id);
     if (prior.length) {
       state = reduceRunEvent(state, { event: { type: 'MESSAGES_SNAPSHOT', messages: prior } });
     }
@@ -344,5 +346,50 @@ test('多轮 run 快照累积（MESSAGES_SNAPSHOT）后文本消息顺序保持�
     textIds,
     ['text:u1', 'text:a1', 'text:u2', 'text:a2', 'text:u3', 'text:a3'],
     '多轮累积后文本消息必须保持时间线顺序',
+  );
+});
+
+test('快速连续两轮 run：防抖按 runId 分槽，两轮消息都不丢失', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-overlap-runs';
+  const threadId = `thread-${sessionId}`;
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId,
+    title: sessionId,
+    type: 'agent',
+    version: '2.1.0',
+  });
+
+  const makeState = (runId: string, userText: string, assistantText: string) => {
+    const user = { id: `u-${runId}`, role: 'user' as const, content: userText };
+    let state = createRunState(runId, threadId);
+    state.messages[user.id] = user;
+    state.messageOrder.push(user.id);
+    const assistantId = `a-${runId}`;
+    state = reduceRunEvent(state, { event: { type: 'TEXT_MESSAGE_START', messageId: assistantId, role: 'assistant' } });
+    state = reduceRunEvent(state, { event: { type: 'TEXT_MESSAGE_CONTENT', messageId: assistantId, delta: assistantText } });
+    return { state, user };
+  };
+
+  // 两轮都尚未 flush 时各自 schedule（模拟快速连续发送），再统一 flush。
+  const runA = makeState('overlap-a', '问题A', '回答A');
+  const runB = makeState('overlap-b', '问题B', '回答B');
+  scheduleRunCheckpoint(sessionId, { context: [], forwardedProps: { action: 'run', agentId: 'x', fab: 'F15B', sessionId }, messages: [runA.user], runId: 'overlap-a', state: {}, threadId, tools: [] }, runA.state);
+  scheduleRunCheckpoint(sessionId, { context: [], forwardedProps: { action: 'run', agentId: 'x', fab: 'F15B', sessionId }, messages: [runB.user], runId: 'overlap-b', state: {}, threadId, tools: [] }, runB.state);
+  await flushRunCheckpoint();
+
+  const records = await sessionHistoryService.getMessages(sessionId);
+  const texts = records.filter((record) => record.kind === 'text').map((record) => record.content);
+  assert.ok(texts.includes('问题A') && texts.includes('回答A'), '第一轮消息不应丢失');
+  assert.ok(texts.includes('问题B') && texts.includes('回答B'), '第二轮消息不应丢失');
+  assert.deepEqual(
+    texts,
+    ['问题A', '回答A', '问题B', '回答B'],
+    '两轮消息按时间线顺序落库',
   );
 });

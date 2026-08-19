@@ -32,4 +32,25 @@ export interface RuntimeToolCall {
   startedAt?: number;
   status: 'called' | 'completed' | 'error' | 'running';
 }
-export interface RuntimeRunState { activities: Record<string, unknown>; error?: { code?: string; message: string }; latestStreamId?: string; messages: Record<string, RuntimeMessage>; orderedBlocks: RuntimeBlockRef[]; processedStreamIds: string[]; rawEvents: AgUiEvent[]; reasoning: Record<string, string>; reasoningMeta: Record<string, RuntimeReasoningMeta>; runId: string; state: unknown; status: RunStatus; steps: Record<string, RuntimeStep>; surfaces: Record<string, unknown>; threadId: string; toolCalls: Record<string, RuntimeToolCall> }
+export interface RuntimeRunState {
+  activities: Record<string, unknown>;
+  error?: { code?: string; message: string };
+  latestStreamId?: string;
+  /** 消息时间线顺序（LobeHub 以 createdAt 排序的本地等价物）：
+   *  由协议权威顺序（MESSAGES_SNAPSHOT 数组）驱动，新消息按首次出现追加；
+   *  持久化按此顺序分配 sequence，杜绝快照 map 迭代序/落库时序导致的错乱。 */
+  messageOrder: string[];
+  messages: Record<string, RuntimeMessage>;
+  orderedBlocks: RuntimeBlockRef[];
+  processedStreamIds: string[];
+  rawEvents: AgUiEvent[];
+  reasoning: Record<string, string>;
+  reasoningMeta: Record<string, RuntimeReasoningMeta>;
+  runId: string;
+  state: unknown;
+  status: RunStatus;
+  steps: Record<string, RuntimeStep>;
+  surfaces: Record<string, unknown>;
+  threadId: string;
+  toolCalls: Record<string, RuntimeToolCall>;
+}

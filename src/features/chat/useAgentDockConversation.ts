@@ -246,15 +246,29 @@ const useOfficialConversation = (
       runRef.current = createRunState(runId, threadId);
       // 立即把本次用户消息放进投影状态，事件流到达前页面就能显示用户气泡。
       runRef.current.messages[input.messages[0].id] = input.messages[0];
+      runRef.current.messageOrder.push(input.messages[0].id);
       setHttpRun(runRef.current);
       agent.addMessage({ content: message, id: input.messages[0].id, role: 'user' });
-      await copilotkit.runAgent({
-        agent,
-        forwardedProps: input.forwardedProps as Record<string, unknown>,
-        runId,
-      });
+      try {
+        await copilotkit.runAgent({
+          agent,
+          forwardedProps: input.forwardedProps as Record<string, unknown>,
+          runId,
+        });
+      } catch (error) {
+        // runAgent 网络/流错误兜底：写入 RUN_ERROR 让 UI 退出 running，
+        // 避免后端已完成但客户端流中断时页面永远卡在“停止生成”。
+        console.error('[AgentDock] runAgent failed', error);
+        applyEvent({
+          code: 'NETWORK_ERROR',
+          message: error instanceof Error ? error.message : 'Run failed',
+          runId,
+          threadId,
+          type: 'RUN_ERROR',
+        });
+      }
     },
-    [agent, copilotkit],
+    [agent, applyEvent, copilotkit],
   );
 
   const stop = useCallback(async () => {

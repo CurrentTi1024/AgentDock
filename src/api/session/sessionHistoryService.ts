@@ -21,7 +21,9 @@ db.on('versionchange', () => {
 
 let sequenceSeed = 0;
 const nextSequence = () => Date.now() * 1000 + (sequenceSeed = (sequenceSeed + 1) % 1000);
-let pendingCheckpoint: { input: RunAgentInput; sessionId: string; snapshot: RuntimeRunState } | undefined;
+// 按 runId 分槽的待落盘快照：多轮 run 并发/快速连续发送时互不覆盖，
+// 防抖空闲后统一 flush，避免只落最后一段或丢消息。
+let pendingCheckpoints = new Map<string, { input: RunAgentInput; sessionId: string; snapshot: RuntimeRunState }>();
 let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
 const CHECKPOINT_DEBOUNCE_MS = 350;
 
@@ -29,6 +31,10 @@ const BLOCKED_WARN_MS = 3000;
 const notifySessionsChanged = () => {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent('agentdock:sessions-changed'));
+};
+const notifyRunPersisted = () => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('agentdock:run-persisted'));
 };
 const withBlockedDiagnostic = async <T>(label: string, task: Promise<T>): Promise<T> => {
   const timer = setTimeout(() => {
@@ -128,6 +134,8 @@ export const sessionHistoryService = {
     await this.persistRunSnapshot(sessionId, snapshot);
     await db.sessions.update(sessionId, { updatedAt });
     notifySessionsChanged();
+    // 落库完成后广播，供对话页确定性刷新历史（避免与异步落库竞态）。
+    notifyRunPersisted();
     return record;
   },
   async persistRunSnapshot(sessionId: string, snapshot: RuntimeRunState) {
@@ -150,12 +158,27 @@ export const sessionHistoryService = {
         sessionId,
       });
     };
-    for (const message of Object.values(snapshot.messages)) {
+    // 时间线顺序以协议的权威顺序（messageOrder，来自 MESSAGES_SNAPSHOT 数组）为准，
+    // 新消息按其首次出现位置分配序号；旧 checkpoint 无 messageOrder 时回退 map 迭代序。
+    const messageIds = snapshot.messageOrder?.length
+      ? snapshot.messageOrder
+      : Object.keys(snapshot.messages);
+    for (const messageId of messageIds) {
+      const message = snapshot.messages[messageId];
       if (!message || !message.id) continue;
       // 只持久化用户与助手文本；system/developer 上下文消息（如 A2UI catalog）
       // 不进入可见历史，避免以 assistant 气泡误渲染。
       if (message.role !== 'user' && message.role !== 'assistant') continue;
       // 文本消息记录自己最后一次更新时的 streamId；其余类型记录 run 当前游标。
+      push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, streamId: message.streamId ?? snapshot.latestStreamId });
+    }
+    // 兜底：messageOrder 未覆盖但存在于 messages 的消息（老状态/漏调用）追加到末尾，保证不丢。
+    const ordered = new Set(messageIds);
+    for (const messageId of Object.keys(snapshot.messages)) {
+      if (ordered.has(messageId)) continue;
+      const message = snapshot.messages[messageId];
+      if (!message || !message.id) continue;
+      if (message.role !== 'user' && message.role !== 'assistant') continue;
       push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, streamId: message.streamId ?? snapshot.latestStreamId });
     }
     for (const [id, content] of Object.entries(snapshot.reasoning || {})) push('reasoning', id, { content, runId: snapshot.runId, streamId: snapshot.latestStreamId });
@@ -177,9 +200,9 @@ export const sessionHistoryService = {
   async getLatestRecoverableRun(sessionId: string) { const records = await db.checkpoints.where('sessionId').equals(sessionId).sortBy('updatedAt'); return records.reverse().find((record) => ['running', 'paused'].includes(record.status)); },
 };
 
-/** 防抖写入：高频流式事件只保留最新快照，空闲 350ms 后落盘；终态时手动 flush。 */
+/** 防抖写入：每 run 一槽，空闲 350ms 后统一落盘；终态时手动 flush。 */
 export const scheduleRunCheckpoint = (sessionId: string, input: RunAgentInput, snapshot: RuntimeRunState) => {
-  pendingCheckpoint = { input, sessionId, snapshot };
+  pendingCheckpoints.set(snapshot.runId, { input, sessionId, snapshot });
   if (checkpointTimer) clearTimeout(checkpointTimer);
   checkpointTimer = setTimeout(() => {
     void flushRunCheckpoint();
@@ -191,8 +214,9 @@ export const flushRunCheckpoint = async () => {
     clearTimeout(checkpointTimer);
     checkpointTimer = undefined;
   }
-  if (!pendingCheckpoint) return;
-  const job = pendingCheckpoint;
-  pendingCheckpoint = undefined;
-  await sessionHistoryService.saveRunCheckpoint(job.sessionId, job.input, job.snapshot);
+  const jobs = [...pendingCheckpoints.values()];
+  pendingCheckpoints.clear();
+  for (const job of jobs) {
+    await sessionHistoryService.saveRunCheckpoint(job.sessionId, job.input, job.snapshot);
+  }
 };
