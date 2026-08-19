@@ -63,7 +63,6 @@ const AgentSidebarHeader = memo<AgentSidebarHeaderProps>(
           </Flexbox>
         }
         showBack={false}
-        showTogglePanelButton={false}
       />
     );
   },

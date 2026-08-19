@@ -7,6 +7,7 @@ import { memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/react/shallow';
 
+import { useI18n } from '@/i18n';
 import { useUiStore } from '@/stores/uiStore';
 
 const styles = createStaticStyles(({ css }) => ({
@@ -26,6 +27,7 @@ interface SideBarHeaderLayoutProps {
 const SideBarHeaderLayout = memo<SideBarHeaderLayoutProps>(
   ({ backTo = '/', left, right, showBack = true, showTogglePanelButton = true }) => {
     const navigate = useNavigate();
+    const { t } = useI18n();
     const [expand, toggleLeftPanel] = useUiStore(
       useShallow((s) => [s.leftPanelExpand, s.toggleLeftPanel]),
     );
@@ -54,8 +56,10 @@ const SideBarHeaderLayout = memo<SideBarHeaderLayoutProps>(
         <Flexbox horizontal align="center" gap={2} justify="flex-end">
           {showTogglePanelButton && (
             <ActionIcon
+              aria-label={t('nav.togglePanel')}
               icon={expand ? PanelLeftClose : PanelLeftOpen}
               size="small"
+              title={t('nav.togglePanel')}
               onClick={toggleLeftPanel}
             />
           )}

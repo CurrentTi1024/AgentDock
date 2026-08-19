@@ -70,7 +70,6 @@ const Header = () => {
         </DropdownMenu>
       }
       showBack={false}
-      showTogglePanelButton={false}
     />
   );
 };
