@@ -356,15 +356,44 @@ State Delta 使用 RFC 6902 JSON Patch。
 - HITL UI 未完成前不得发出 `RUN_FINISHED`。
 - 用户取消、超时和拒绝必须形成可显示结果，不能静默结束。
 
-### 8.2 联调前必须抓取真实事件
+### 8.2 真实 HITL 事件样本（2026-08-20 已抓取）
 
-DeepAgents + CopilotKitMiddleware 的具体 interrupt wire shape 与版本相关。后端必须提供一次真实事件样本，前后端据此确认：
+DeepAgents 0.7.5 `interrupt_on={"write_file": True}` + ag_ui-langgraph 0.0.40 + CopilotKit 0.1.94 的真实 wire（demo 后端实测）：
 
-- interrupt 是 Tool Call、Activity 还是 Custom 事件。
-- response 是同一 Run 恢复还是新 Run + `parentRunId`。
-- approve/reject、编辑参数、输入、单选、多选和表单的字段位置。
+1. **interrupt 以 Custom 事件暴露**（不是 Tool Call / Activity / RUN_FINISHED(outcome=interrupt)）：
 
-在真实事件确定前，禁止再创建一套与 CopilotKit 平行的最终 HITL 网络协议。本节 `hitlResponse` 仅作为 Orchestration Adapter 的归一化后备结构。
+```json
+{
+  "type": "CUSTOM",
+  "name": "on_interrupt",
+  "value": {
+    "action_requests": [{
+      "name": "write_file",
+      "args": { "file_path": "/tmp/x.txt", "content": "abc" },
+      "description": "Tool execution requires approval\n\nTool: write_file\nArgs: {...}"
+    }],
+    "review_configs": [{ "action_name": "write_file", "allowed_decisions": ["approve","edit","reject","respond"] }],
+    "id": "<真实 langgraph interrupt id，由 demo 从 checkpointer tasks[].interrupts 注入>",
+    "message": "Tool execution requires approval..."
+  }
+}
+```
+
+2. **response 是同一 Run 恢复**（沿用 threadId/runId，通过 `RunAgentInput.resume`），不是新 Run + parentRunId：
+
+```json
+{
+  "resume": [{
+    "interruptId": "<真实 id>",
+    "status": "resolved",
+    "payload": { "decisions": [{ "type": "approve" }] }
+  }]
+}
+```
+
+3. **前端行为**：页面渲染 HitlBlock（需要你的确认 / 允许并继续 / 拒绝）；批准走 legacy HITL wire（无官方 pendingInterrupts 时）→ `runAgent({ resume: [...] })`，携带原 forwardedProps。
+
+4. **已确认的限制**：纯 deepagents 层 resume 后工具执行成功；但经 ag_ui-langgraph 0.0.40 的 HTTP resume 映射仍会重新 interrupt（适配层把 ResumeEntry 列表原样传给 `Command(resume=...)`，与 langchain HITL 的 `interrupt()` 返回值约定不兼容；demo 已做 id 注入与 payload 解包，续跑执行仍需公司 Orchestration Service 实现正确映射或升级适配器）。在真实服务确认前，`hitlResponse` 仍仅作为归一化后备结构。
 
 ## 9. A2UI 契约
 
@@ -466,6 +495,13 @@ Runtime Adapter 使用相同 `runId` 请求 `/ag-ui`（官方 `agent/connect`）
 }
 ```
 
+### 10.5 实测补充（demo 后端，2026-08-20）
+
+- demo 后端（`backend/streaming.py`）已实现：逐事件注入 `rawEvent.streamId`（`{epoch_ms}-{seq}` 严格递增）、按 runId 内存缓冲（FIFO 上限 100 run）、`action=resume + lastStreamId` 只回放游标后事件（不重新执行 Core）、未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`。
+- 实测：首轮 69 事件全部带 streamId；resume（第 40 条游标）精确回放 29 条且无模型调用；未知 runId 返回 STREAM_EXPIRED。
+- ⚠️ 经 CopilotKit single-route `agent/run` envelope 走纯尾回放时，runtime SSE 校验要求首事件为 `RUN_STARTED` 且以终态结束，纯尾回放会判 `INCOMPLETE_STREAM`。真实接入二选一：① 使用官方 `agent/connect`（lastSeenEventId）语义；② 全量回放（相同 streamId）+ Browser 按 streamId 去重（前端 reducer 已支持）。
+- 前端当前策略：Service 未提供可验证的 connect/游标前，陈旧 running checkpoint 在恢复时转为 cancelled，不自动 resume（避免重放并发）；HITL(paused) 通过 `runAgent(resume[])` 续跑。
+
 ## 11. Stop/Cancel
 
 - Browser stop 调用 Copilot Runtime stop。
@@ -509,8 +545,9 @@ Runtime Adapter 使用相同 `runId` 请求 `/ag-ui`（官方 `agent/connect`）
 以下不是创建前端项目的阻塞项，但必须在对应功能联调前确认：
 
 - [ ] DeepAgents + CopilotKitMiddleware 真实 HITL event fixture。
+- [x]（2026-08-20 已抓取，见 §8.2）真实 HITL event fixture：CUSTOM(on_interrupt) + resume[] 约定；⚠️ ag_ui-langgraph 0.0.40 的 HTTP resume 映射与 langchain interrupt() 返回值约定不兼容，续跑执行需公司服务层实现/升级适配器。
 - [ ] A2UI 由 Runtime Middleware 形成 Activity，还是 Core 已输出最终 Surface Activity；必须避免重复转换。
-- [ ] Copilot Runtime Adapter 的 connect 是否能取得 Browser 的 `lastStreamId`。
+- [x]（demo 已实现 streamId 游标回放，见 §10.5）Copilot Runtime Adapter 的 connect 是否能取得 Browser 的 `lastStreamId`——demo 侧已通；公司 connect 语义仍需验证。
 - [ ] Stop 的最终事件采用 `RUN_ERROR/CANCELLED` 还是后端已有终止表达。
-- [ ] Redis event log TTL 和最大单 Run 事件数。
+- [ ] Redis event log TTL 和最大单 Run 事件数（demo 为内存缓冲 FIFO 100 run，TTL 语义待公司服务确认）。
 - [ ] Agent delegation 是已有 Tool Call、Activity，还是两者都有。

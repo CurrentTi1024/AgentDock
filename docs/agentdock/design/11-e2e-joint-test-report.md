@@ -61,6 +61,8 @@ Browser (Chrome, http://127.0.0.1:3000)
 | 8 | 工具/文本/Surface（mock 全链路） | mock 流批准 HITL 后 | ✅ `flightData.queryMetrics` 工具块、活动块、文本回复、metricCard surface（异常数量） |
 | 9 | 单元测试 | `pnpm run test` | ✅ 28/28 |
 | 10 | 构建 | `pnpm run build`（tsc + vite） | ✅ 通过 |
+| 11 | 断线重连（streamId） | 首轮 run 后按 lastStreamId resume | ✅ 服务层：69 事件全带 streamId；resume 第 40 条精确回放 29 条、无模型调用；未知 runId→STREAM_EXPIRED。⚠️ runtime single-route 纯尾回放受 SSE 校验限制（须 RUN_STARTED 开头），真实接入用 agent/connect 或全量回放+去重 |
+| 12 | 真实 HITL（非 mock） | write_file 触发 interrupt → 页面确认 → 批准 resume | ✅ interrupt 真实触发、HitlBlock 渲染、批准携带真实 interruptId + decisions payload 到达后端；纯 deepagents resume 后工具执行成功。⚠️ ag_ui-langgraph 0.0.40 HTTP resume 映射与 langchain interrupt() 约定不兼容，续跑执行需公司服务层实现/升级适配器 |
 
 ## 5. 本轮修复清单（前端）
 

@@ -307,14 +307,14 @@
 | Case 5 Tool Call | ✅ | ls / render_a2ui 工具块（参数/结果/耗时/状态） |
 | Case 6 错误 | ✅ 兜底 | `runAgent` 失败写 RUN_ERROR；停止→cancelled |
 | Case 7 Stop | ✅ | 停止生成退出 running，保留部分内容 |
-| Case 8 断线恢复 | ⏳ 待验证 | streamId 游标方向已冻结，联调环境未做断线注入 |
-| Case 9 HITL | ⚠️ 受限 | demo 后端当前无真实 interrupt；HitlBlock 由 mock 流验证（批准后继续） |
+| Case 8 断线恢复 | ✅ 服务层 / ⚠️ 端到端 | demo 后端已实现 streamId 注入 + 游标回放（69 事件全带 streamId；resume 第 40 条精确回放 29 条、无重执行；未知 run→STREAM_EXPIRED）；CopilotKit single-route 纯尾回放受其 SSE 校验限制（须 RUN_STARTED 开头），真实接入用 agent/connect 或全量回放+去重（见 02 §10.5） |
+| Case 9 HITL | ✅ 展示与请求 / ⚠️ 续跑 | 真实 interrupt（write_file）已触发：页面渲染 HitlBlock、批准携带真实 interruptId + decisions payload 到达后端；纯 deepagents 层 resume 后工具执行成功；ag_ui-langgraph 0.0.40 的 HTTP resume 映射与 langchain interrupt() 返回值约定不兼容，续跑执行需公司服务层实现/升级适配器（见 02 §8.2） |
 | Case 10 A2UI | ✅ 单轮 | 指标卡片叶子节点渲染 + render_a2ui 工具块 + a2ui-surface 事件；多轮上下文受 DeepSeek 偏离影响 |
 
 ### 遗留项
 
 - 断线恢复（streamId 游标）端到端注入测试。
-- 真实 HITL wire 冻结（需后端 interrupt 样本）。
+- 真实 HITL wire 冻结（样本已抓取；续跑执行依赖公司服务层实现 resume 映射或升级 ag_ui-langgraph）。
 - A2UI 多轮上下文稳定性（模型 forced tool_choice 偏离）。
 - 刷新后 A2UI surface 持久化恢复。
 ```

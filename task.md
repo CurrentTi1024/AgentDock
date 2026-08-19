@@ -438,3 +438,9 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **真实 HITL 实测**：write_file 触发真实 langgraph interrupt → 页面渲染 HitlBlock → 批准请求携带真实 interruptId + decisions payload 到达后端；纯 deepagents 层 resume 后工具执行成功（ToolMessage: Updated file）。残余：ag_ui-langgraph 0.0.40 的 HTTP resume 映射与 langchain HITL interrupt 返回值约定不兼容（ResumeEntry 列表 vs decisions 字典；demo 已做 id 注入与解包适配，续跑执行仍需公司服务层实现或升级适配器）——即契约 §8.2/§14“真实 HITL fixture 待冻结”项。
 - **前端 HITL 增强**：legacy `CUSTOM on_interrupt` 记录真实 interruptId；`respondToHitl` 无 pendingInterrupts 时走 `runAgent({ resume: [{interruptId, status, payload:{decisions:[{type:approve|reject}]}}] })` 并携带原 forwardedProps（修复 FAB_ENDPOINT_NOT_CONFIGURED）。
 - 文档更新：`docs/agentdock/design/15-orchestration-integration-guide.md` 新增 §6.1 断线重连、§6.2 真实 HITL 实测与坑 15/16。
+
+第十五轮补充（2026-08-20，权威文档同步两块实测结论）：
+
+- `02-agui-a2ui-runtime-contract.md`：§8.2 写入真实 HITL 事件样本（CUSTOM on_interrupt 结构、resume[] 约定、前端行为、ag_ui-langgraph resume 映射限制）；§10 新增 10.5 断线重连实测（streamId 注入/游标回放/STREAM_EXPIRED/runtime SSE 校验限制/前端不自动 resume 策略）；§14 待冻结项勾选更新。
+- `03-integration-and-acceptance.md`：Case 8（断线恢复）与 Case 9（真实 HITL）验收状态与遗留项更新。
+- `11-e2e-joint-test-report.md`：测试矩阵补 11（断线重连 streamId）与 12（真实 HITL）两行。
