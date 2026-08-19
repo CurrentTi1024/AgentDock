@@ -468,6 +468,8 @@ const GroupChatPage = () => {
         <Flexbox className={styles.surface}>
           <Flexbox style={{ marginInline: 'auto', maxWidth: 840, width: '100%' }}>
             <ChatInput
+              agentName={session?.title || t('nav.group')}
+              fab={fab}
               mentions={[]}
               running={running}
               value={input}

@@ -519,7 +519,9 @@ export default function ChatPage() {
         <Flexbox className={styles.surface}>
           <Flexbox style={{ marginInline: 'auto', maxWidth: 840, width: '100%' }}>
             <ChatInput
+              agentName={agent}
               approvalMode={approvalMode}
+              fab={fab}
               mentions={mentions}
               mentionsLoading={mentionsLoading}
               running={running}

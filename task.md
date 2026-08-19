@@ -308,4 +308,14 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **群聊设置面板**：改为 LobeHub 风格 Tabs（模式/任务/成员管理）。
 - **测试**：新增 removeTurn/updateMessageContent 单测（发现并修复了存储顺序导致的分支删除 bug），24/24 通过；build 通过；浏览器实测斜杠菜单、双击编辑打开、live/历史模型修正。
 
+第八轮（2026-08-19，侧边栏对齐 LobeHub 主页排版 + 输入区底部丰富）：
+
+- **侧边栏结构**：按 LobeHub HomeSidebar 排版重排——顶部搜索框 + 功能导航（对话 / Chat Group / 任务 / 文档 / 商场（点击展开 Agent/Skill/MCP 子菜单）/ 记忆 / Channel / 文件）；下方「最近对话」折叠区（最近会话）；再下方「Agents」折叠区（直接展开，数据来自 `getMentionAgentsList` Service，mock 返回 mock 数据）。
+- **Agent 直达会话**：点击 Agents 列表项创建并跳转到绑定该 agent/fab 的新会话（路由带 `?agent=&fab=`），与 LobeHub 从侧边栏进入 Agent 一致。
+- **输入区底部**：输入框外部底部行左侧显示当前 Agent 名称 + FAB 标签 + 只读数据提示，右侧审批模式 Select（LobeHub ControlBar 位置习惯）。
+- **自研折叠区**：framer-motion 未引入，用轻量 SidebarSection（箭头旋转 + hover 操作）替代官方 Accordion，视觉对齐手风琴。
+- **NavItem**：新增 `iconNode` 支持，Agents 列表直接渲染头像节点。
+- **i18n**：新增 nav.files / nav.agents / nav.emptyAgents，18 语言同步；修复 fr-FR/zh-TW 同值越界。
+- **浏览器实测**：侧边栏结构、商场子菜单展开与 Skill 跳转、Agent 点击新建会话（URL 带 agent/fab）、输入区底部元素全部验证通过；24/24 测试通过。
+
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。

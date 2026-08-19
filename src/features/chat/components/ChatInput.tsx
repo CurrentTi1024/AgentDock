@@ -1,6 +1,6 @@
 // Adapted from: src/features/ChatInput/Desktop + SendArea + ControlBar (LobeHub canary)
 // 桌面输入区：圆角容器 + 自动高度输入 + 底部发送/停止 + 外部功能行（左工具、右审批模式）。
-import { ActionIcon, Avatar, Button, Flexbox, Select, Text, TextArea } from '@lobehub/ui';
+import { ActionIcon, Avatar, Button, Flexbox, Select, Tag, Text, TextArea } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { ArrowBigUp, AtSign, CornerDownLeft, Mic, Paperclip, Send, Slash, Square } from 'lucide-react';
 import { type KeyboardEvent, memo, useRef, useState } from 'react';
@@ -68,7 +68,9 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
 const SLASH_COMMAND_KEYS = ['chat.suggestion.analyze', 'chat.suggestion.compare', 'chat.suggestion.summary'] as const;
 
 interface ChatInputProps {
+  agentName?: string;
   approvalMode?: ApprovalMode;
+  fab?: string;
   mentions: MentionAgent[];
   mentionsLoading?: boolean;
   onChange: (value: string) => void;
@@ -83,7 +85,9 @@ interface ChatInputProps {
 
 const ChatInput = memo<ChatInputProps>(
   ({
+    agentName,
     approvalMode = 'manual',
+    fab,
     mentions,
     mentionsLoading = false,
     onChange,
@@ -263,7 +267,16 @@ const ChatInput = memo<ChatInputProps>(
           paddingInline={4}
         >
           <Flexbox horizontal gap={8}>
-            <Text fontSize={12} type="secondary">
+            {agentName && (
+              <>
+                <Avatar avatar="🛩️" shape="square" size={20} />
+                <Text ellipsis fontSize={12} weight={500} style={{ maxWidth: 180 }}>
+                  {agentName}
+                </Text>
+              </>
+            )}
+            {fab && <Tag color="info" size="small">{fab}</Tag>}
+            <Text fontSize={12} type="secondary" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {t('chat.footer.hint')}
             </Text>
           </Flexbox>

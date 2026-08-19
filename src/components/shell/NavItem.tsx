@@ -18,13 +18,15 @@ export interface NavItemProps {
   disabled?: boolean;
   extra?: ReactNode;
   icon?: IconProps['icon'];
+  /** 直接渲染的图标节点（如 Avatar），优先于 icon。 */
+  iconNode?: ReactNode;
   iconSize?: number;
   onClick?: () => void;
   title: ReactNode;
 }
 
 const NavItem = memo<NavItemProps>(
-  ({ active, description, disabled, extra, icon, iconSize = 18, onClick, title }) => {
+  ({ active, description, disabled, extra, icon, iconNode, iconSize = 18, onClick, title }) => {
     const iconColor = active ? cssVar.colorText : cssVar.colorTextDescription;
     const textColor = active ? cssVar.colorText : cssVar.colorTextSecondary;
 
@@ -42,7 +44,7 @@ const NavItem = memo<NavItemProps>(
         style={disabled ? { cursor: 'not-allowed', opacity: 0.5 } : undefined}
         onClick={disabled ? undefined : onClick}
       >
-        {icon && (
+        {iconNode ?? (icon && (
           <Center
             flex="none"
             height={description ? 22 : 28}
@@ -51,7 +53,7 @@ const NavItem = memo<NavItemProps>(
           >
             <Icon color={iconColor} icon={icon} size={iconSize} />
           </Center>
-        )}
+        ))}
         <Flexbox horizontal align="center" flex={1} gap={8} style={{ overflow: 'hidden' }}>
           {description ? (
             <Flexbox flex={1} gap={3} style={{ overflow: 'hidden' }}>
