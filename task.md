@@ -349,5 +349,7 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **浏览器实测**：根路由 → `/chat` hub；选 Agent → 发送 → `/chat/:id?agent=&fab=`（Agent 侧边栏）；返回首页 → `/chat`；最近会话显示「标题 + Agent 名 + 相对时间」，Agents 显示描述；24/24 测试通过。
 - **补充（@Agent 快速选择与对话）**：首页 hub 输入框支持 `@` 弹出 Agent 提及菜单（抽为共用 `AgentMentionMenu`，对话输入区同用）；选择即设为目标 Agent 并保留 `@名字` 前缀；发送时若未下拉选择，可从输入文本的 `@名字` 解析目标 Agent（名称/ID 前缀匹配）；无默认系统 Agent，发送前必须确定 Agent（下拉选择或 @ 解析，二者等价）。i18n 新增 home.placeholder。
 - **浏览器实测**：hub 输入 `@` → 提及菜单 → 点击 CodeReview_Agent → 输入变为 `@CodeReview_Agent-F15B …` → 发送 → `/chat/:id?agent=code-review&fab=F15B` 全链路通过。
+- **补充（输入框改版，按用户反馈）**：移除「记住上次使用的 Agent」（localStorage 读写全部删除，每次打开需选择或 @）；移除输入框顶部大 Select（太丑）；候选问题改为悬浮在输入框外部左上角（无输入时展示）；Agent 选择/附件/语音移入输入框内左下角工具栏（紧凑 Select + 禁用按钮），对话页输入框同样在左下角增加「切换 Agent」选择（新建该 Agent 会话并跳转）；`home.placeholder` 文案更新（18 语言）。
+- **提交纪律**：工作区出现用户/其他会话的未提交 WIP（runReducer/sessionHistoryService/useAgentDockConversation/市场排序相关），本轮起只暂存本任务文件，不再 `git add -A`。
 
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。
