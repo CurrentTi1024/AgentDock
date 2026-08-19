@@ -73,7 +73,10 @@ const runtime = new CopilotRuntime({
   agents: {
     orchestration: new FabRoutingAgent({ fabToBaseUrl: parseFabEndpoints() }),
   },
-  a2ui: {},
+  // 显式开启 A2UI render 工具注入：middleware 会把 render_a2ui 加入 tools、
+  // 在 forwardedProps.injectA2UITool 置位，并把前端 catalog 注入 context。
+  // 前端 CopilotKit Provider 仍需带 a2ui={{ catalog }}（providers.tsx 已配置）。
+  a2ui: { injectA2UITool: true },
 });
 
 const fetchHandler = createCopilotRuntimeHandler({

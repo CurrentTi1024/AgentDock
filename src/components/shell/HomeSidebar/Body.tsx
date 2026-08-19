@@ -23,6 +23,7 @@ import { sessionHistoryService, type SessionRecord } from '@/api/session/session
 import NavItem from '@/components/shell/NavItem';
 import SidebarSection from '@/components/shell/SidebarSection';
 import { useI18n } from '@/i18n';
+import { formatRelativeTime } from '@/lib/relativeTime';
 import { useUiStore } from '@/stores/uiStore';
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
@@ -62,7 +63,7 @@ const isActive = (pathname: string, path: string) =>
   pathname === path || pathname.startsWith(`${path}/`);
 
 const Body = () => {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const location = useLocation();
   const navigate = useNavigate();
   const thisMonthOnly = useUiStore((s) => s.thisMonthOnly);
@@ -155,6 +156,20 @@ const Body = () => {
       )
     : agents;
 
+  // 会话 → 展示身份：Agent 会话取 mention 里的头像/名称，群聊用群头像 + 群名。
+  const sessionIdentity = (session: SessionRecord) => {
+    if (session.type === 'group') {
+      return { icon: '👥', name: session.title };
+    }
+    const agent = agents.find(
+      (item) => item.agentId === session.agentId && item.fab === session.fab,
+    );
+    return {
+      icon: agent?.icon || '🤖',
+      name: agent?.agentFullName || session.agentName || session.title,
+    };
+  };
+
   return (
     <Flexbox gap={2} paddingBlock={4}>
       <Flexbox gap={6} paddingBlock={6} paddingInline={10}>
@@ -220,13 +235,30 @@ const Body = () => {
           ) : (
             visibleSessions.map((session) => {
               const group = session.type === 'group';
+              const identity = sessionIdentity(session);
               return (
                 <NavItem
                   key={session.id}
                   active={isActive(location.pathname, group ? `/group/${session.id}` : `/chat/${session.id}`)}
-                  icon={group ? Users : MessageSquare}
-                  iconSize={15}
+                  iconNode={
+                    <Avatar
+                      avatar={identity.icon}
+                      shape="square"
+                      size={22}
+                      style={{ flex: 'none' }}
+                    />
+                  }
                   title={session.title}
+                  description={
+                    <Flexbox horizontal align="center" gap={6} style={{ overflow: 'hidden' }}>
+                      <Text ellipsis fontSize={11} type="secondary">
+                        {identity.name}
+                      </Text>
+                      <Text fontSize={11} type="secondary" style={{ flex: 'none' }}>
+                        {formatRelativeTime(session.updatedAt, locale)}
+                      </Text>
+                    </Flexbox>
+                  }
                   onClick={() => navigate(group ? `/group/${session.id}` : `/chat/${session.id}`)}
                 />
               );
@@ -261,9 +293,14 @@ const Body = () => {
                 key={`${agent.agentId}@${agent.fab}`}
                 title={agent.agentFullName}
                 description={
-                  <Text ellipsis fontSize={11} type="secondary">
-                    v{agent.version} · {agent.fab}
-                  </Text>
+                  <Flexbox gap={3}>
+                    <Text ellipsis fontSize={11} type="secondary">
+                      v{agent.version} · {agent.fab}
+                    </Text>
+                    <Text ellipsis fontSize={11} type="secondary">
+                      {agent.description}
+                    </Text>
+                  </Flexbox>
                 }
                 onClick={() => openAgentChat(agent)}
               />

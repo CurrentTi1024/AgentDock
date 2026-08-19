@@ -32,23 +32,8 @@ const Header = () => {
   }, [profile?.preferredLocale, setLocale]);
 
   const createConversation = () => {
-    const id = `session-${crypto.randomUUID()}`;
-    const record = {
-      agentId: 'flight-analysis',
-      agentName: 'FlightAnalysis_Agent',
-      fab: 'F15B',
-      id,
-      pinned: false,
-      threadId: crypto.randomUUID(),
-      title: t('nav.newSessionTitle'),
-      type: 'agent' as const,
-      version: '2.1.0',
-    };
-    // 先跳转、配置随路由状态携带；会话后台异步落库，不等待本地写入。
-    navigate(`/chat/${id}`, { state: { pendingSession: record } });
-    void sessionHistoryService.createSession(record).catch((reason) => {
-      console.warn('[AgentDock] agent session persist failed', reason);
-    });
+    // 新建对话 = 回到首页 hub，由用户选择 Agent 后开始（不硬编码默认 Agent）。
+    navigate('/chat');
   };
 
   return (

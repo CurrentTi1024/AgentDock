@@ -9,7 +9,9 @@ import NavHeader from '@/components/shell/NavHeader';
 import WideScreenContainer from '@/components/shell/WideScreenContainer';
 import FabSelector from '@/features/market/components/FabSelector';
 import MarketItem from '@/features/market/components/MarketItem';
+import OrderButton from '@/features/market/components/OrderButton';
 import Pagination from '@/features/market/components/Pagination';
+import SortButton, { type SortOption } from '@/features/market/components/SortButton';
 import { agentMarketService } from '@/api/market/agentMarketService';
 import { marketService } from '@/api/market/marketService';
 import { mcpMarketService } from '@/api/market/mcpMarketService';
@@ -41,6 +43,24 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
 
 const labels: Record<MarketKind, string> = { agent: 'Agent', mcp: 'MCP', skill: 'Skill' };
 
+const defaultSortBy: Record<MarketKind, string> = {
+  agent: 'recommended',
+  mcp: 'recommended',
+  skill: 'installCount',
+};
+
+const sortOptionsFor = (kind: MarketKind, t: (key: string) => string): SortOption[] => {
+  const option = (key: string): SortOption => ({ key, label: t(`market.sort.${key}`) });
+  switch (kind) {
+    case 'agent':
+      return [option('recommended'), option('updatedAt'), option('mostUsage'), option('haveSkills')];
+    case 'skill':
+      return [option('installCount'), option('updatedAt'), option('createdAt'), option('stars'), option('name')];
+    case 'mcp':
+      return [option('recommended'), option('isFeatured'), option('isValidated'), option('installCount'), option('ratingCount'), option('updatedAt'), option('createdAt')];
+  }
+};
+
 const fetchList = (kind: MarketKind, input: ListMarketRequest, options?: ServiceRequestOptions) =>
   kind === 'agent'
     ? agentMarketService.getAgentsListByCategoryAndKW(input, options)
@@ -64,6 +84,8 @@ export default function MarketPage({ kind }: { kind: MarketKind }) {
   const [mode, setMode] = useState<'all' | 'permissioned'>('all');
   const [category, setCategory] = useState('all');
   const [categories, setCategories] = useState<Category[]>([]);
+  const [sortBy, setSortBy] = useState(defaultSortBy[kind]);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [items, setItems] = useState<Item[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -96,9 +118,14 @@ export default function MarketPage({ kind }: { kind: MarketKind }) {
   }, [fab, kind]);
 
   useEffect(() => {
+    setSortBy(defaultSortBy[kind]);
+    setSortOrder('desc');
+  }, [kind]);
+
+  useEffect(() => {
     if (!fab) return;
     const controller = new AbortController();
-    const requestId = `${kind}:${fab}:${category}:${mode}:${page}:${query}`;
+    const requestId = `${kind}:${fab}:${category}:${mode}:${page}:${query}:${sortBy}:${sortOrder}`;
     setLoading(true);
     setError(undefined);
     const request = {
@@ -109,27 +136,27 @@ export default function MarketPage({ kind }: { kind: MarketKind }) {
       mode,
       page,
       pageSize: 21,
-      sortBy: 'recommended',
-      sortOrder: 'desc' as const,
+      sortBy,
+      sortOrder,
     };
     void Promise.all([
       fetchList(kind, request, { signal: controller.signal }),
       fetchCategories(kind, { fab, locale, mode }, { signal: controller.signal }),
     ]).then(([result, { categories: next }]) => {
-      if (requestId !== `${kind}:${fab}:${category}:${mode}:${page}:${query}`) return;
+      if (requestId !== `${kind}:${fab}:${category}:${mode}:${page}:${query}:${sortBy}:${sortOrder}`) return;
       setItems(result.items);
       setTotalPages(result.totalPages);
       setHasNextPage(result.hasNextPage);
       setCategories(next);
     }).catch((reason: unknown) => {
-      if ((reason as DOMException).name !== 'AbortError' && requestId === `${kind}:${fab}:${category}:${mode}:${page}:${query}`) {
+      if ((reason as DOMException).name !== 'AbortError' && requestId === `${kind}:${fab}:${category}:${mode}:${page}:${query}:${sortBy}:${sortOrder}`) {
         setError(reason instanceof Error ? reason.message : String(reason));
       }
     }).finally(() => {
-      if (requestId === `${kind}:${fab}:${category}:${mode}:${page}:${query}`) setLoading(false);
+      if (requestId === `${kind}:${fab}:${category}:${mode}:${page}:${query}:${sortBy}:${sortOrder}`) setLoading(false);
     });
     return () => controller.abort();
-  }, [category, fab, kind, locale, mode, page, query]);
+  }, [category, fab, kind, locale, mode, page, query, sortBy, sortOrder]);
 
   const categoryItems = useMemo(
     () =>
@@ -148,6 +175,21 @@ export default function MarketPage({ kind }: { kind: MarketKind }) {
         left={<SearchBar placeholder={t('market.search', { name: labels[kind] })} value={query} onChange={(event) => setQuery(event.target.value)} style={{ maxWidth: 480, width: '100%' }} />}
         right={
           <Flexbox horizontal align="center" gap={8}>
+            <SortButton
+              options={sortOptionsFor(kind, t)}
+              value={sortBy}
+              onChange={(next) => {
+                setSortBy(next);
+                setPage(1);
+              }}
+            />
+            <OrderButton
+              order={sortOrder}
+              onChange={(next) => {
+                setSortOrder(next);
+                setPage(1);
+              }}
+            />
             <FabSelector fabs={fabs} value={fab} onChange={setFab} />
             <Segmented
               options={[

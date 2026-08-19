@@ -17,8 +17,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const { t } = useI18n();
   const isGroup = location.pathname.startsWith('/group');
-  // 进入具体 Agent 会话（/chat/:id，非默认 inbox）时展示 Agent 侧边栏（LobeHub agent chat 布局）。
-  const isAgentChat = location.pathname.startsWith('/chat/') && !location.pathname.startsWith('/chat/session-inbox');
+  // /chat 为首页 hub（主页侧边栏）；进入具体 Agent 会话 /chat/:id 时展示 Agent 侧边栏。
+  const isAgentChat = location.pathname.startsWith('/chat/');
 
   useEffect(() => {
     const onBlocked = () => {

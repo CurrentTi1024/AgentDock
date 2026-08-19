@@ -5,6 +5,54 @@ export const mockDelay = async (signal?: AbortSignal, milliseconds = 120) => new
 export const page = <T>(items: T[], currentPage = 1, pageSize = 20) => ({ currentPage, hasNextPage: currentPage * pageSize < items.length, items: items.slice((currentPage - 1) * pageSize, currentPage * pageSize), pageSize, totalCount: items.length, totalPages: Math.max(1, Math.ceil(items.length / pageSize)) });
 import { isAgentMarketItem, type MarketItem } from '@/types';
 
+const sortValue = (item: MarketItem, sortBy: string): number | string => {
+  switch (sortBy) {
+    case 'updatedAt':
+      return new Date(item.updatedAt).getTime();
+    case 'createdAt':
+      return new Date(item.createTimeAt).getTime();
+    case 'mostUsage':
+    case 'installCount':
+      return (item as MarketItem & { installCount?: number }).installCount ?? 0;
+    case 'haveSkills':
+      return (item as MarketItem & { skillCount?: number }).skillCount ?? 0;
+    case 'stars':
+      return (item as MarketItem & { stars?: number }).stars ?? 0;
+    case 'ratingCount':
+      return (item as MarketItem & { ratingCount?: number }).ratingCount ?? 0;
+    case 'name':
+      return isAgentMarketItem(item) ? item.agentFullName : item.name;
+    case 'isFeatured':
+      return item.isFeatured ? 1 : 0;
+    case 'isValidated':
+      return item.isValidated ? 1 : 0;
+    default:
+      return 0;
+  }
+};
+
+/**
+ * Applies the market sortBy/sortOrder contract to a filtered item list.
+ * 'recommended' keeps the server/mock order (featured first, then newest).
+ */
+export const sortMarketItems = <T extends MarketItem>(items: T[], sortBy: string, sortOrder: 'asc' | 'desc'): T[] => {
+  if (!sortBy || sortBy === 'recommended') {
+    return [...items].sort((a, b) => {
+      const fa = a.isFeatured ? 1 : 0;
+      const fb = b.isFeatured ? 1 : 0;
+      if (fa !== fb) return fb - fa;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+  }
+  const dir = sortOrder === 'asc' ? 1 : -1;
+  return [...items].sort((a, b) => {
+    const va = sortValue(a, sortBy);
+    const vb = sortValue(b, sortBy);
+    const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+    return cmp * dir;
+  });
+};
+
 export const filterMarketItems = <T extends MarketItem>(
   items: T[],
   input: { categoryId?: null | string; fab: string; keyword?: null | string; mode: 'all' | 'permissioned' },

@@ -1,5 +1,5 @@
 import { mcpMarketMockData } from '@/mock-data/mcpMarket';
-import { filterMarketItems, mockDelay, page } from '@/lib/mock';
+import { filterMarketItems, mockDelay, page, sortMarketItems } from '@/lib/mock';
 import { postApi } from '@/lib/httpClient';
 import { selectService } from '@/api/core/serviceMode';
 import type { Category, ListMarketRequest, MarketListMode, PageResult, ServiceRequestOptions } from '@/api/core/types';
@@ -37,8 +37,12 @@ export const mcpMarketMockService: McpMarketService = {
   getMcpServersListByCategoryAndKW: async (input, options) => {
     await mockDelay(options?.signal);
     const categoryNames = Object.fromEntries(mcpMarketMockData.categories.map((category) => [category.categoryId, category.categoryName]));
-    const filtered = filterMarketItems(mcpMarketMockData.items, input, categoryNames).filter(
+    const filtered = sortMarketItems(
+      filterMarketItems(mcpMarketMockData.items, input, categoryNames).filter(
       (item) => !input.connectionType || (input.connectionType === 'http' && item.id === 'company-git'),
+      ),
+      input.sortBy,
+      input.sortOrder,
     );
     return page(filtered, input.page, input.pageSize);
   },

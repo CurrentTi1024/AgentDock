@@ -1,4 +1,5 @@
 import { ThemeProvider } from '@lobehub/ui';
+import type { PrimaryColors } from '@lobehub/ui';
 import { CopilotKit } from '@copilotkit/react-core/v2';
 import { createStaticStyles } from 'antd-style';
 import { type ReactNode, useEffect, useState } from 'react';
@@ -21,6 +22,9 @@ const styles = createStaticStyles(({ css }) => ({
     overflow: hidden;
   `,
 }));
+
+// @lobehub/ui 运行时支持 'primary'（neutral 主色），但其类型定义遗漏了该项。
+const LOBE_NEUTRAL_PRIMARY = 'primary' as unknown as PrimaryColors;
 
 const getSystemDark = () =>
   typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -49,7 +53,9 @@ export default function Providers({ children }: { children: ReactNode }) {
     <ThemeProvider
       className={styles.app}
       appearance={appearance}
-      customTheme={{ neutralColor: 'slate', primaryColor: 'blue' }}
+      // LobeHub 的默认主色是 neutral 'primary'（暗色 #eeeeee / 亮色 #222222），
+      // 与官方市场页一致；FAB 选择器等 UI/UX 不受影响。
+      customTheme={{ neutralColor: 'slate', primaryColor: LOBE_NEUTRAL_PRIMARY }}
       theme={{ cssVar: { key: 'agentdock-vars' } }}
     >
       <BrowserRouter>{children}</BrowserRouter>

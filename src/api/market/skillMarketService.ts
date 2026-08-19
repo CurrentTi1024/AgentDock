@@ -1,6 +1,6 @@
 import { skillMarketMockData } from '@/mock-data/skillMarket';
 import { buildSkillMcpDetailMockData } from '@/mock-data/marketShared';
-import { filterMarketItems, mockDelay, page } from '@/lib/mock';
+import { filterMarketItems, mockDelay, page, sortMarketItems } from '@/lib/mock';
 import { postApi } from '@/lib/httpClient';
 import { selectService } from '@/api/core/serviceMode';
 import type { Category, ListMarketRequest, MarketListMode, PageResult, ServiceRequestOptions } from '@/api/core/types';
@@ -52,7 +52,12 @@ export const skillMarketMockService: SkillMarketService = {
   getSkillsListByCategoryAndKW: async (input, options) => {
     await mockDelay(options?.signal);
     const categoryNames = Object.fromEntries(skillMarketMockData.categories.map((category) => [category.categoryId, category.categoryName]));
-    return page(filterMarketItems(skillMarketMockData.items, input, categoryNames), input.page, input.pageSize);
+    const filtered = sortMarketItems(
+      filterMarketItems(skillMarketMockData.items, input, categoryNames),
+      input.sortBy,
+      input.sortOrder,
+    );
+    return page(filtered, input.page, input.pageSize);
   },
   getSkillDetailById: async (input, options) => {
     await mockDelay(options?.signal);

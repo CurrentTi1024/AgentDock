@@ -1,5 +1,5 @@
 import { agentMarketMockData } from '@/mock-data/agentMarket';
-import { filterMarketItems, mockDelay, page } from '@/lib/mock';
+import { filterMarketItems, mockDelay, page, sortMarketItems } from '@/lib/mock';
 import { postApi } from '@/lib/httpClient';
 import { selectService } from '@/api/core/serviceMode';
 import type { Category, ListMarketRequest, MarketListMode, PageResult, ServiceRequestOptions } from '@/api/core/types';
@@ -43,7 +43,12 @@ export const agentMarketMockService: AgentMarketService = {
   getAgentsListByCategoryAndKW: async (input, options) => {
     await mockDelay(options?.signal);
     const categoryNames = Object.fromEntries(agentMarketMockData.categories.map((category) => [category.categoryId, category.categoryName]));
-    return page(filterMarketItems(agentMarketMockData.items, input, categoryNames), input.page, input.pageSize);
+    const filtered = sortMarketItems(
+      filterMarketItems(agentMarketMockData.items, input, categoryNames),
+      input.sortBy,
+      input.sortOrder,
+    );
+    return page(filtered, input.page, input.pageSize);
   },
   getAgentDetailById: async (input, options) => {
     await mockDelay(options?.signal);

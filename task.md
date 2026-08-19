@@ -27,7 +27,12 @@
 - 补回 LobeHub 市场右上角：排序条件（sortBy）+ 升降序（sortOrder）。
 - Agent 列表卡片补回每个 agent 的 skill/mcp 数量等元信息。
 - “进入聊天”按钮颜色/样式与 LobeHub 一致。
-- 分类侧栏、卡片密度、详情 Tabs/侧栏、分页等逐项对照补齐。
+- 分类侧栏、卡片密度、详情 Tabs/侧栏、分页等逐项对照补齐（✅ 已核对：菜单仅保留 Agent/Skills/MCP）。
+
+> 2026-08-20 更新：R3 前三项已完成并通过 Chrome headless + CDP 验证
+> （sortBy 下拉 + 升降序切换、Agent 卡片 skill/mcp 数量标签、
+> 主色切换为 LobeHub neutral 'primary'：#eeeeee 暗色 / #222222 亮色，
+> 详情页“开始对话”按钮颜色与 LobeHub 一致；FAB 选择器 UI/UX 未变）。
 
 ### R4 其他页面全量完成（不留占位符）
 
@@ -40,9 +45,9 @@
 ### 现在的问题（已确认存在）
 
 1. **市场未 fully copy LobeHub**（FAB 选择器 UI/UX 保持不变）：
-   - 右上角缺失排序条件（sortBy）与升降序（sortOrder）；
-   - Agent 列表卡片缺失每个 agent 的 skill/mcp 数量等元信息；
-   - “进入聊天”按钮颜色/样式与 LobeHub 不一致；
+   - ~~右上角缺失排序条件（sortBy）与升降序（sortOrder）~~ ✅ 已补（`SortButton` + `OrderButton`，Mock 已实现排序）。
+   - ~~Agent 列表卡片缺失每个 agent 的 skill/mcp 数量等元信息~~ ✅ 已补（TokenTag 风格数量标签）。
+   - ~~“进入聊天”按钮颜色/样式与 LobeHub 不一致~~ ✅ 已改（主色 `blue` → `primary`，与 LobeHub 一致）。
    - 分类侧栏、卡片密度、详情 Tabs/侧栏等细节待逐项对照。
 2. **Chat / Group Chat 未全量复刻 LobeHub**：消息类型矩阵仍有缺口（assistantGroup / task / tasks / groupTasks / supervisor / activity 等），过程折叠、操作栏、编辑态、群聊设置面板等交互为简化版。
 3. **其他页面为占位/简化**：Group / Tasks / Documents / Memory / Channel / Artifact / Page / Settings 未按 LobeHub 全量迁移。
@@ -53,7 +58,7 @@
 ### 后续任务（直接执行，无需确认）
 
 - R2：对话页 + 群聊页按 LobeHub 全量复刻（组件、样式、交互、消息类型矩阵），并同步 `design/05` 渲染矩阵。
-- R3：市场补齐排序/升降序、skill/mcp 数量、进入聊天按钮样式、分类/卡片密度/详情对照（FAB UI/UX 不变）。
+- R3：~~市场补齐排序/升降序、skill/mcp 数量、进入聊天按钮样式~~ ✅；分类/卡片密度/详情对照（FAB UI/UX 不变）继续。
 - R4：Group / Tasks / Documents / Memory / Channel / Artifact / Page / Settings 全量迁移，不留占位符。
 - 前端收尾：构建体积拆包（CopilotKit 懒加载/独立 chunk）；每完成一项跑 `pnpm run build` + `pnpm run test`，并在 task.md / docs/06 更新状态。
 
@@ -74,7 +79,7 @@
 |---|---|---|---|
 | M0/M1 应用壳与导航 | 迁移 LobeHub 壳/导航；本月模式开关 | ✅ 已完成 | `docs/agentdock/06` |
 | M2 对话页 | Agent 对话、@Agent、流式、Reasoning/Tool/HITL/A2UI、IndexedDB 全量历史（单 Agent + Group） | ⚠️ P0 核心完成；R2 全量复刻 LobeHub 消息类型与交互进行中（HITL wire 待后端冻结） | `design/01`、`design/02`、`design/05`、`design/09` |
-| M3 市场列表 | Agent/Skill/MCP 市场，FAB 前置，all/permissioned | ⚠️ 核心完成（竞态/locale 已修）；R3 待补：排序/升降序、skill/mcp 数量、进入聊天按钮样式 | `design/04` |
+| M3 市场列表 | Agent/Skill/MCP 市场，FAB 前置，all/permissioned | ✅ 核心完成（竞态/locale 已修）；R3 排序/升降序、skill/mcp 数量、进入聊天按钮样式已补并 CDP 验证 | `design/04` |
 | M4 详情页 | 三类详情，FAB 前置，Version 不分区 | ✅ 完成（竞态/locale 已修；Reviews/Security/Info 静态样例 P2） | `design/04` |
 | M5 Skill 创建 | 三步表单 + 立即发布 | ✅ 完成（受控表单 + detailUrl + Mock 详情注册） | `design/04` |
 | M6 隐藏模块 | Channel/Artifact/Page/Group/Tasks/Documents/Memory/Settings | ⚠️ 本月模式隐藏完成；R4 全量迁移进行中（当前部分为占位/简化） | `docs/agentdock/00` |
@@ -328,5 +333,15 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **浏览器实测**：默认 inbox 仍是主页侧边栏；点击 Agent 进入 `/chat/:id?agent=&fab=` 显示 Agent 侧边栏（agent 名/切换按钮/新话题/搜索/话题折叠区）；新话题新建同 Agent 会话；话题列表显示历史会话并支持跳转；24/24 测试通过。
 - **补充**：Agent 侧边栏 Header 顶部增加「返回首页」按钮（ChevronLeft，backTo `/chat/session-inbox`），浏览器实测点击后回到主页侧边栏。
 - **构建修正**：排查发现 `dist` 曾被 `VITE_SERVICE_MODE=http` 构建污染（默认走 HTTP 导致 Agents 列表 404 为空），重新构建后默认恢复 mock；构建环境未配置该变量时请勿携带 `VITE_SERVICE_MODE=http`。
+
+第十轮（2026-08-20，首页信息架构落地：hub 化 + 列表职责分明）：
+
+- **对话菜单改为首页 hub**：`/chat` 不再指向默认 Agent 会话，改为 hub（welcome + Agent 选择器 + 输入框 + 建议 + 最近会话）；发送时才确定 Agent，新建会话并进入其 Agent 空间；**记住上次使用的 Agent**（localStorage `agentdock-last-agent`），首次使用需显式选择（无静默默认 Agent）；根路由与兜底路由改指 `/chat`。
+- **最近对话行补 Agent 身份**：会话行显示 Agent 头像 + Agent 名称 + 相对时间（Intl.RelativeTimeFormat 随 locale 本地化），与 Agents 目录（能力）区分开：最近=续聊、Agents=新聊。
+- **Agents 行补描述**：名称 + 版本/FAB + 一句能力描述（hover/直接可见），明确是目录而非会话。
+- **返回首页强化**：Agent 空间顶部改为 Home 图标 + 「返回首页」提示，点击回到 `/chat` hub。
+- **新建对话入口**：侧边栏 Header「+」改为进入 hub（不再硬编码 FlightAnalysis 建会话）。
+- **i18n**：新增 home.welcome/home.selectAgent/agentSidebar.backHome，18 语言同步。
+- **浏览器实测**：根路由 → `/chat` hub；选 Agent → 发送 → `/chat/:id?agent=&fab=`（Agent 侧边栏）；返回首页 → `/chat`；最近会话显示「标题 + Agent 名 + 相对时间」，Agents 显示描述；24/24 测试通过。
 
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。

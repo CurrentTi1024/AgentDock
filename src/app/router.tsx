@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 const ChatPage = lazy(() => import('@/features/chat/ChatPage'));
+const HomePage = lazy(() => import('@/features/chat/HomePage'));
 const DetailPage = lazy(() => import('@/features/market/DetailPage'));
 const GroupChatPage = lazy(() => import('@/features/group/GroupChatPage'));
 const GroupHomePage = lazy(() => import('@/features/group/GroupHomePage'));
@@ -13,8 +14,8 @@ export default function AppRoutes() {
   return (
     <Suspense fallback={null}>
       <Routes>
-        <Route path="/" element={<Navigate replace to="/chat/session-inbox" />} />
-        <Route path="/chat" element={<Navigate replace to="/chat/session-inbox" />} />
+        <Route path="/" element={<Navigate replace to="/chat" />} />
+        <Route path="/chat" element={<HomePage />} />
         <Route path="/chat/:id" element={<ChatPage />} />
         <Route path="/group" element={<GroupHomePage />} />
         <Route path="/group/:id" element={<GroupChatPage />} />
@@ -39,7 +40,7 @@ export default function AppRoutes() {
         <Route path="/community/agent/*" element={<Navigate replace to="/market/agent" />} />
         <Route path="/community/skill/*" element={<Navigate replace to="/market/skill" />} />
         <Route path="/community/mcp/*" element={<Navigate replace to="/market/mcp" />} />
-        <Route path="*" element={<Navigate replace to="/chat/session-inbox" />} />
+        <Route path="*" element={<Navigate replace to="/chat" />} />
       </Routes>
     </Suspense>
   );

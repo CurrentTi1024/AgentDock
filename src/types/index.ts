@@ -30,11 +30,23 @@ export interface AgentMarketItem extends MarketItemBase {
   agentFullName: string;
   version: string;
   fabPermission: FabPermission;
+  /** Number of skills attached to this agent (LobeHub knowledgeCount). */
+  skillCount?: number;
+  /** Number of MCP servers attached to this agent (LobeHub pluginCount). */
+  mcpCount?: number;
+  /** Total install/usage count used by the "most usage" sort. */
+  installCount?: number;
 }
 
 export interface SkillMcpMarketItem extends MarketItemBase {
   name: string;
   versions: FabVersion[];
+  /** Total installs, used by the "install count" sort. */
+  installCount?: number;
+  /** GitHub stars, used by the skill "stars" sort. */
+  stars?: number;
+  /** Rating count, used by the MCP "rating count" sort. */
+  ratingCount?: number;
 }
 
 export type MarketItem = AgentMarketItem | SkillMcpMarketItem;

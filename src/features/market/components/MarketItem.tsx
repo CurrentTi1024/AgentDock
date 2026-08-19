@@ -1,7 +1,8 @@
 // Adapted from: src/routes/(main)/community/(list)/agent|skill|mcp/features/List/Item.tsx (LobeHub canary)
-import { Avatar, Block, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
-import { createStaticStyles } from 'antd-style';
-import { ClockIcon } from 'lucide-react';
+import { MCP } from '@lobehub/icons';
+import { Avatar, Block, Flexbox, Icon, Tag, Text, Tooltip } from '@lobehub/ui';
+import { createStaticStyles, cssVar } from 'antd-style';
+import { BookTextIcon, ClockIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -13,6 +14,13 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
   desc: css`flex: 1; margin: 0 !important; color: ${cssVar.colorTextSecondary};`,
   footer: css`margin-block-start: 16px; border-block-start: 1px dashed ${cssVar.colorBorder}; background: ${cssVar.colorBgContainer};`,
   meta: css`font-size: 12px; color: ${cssVar.colorTextDescription};`,
+  countTag: css`
+    border-radius: 4px;
+    font-family: ${cssVar.fontFamilyCode};
+    font-size: 11px;
+    color: ${cssVar.colorTextSecondary};
+    background: ${cssVar.colorFillTertiary};
+  `,
   title: css`margin: 0 !important; font-size: 16px !important; font-weight: 500 !important; &:hover { color: ${cssVar.colorLink}; }`,
 }));
 
@@ -61,6 +69,24 @@ export default memo(function MarketItem({ fab, item, kind }: MarketItemProps) {
         <Text as="p" className={styles.desc} ellipsis={{ rows: 3 }}>
           {item.description}
         </Text>
+        {isAgentMarketItem(item) && (item.skillCount || item.mcpCount) ? (
+          <Flexbox horizontal align="center" gap={4}>
+            {item.skillCount ? (
+              <Tooltip placement="right" styles={{ root: { pointerEvents: 'none' } }} title={t('market.withSkills')}>
+                <Tag className={styles.countTag} icon={<Icon icon={BookTextIcon} />}>
+                  {item.skillCount}
+                </Tag>
+              </Tooltip>
+            ) : null}
+            {item.mcpCount ? (
+              <Tooltip placement="right" styles={{ root: { pointerEvents: 'none' } }} title={t('market.withMcps')}>
+                <Tag className={styles.countTag} icon={<Icon fill={cssVar.colorTextSecondary} icon={MCP} />}>
+                  {item.mcpCount}
+                </Tag>
+              </Tooltip>
+            ) : null}
+          </Flexbox>
+        ) : null}
         <Flexbox horizontal align="center" gap={6} wrap="wrap">
           {versions.map((v) => (
             <Tag key={`${v.fab}-${v.version}`} color={v.callPermission ? 'success' : undefined} size="small" variant="filled">
