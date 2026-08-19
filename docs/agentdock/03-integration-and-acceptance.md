@@ -291,4 +291,30 @@
 - Browser 接收事件：
 - 初步归属：Browser / Runtime / Service / Core
 - 结论：
+
+## 12. 2026-08-20 联合测试结果
+
+已完成一次真实前后端联合端到端验证（AgentDock ↔ Copilot Runtime ↔ demo 后端 `/ag-ui` ↔ DeepSeek v4 flash），完整报告见 `design/11-e2e-joint-test-report.md`。
+
+### 验收结果对照
+
+| Case | 结论 | 说明 |
+|---|---|---|
+| Case 1 连接与 RUN_STARTED | ✅ | 浏览器经 Runtime 转发，后端沿用客户端 runId |
+| Case 2 流式文本 | ✅ | TEXT_MESSAGE_* 逐段投影，完成态消息保留 |
+| Case 3 RUN_FINISHED | ✅ | 退出 running、落库、历史刷新（事件驱动，消除竞态） |
+| Case 4 Reasoning | ⚠️ 受限 | DeepSeek reasoning 加密，ag_ui-langgraph 0.0.40 无 REASONING 事件；组件渲染/自动折叠由 mock 流验证 |
+| Case 5 Tool Call | ✅ | ls / render_a2ui 工具块（参数/结果/耗时/状态） |
+| Case 6 错误 | ✅ 兜底 | `runAgent` 失败写 RUN_ERROR；停止→cancelled |
+| Case 7 Stop | ✅ | 停止生成退出 running，保留部分内容 |
+| Case 8 断线恢复 | ⏳ 待验证 | streamId 游标方向已冻结，联调环境未做断线注入 |
+| Case 9 HITL | ⚠️ 受限 | demo 后端当前无真实 interrupt；HitlBlock 由 mock 流验证（批准后继续） |
+| Case 10 A2UI | ✅ 单轮 | 指标卡片叶子节点渲染 + render_a2ui 工具块 + a2ui-surface 事件；多轮上下文受 DeepSeek 偏离影响 |
+
+### 遗留项
+
+- 断线恢复（streamId 游标）端到端注入测试。
+- 真实 HITL wire 冻结（需后端 interrupt 样本）。
+- A2UI 多轮上下文稳定性（模型 forced tool_choice 偏离）。
+- 刷新后 A2UI surface 持久化恢复。
 ```

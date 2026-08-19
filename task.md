@@ -382,3 +382,15 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **浏览器实测**：hub 输入框与对话页同款（左下角 Agent 选择 + 附件/语音，未选 Agent 时发送禁用）；群聊页无 @ 按钮、无切换 Agent、发送不禁用；25/25 测试通过。
 
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。
+
+第十二轮（2026-08-20，前后端联合端到端测试 + 消息组件渲染修复）：
+
+- **联调拓扑打通**：AgentDock（http://127.0.0.1:3000）→ Copilot Runtime `/api/copilotkit`（single-route）→ FabRoutingAgent（`AGENT_ORCHESTRATION_BASE_URLS_JSON={"F15B":"http://127.0.0.1:8123"}`）→ demo 后端 `/ag-ui`（ag-ui-langgraph 0.0.40 + copilotkit 0.1.94 + DeepAgents 0.7.5）→ DeepSeek v4 flash（Responses API）。
+- **Runtime A2UI 注入**：`server/index.ts` 显式 `a2ui: { injectA2UITool: true }`；后端不静态注入 `generate_a2ui`，由 CopilotKitMiddleware 依据 `inject_a2ui_tool` 动态构造（文档 golden path：`inject_a2ui_tool=true → generate_a2ui → secondary render_a2ui → a2ui-surface ACTIVITY_SNAPSHOT`）。
+- **前端渲染修复**：① `MESSAGES_SNAPSHOT` 过滤 system/developer 上下文（App Context 不再当消息渲染）；② 流式 `lc_run--` 占位消息用快照规范 UUID 替换，历史去重；③ 终态落库后广播 `agentdock:run-persisted` 驱动历史刷新（修复完成态助手回复消失/竞态）；④ `runAgent` 失败兜底 `RUN_ERROR`（不卡 running）；⑤ ReasoningBlock 流式结束自动折叠；⑥ 官方路径发送后立即投影用户消息（事件到达前可见）。
+- **模型兼容**：DeepSeek thinking 模式不接受 forced `tool_choice`，`OPENAI_REASONING_EFFORT=none` 换取 A2UI 可用；`use_responses_api=true` 对接 DeepSeek Responses API。
+- **构建修复**：SettingsPage `Switch` 改 `@lobehub/ui/base-ui`；TaskItem `ContextMenu` 改 antd Dropdown；WorkspacePage 使用真实字段（assigneeAgentName/schedulePattern/name/identifier）；de/fr/nl 补译至 i18n 阈值下。
+- **环境锁定**：`agent-dock/.env` 固化 `VITE_CHAT_MODE=http` + `VITE_SERVICE_MODE=mock`（防止任何一次 `pnpm build` 把对话静默切回 mock）。
+- **浏览器测试矩阵（无头 Chrome 实测）**：文本消息 ✅、两轮历史顺序/去重 ✅、工具调用块 ✅、A2UI 指标卡片渲染 ✅（CPU/内存/磁盘 + render_a2ui 8s 已调用 + success）、停止生成 cancelled ✅、mock reasoning 自动折叠 ✅、mock HITL 批准续跑 ✅、mock 工具/文本/surface 全链路 ✅；`pnpm run test` 28/28、`pnpm run build` 通过。
+- **已知限制**：真实 DeepSeek reasoning 为加密内容，ag_ui-langgraph 0.0.40 不产生 REASONING 协议事件（Thinking 仅 mock 可验）；A2UI 多轮上下文 secondary 可能偏离 forced render_a2ui（新会话单轮稳定）；刷新后 A2UI surface 不持久化；HITL 真实 wire 待冻结。
+- 详见 `docs/agentdock/design/11-e2e-joint-test-report.md`。
