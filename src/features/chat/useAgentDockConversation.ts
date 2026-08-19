@@ -122,6 +122,9 @@ const useOfficialConversation = (
   const [httpRun, setHttpRun] = useState<RuntimeRunState>();
   const runRef = useRef<RuntimeRunState | undefined>(undefined);
   const inputRef = useRef<RunAgentInput | undefined>(undefined);
+  // legacy HITL wire（CUSTOM on_interrupt）没有官方 pendingInterrupts，
+  // 记录真实 interrupt id 供 resume[] 续跑。
+  const legacyInterruptIdRef = useRef<string | undefined>(undefined);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
@@ -149,6 +152,7 @@ const useOfficialConversation = (
         const custom = event as { name?: string; value?: { id?: string; message?: string } };
         if (custom.name === 'on_interrupt') {
           const requestId = custom.value?.id ?? '';
+          if (requestId) legacyInterruptIdRef.current = requestId;
           applyEvent({
             activityType: 'agentDock.hitl',
             content: { description: custom.value?.message ?? 'Agent requests your confirmation.', requestId },
@@ -296,14 +300,37 @@ const useOfficialConversation = (
 
   const respondToHitl = useCallback(
     async (hitlResponse: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>) => {
+      // resume 续跑必须携带原 forwardedProps（fab/sessionId/agentId），
+      // 否则 FabRoutingAgent 无法路由（FAB_ENDPOINT_NOT_CONFIGURED）。
+      const resumeForwardedProps = inputRef.current?.forwardedProps ?? {};
       const pending = agent.pendingInterrupts || [];
       if (pending.length > 0) {
         const interrupt = pending[0];
         await copilotkit.runAgent({
           agent,
+          forwardedProps: resumeForwardedProps as Record<string, unknown>,
           resume: [{
             interruptId: interrupt.id,
             payload: { decision: hitlResponse.decision, input: hitlResponse.input },
+            status: hitlResponse.decision === 'reject' ? 'cancelled' : 'resolved',
+          }],
+        });
+        return;
+      }
+      // legacy wire：后端 ag_ui-langgraph 0.0.40 把 interrupt 暴露为
+      // CUSTOM on_interrupt（value 含真实 id）；批准/拒绝走 RunAgentInput.resume[]，
+      // payload 按 langchain HumanInTheLoopMiddleware 的 decisions 结构。
+      const legacyInterruptId = legacyInterruptIdRef.current;
+      if (legacyInterruptId) {
+        legacyInterruptIdRef.current = undefined;
+        await copilotkit.runAgent({
+          agent,
+          forwardedProps: resumeForwardedProps as Record<string, unknown>,
+          resume: [{
+            interruptId: legacyInterruptId,
+            payload: {
+              decisions: [{ type: hitlResponse.decision === 'reject' ? 'reject' : 'approve' }],
+            },
             status: hitlResponse.decision === 'reject' ? 'cancelled' : 'resolved',
           }],
         });

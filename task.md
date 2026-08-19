@@ -430,3 +430,11 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **运行时间发现**：CopilotKit Runtime 自带 `InMemoryAgentRunner` 的 Thread already running 防护（并发同线程 run 在 Runtime 层即被拒）；FabRoutingAgent 幂等守卫为第二层，前端 send 防重入为第一层。
 - **已知残余**：客户端 SSE 偶发 network error（后端已完成但浏览器流被中断，工具类 run 偶发）——已兜底不卡 UI、内容保留，接入真实 Orchestration 后按其 streamId 重连协议观察。
 - **接入指南**：`docs/agentdock/design/15-orchestration-integration-guide.md`（核心链路 mermaid、关键代码、payload/response 约定、14 条坑清单）。
+
+第十五轮（2026-08-20，断线重连 streamId 与真实 HITL 场景补测）：
+
+- **后端升级（demo，非 git 仓库）**：新增 `backend/streaming.py` 自定义 AG-UI 端点——逐事件注入 `rawEvent.streamId`、按 runId 内存缓冲、`action=resume + lastStreamId` 精确回放游标后事件（不重新执行 Core）、未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`；`agent.py` 启用 `interrupt_on={"write_file": True}` 真实 HITL。
+- **断线重连实测**：直连后端首轮 69 事件全部带 streamId；resume 第 40 条游标精确回放 29 条、无模型调用；未知 runId 返回 STREAM_EXPIRED。⚠️ 经 CopilotKit single-route envelope 走纯尾回放会被其 SSE 校验判 INCOMPLETE_STREAM（首事件必须 RUN_STARTED），真实接入用 `agent/connect` 或全量回放 + streamId 去重（前端 reducer 已支持去重）。
+- **真实 HITL 实测**：write_file 触发真实 langgraph interrupt → 页面渲染 HitlBlock → 批准请求携带真实 interruptId + decisions payload 到达后端；纯 deepagents 层 resume 后工具执行成功（ToolMessage: Updated file）。残余：ag_ui-langgraph 0.0.40 的 HTTP resume 映射与 langchain HITL interrupt 返回值约定不兼容（ResumeEntry 列表 vs decisions 字典；demo 已做 id 注入与解包适配，续跑执行仍需公司服务层实现或升级适配器）——即契约 §8.2/§14“真实 HITL fixture 待冻结”项。
+- **前端 HITL 增强**：legacy `CUSTOM on_interrupt` 记录真实 interruptId；`respondToHitl` 无 pendingInterrupts 时走 `runAgent({ resume: [{interruptId, status, payload:{decisions:[{type:approve|reject}]}}] })` 并携带原 forwardedProps（修复 FAB_ENDPOINT_NOT_CONFIGURED）。
+- 文档更新：`docs/agentdock/design/15-orchestration-integration-guide.md` 新增 §6.1 断线重连、§6.2 真实 HITL 实测与坑 15/16。

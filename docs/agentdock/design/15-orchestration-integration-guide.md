@@ -204,6 +204,48 @@ await copilotkit.runAgent({
 5. 断线重连：Service 按 streamId 只补缺失事件；未支持前前端自动转 cancelled，不重放。
 6. 并发：同一 runId 重复请求被拒（FAB_DUPLICATE_RUN 或 Thread already running），Core 不重复执行。
 
+## 6.1 断线重连（streamId 游标）实测
+
+demo 后端已实现 `backend/streaming.py`：
+
+- 每个事件注入 `rawEvent.streamId`（`{epoch_ms}-{seq}`，同一 run 严格递增）；
+- 事件按 runId 内存缓冲（上限 100 run，FIFO）；
+- `forwardedProps.action="resume"` + `resume.lastStreamId` 时只回放游标之后事件，**不重新执行 Core**；未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`。
+
+实测结果（直连后端）：
+
+```text
+首轮：69 个事件均带 streamId
+resume(lastStreamId=第40条)：精确回放第 41~69 条（29 条），无模型调用
+未知 runId：{"type":"RUN_ERROR","code":"STREAM_EXPIRED"}
+```
+
+⚠️ 通过 CopilotKit single-route `agent/run` envelope 走 resume 时，runtime 的 SSE 校验要求流首事件为 `RUN_STARTED` 且以终态结束，纯尾回放会被判 `INCOMPLETE_STREAM`。真实公司接入二选一：
+
+1. 使用官方 `agent/connect`（带 `lastSeenEventId`）语义，由 Orchestration Service 回放完整可校验流；
+2. 或回放从 `RUN_STARTED` 开始的完整事件（相同 streamId），客户端按 streamId 去重（前端 reducer 已支持）。
+
+## 6.2 真实 HITL 实测（非 mock）
+
+demo 后端启用 `interrupt_on={"write_file": True}`（deepagents 原生 HITL），并做了两层适配：
+
+1. `ag_ui-langgraph 0.0.40` 把 langgraph interrupt 暴露为 `CUSTOM(name=on_interrupt, value=<HITLRequest JSON>)` 且**不含 id**；`backend/streaming.py` 从 checkpointer（`tasks[].interrupts`）读出真实 interrupt id 注入 value，并补 `message`。
+2. 前端 legacy HITL wire 增强：`respondToHitl` 在有 legacy interruptId 时走 `runAgent({ resume: [{ interruptId, status, payload: { decisions: [{type:'approve'|'reject'}] } }] })`，并携带原 forwardedProps（fab/sessionId）。
+
+实测结果：
+
+```text
+✅ write_file 触发真实 langgraph interrupt
+✅ 页面渲染 HitlBlock（需要你的确认 / 允许并继续 / 拒绝）
+✅ 批准请求携带真实 interruptId + decisions payload 到达后端
+✅ 纯 deepagents 层 resume 后工具执行成功（ToolMessage: Updated file）
+⚠️ 通过 ag_ui-langgraph 0.0.40 的 HTTP resume 映射仍会重新 interrupt（适配层
+   把 ResumeEntry 列表原样传给 Command(resume=...)，与 langchain HITL 的
+   interrupt() 返回值约定不兼容；demo 已做解包但仍未完全打通）。
+```
+
+结论：真实 HITL 的“事件样本 + 页面渲染 + 用户确认请求”链路已冻结；**续跑执行需要公司 Orchestration Service 实现正确的 resume 映射，或升级 ag_ui-langgraph**（即 `02-agui-a2ui-runtime-contract.md` §8.2/§14 的“真实 HITL fixture 待冻结”项）。
+
 ## 7. 已踩的坑（务必阅读）
 
 1. **前端 A2UI catalog 组件名必须对齐后端生成器**：后端按 a2ui.org v0.9 生成 `Metric/Title/Card/Column/Row`，`@copilotkit/a2ui-renderer` 的 web_core basic catalog 只有 `Text/Row/Column/Card/…`，缺 Metric/Title → 页面渲染 “Unknown component: Metric”。前端 catalog 已补齐同名定义（`a2ui/catalog.tsx`）。
@@ -220,3 +262,5 @@ await copilotkit.runAgent({
 12. **并发 run 有三层防护**：前端 send 防重入 → Runtime `InMemoryAgentRunner`（Thread already running）→ FabRoutingAgent 幂等守卫；三层缺一不可（前端兜底 UX，Runtime 兜底并发）。
 13. **`@lobehub/ui` 根包与 base-ui 导出集合不同**：迁移组件先 `rg` 确认导出；`Switch` 在 base-ui，`ContextMenu` 不存在（用 antd Dropdown）。
 14. **客户端 SSE 偶发 network error**：后端已完成但浏览器流被中断（工具类 run 偶发）；前端已做 runAgent 异常兜底（终态不覆盖、非终态写 RUN_ERROR），内容保留、UI 不卡死。
+15. **resume 与 runtime SSE 校验**：纯尾回放会被 CopilotKit 判 INCOMPLETE_STREAM（首事件必须 RUN_STARTED）；真实接入用 `agent/connect` 或全量回放+streamId 去重。
+16. **真实 HITL 的 wire 差异**：ag_ui-langgraph 0.0.40 用 legacy `CUSTOM on_interrupt`（value 是 HITLRequest JSON 且无 id），且其 HTTP resume 映射与 langchain `interrupt()` 返回值约定不兼容；demo 已做 id 注入/解包适配，续跑执行需公司服务层实现或升级适配器。
