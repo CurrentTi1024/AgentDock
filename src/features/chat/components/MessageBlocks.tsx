@@ -832,7 +832,10 @@ export const renderStoredBlocks = (
         typeof payload.finishedAt === 'number' ? payload.finishedAt : undefined,
       );
     } else if (record.kind === 'activity') {
-      if (payload.activityType === 'a2ui.surface' || payload.activityType === 'a2ui-surface') continue;
+      if (payload.activityType === 'a2ui.surface' || payload.activityType === 'a2ui-surface' || payload.activityType === 'agentDock.artifact') {
+        flushSteps();
+        continue;
+      }
       const requestId = typeof payload.requestId === 'string' ? payload.requestId : '';
       if (requestId) {
         // HITL 属于过程本身（LobeHub 干预在 workflow 内部）：
@@ -855,6 +858,12 @@ export const renderStoredBlocks = (
             requestId={requestId}
           />,
         );
+        process.state.hasWork = true;
+        continue;
+      }
+      // supervisor/tasks/groupTasks/agentDelegation 等过程活动并入折叠（LobeHub workflow 内联）。
+      if (typeof payload.activityType === 'string' && payload.activityType.startsWith('agentDock.')) {
+        process.state.nodes.push(<ActivityBlock activity={payload} key={record.id} />);
         process.state.hasWork = true;
         continue;
       }
@@ -969,7 +978,7 @@ export const renderRunBlocks = (
         const activity = run.activities?.[ref.id];
         if (!activity || typeof activity !== 'object') continue;
         const value = activity as { activityType?: string; description?: string; requestId?: string; [key: string]: unknown };
-        if (value.activityType === 'a2ui.surface' || value.activityType === 'a2ui-surface') {
+        if (value.activityType === 'a2ui.surface' || value.activityType === 'a2ui-surface' || value.activityType === 'agentDock.artifact') {
           flushSteps();
           continue;
         }
@@ -1015,8 +1024,9 @@ export const renderRunBlocks = (
           );
           process.state.hasWork = true;
         } else if (typeof value.activityType === 'string' && value.activityType.startsWith('agentDock.')) {
-          flushSteps();
-          blocks.push(<ActivityBlock activity={value} key={`activity-${ref.id}`} />);
+          // supervisor/tasks/groupTasks/agentDelegation 等过程活动并入折叠。
+          process.state.nodes.push(<ActivityBlock activity={value} key={`activity-${ref.id}`} />);
+          process.state.hasWork = true;
         }
       } else if (ref.kind === 'surface') {
         flushSteps();
