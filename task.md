@@ -450,6 +450,7 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   - 现象②：消息操作栏「重新生成/删除/删除并重新生成」点击无效——三个根因：a) `storedMessages` 的 record.id 带 `text:` 前缀，`regenerateAssistant` 又拼一次成 `text:text:xxx` 查不到；b) 回找上一条用户消息只判 `kind==='text'`，命中了同 run 里空的助手文本（content 空 → prompt 空 → 静默 return）；c) 最后一条消息的悬浮操作栏被输入区透明渐变层挡住，真实鼠标点击落在 textarea 上；
   - 修复：`regenerateAssistant` 兼容两种 id 形态并强制 `role==='user'`；`replaceTurn` 归一化 `text:` 前缀；输入区外层 `pointer-events:none`、仅输入容器恢复 auto；
   - 实测（真实后端 + IndexedDB 校验）：简单问题运行中不再显示「调用工具中」、完成后无折叠；重新生成触发新 run 且旧 run 被替换；删除从 IndexedDB 移除目标消息+过程块；更多菜单真实点击可打开、删除并重新生成替换 run；30/30 测试通过。
+- **助手消息顺序修复（2026-08-24）**：思考/工具过程折叠原先渲染在正文下方/中间（ChatItem 先渲染 Markdown 正文、过程块 children 在后）；调整为先渲染过程块（折叠 + A2UI surface）再渲染正文，对齐 LobeHub「思考+工具在正文上方」；浏览器实测折叠 DOM 索引在正文之前。
 
 第十二轮（2026-08-20，前后端联合端到端测试 + 消息组件渲染修复）：
 

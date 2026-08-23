@@ -79,13 +79,18 @@ const ChatItem = memo<ChatItemProps>(
         placement={isUser ? 'right' : 'left'}
         renderMessage={(node) => (
           <Flexbox gap={8} style={{ width: '100%' }}>
-            {/* 助手正文走带 @Agent 提及插件的 Markdown 管线（对齐 LobeHub useMarkdown）。 */}
             {!isUser && typeof content === 'string' && content ? (
-              <Markdown content={content} />
+              <>
+                {/* LobeHub 顺序：思考/工具过程（折叠）在正文上方，正文（Markdown + @提及）在下方。 */}
+                {children}
+                <Markdown content={content} />
+              </>
             ) : (
-              node
+              <>
+                {node}
+                {children}
+              </>
             )}
-            {children}
           </Flexbox>
         )}
         showAvatar={showAvatar ?? true}
