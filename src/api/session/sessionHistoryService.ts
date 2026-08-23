@@ -509,7 +509,9 @@ export const sessionHistoryService = {
     if (maxText > 0) {
       const lastMessageAt = new Date(maxText).toISOString();
       const session = await db.sessions.get(sessionId);
-      if (session && session.lastMessageAt !== lastMessageAt) {
+      // 单调守卫：仅当新值更晚才更新。重叠 flush 时后到的 flush 基于旧 rows 计算，
+      // 可能覆盖并发 flush 已更新的更高值，导致 lastMessageAt 回退。
+      if (session && new Date(lastMessageAt).getTime() > new Date(session.lastMessageAt ?? 0).getTime()) {
         await db.sessions.update(sessionId, { lastMessageAt });
       }
     }

@@ -924,6 +924,37 @@ export interface StoredTextMessage {
   record: SessionMessageRecord;
 }
 
+/** 单个展示单元：同一轮 run 的连续助手文本合并（内容取最终答案，中间文本作 narration）。 */
+export interface DisplayUnit {
+  blocks: SessionMessageRecord[];
+  narration: string[];
+  record: SessionMessageRecord;
+}
+
+/** 单聊/群聊共用：把 storedMessages 合并为展示单元，blocks 只挂一次。 */
+export const buildDisplayUnits = (storedMessages: StoredTextMessage[]): DisplayUnit[] => {
+  const units: DisplayUnit[] = [];
+  for (const item of storedMessages) {
+    const previous = units.at(-1);
+    if (
+      previous &&
+      previous.record.role === 'assistant' &&
+      item.record.role === 'assistant' &&
+      previous.record.runId &&
+      previous.record.runId === item.record.runId
+    ) {
+      if (previous.record.content && previous.record.content !== item.record.content) {
+        previous.narration.push(previous.record.content);
+      }
+      previous.record = item.record;
+      previous.blocks = item.blocks;
+    } else {
+      units.push({ blocks: item.blocks, narration: [], record: item.record });
+    }
+  }
+  return units;
+};
+
 export const renderStoredBlocks = (
   blocks: SessionMessageRecord[],
   handlers: {

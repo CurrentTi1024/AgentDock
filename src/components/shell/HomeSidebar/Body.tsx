@@ -76,6 +76,9 @@ const Body = () => {
   const [marketOpen, setMarketOpen] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [searchResults, setSearchResults] = useState<SessionRecord[] | undefined>();
+  // 侧栏展示条数独立递增：store 窗口（50/页）与侧栏可见数（20/次）解耦，
+  // 避免“点了加载更多但列表不变”（store 已涨、slice 仍固定 20）。
+  const [displayLimit, setDisplayLimit] = useState(20);
   const pendingSession = (location.state as { pendingSession?: SessionRecord } | null)?.pendingSession;
 
   // 会话列表由 sessionStore 统一维护（分页窗口 + 跨标签页同步），这里只做首次加载。
@@ -140,8 +143,9 @@ const Body = () => {
   const visibleSessions = useMemo(() => {
     if (searchResults) return searchResults.slice(0, 50);
     if (!showRecents) return [];
-    return effectiveSessions.slice(0, 20);
-  }, [effectiveSessions, searchResults, showRecents]);
+    return effectiveSessions.slice(0, displayLimit);
+  }, [displayLimit, effectiveSessions, searchResults, showRecents]);
+  const canLoadMore = hasMoreSessions || displayLimit < effectiveSessions.length;
 
   const visibleModules = moduleItems.filter((item) => !thisMonthOnly || item.month);
   const menuLabels: Record<string, string> = {
@@ -269,11 +273,14 @@ const Body = () => {
               );
             })
           )}
-          {!searchResults && hasMoreSessions && (
+          {!searchResults && canLoadMore && (
             <NavItem
               icon={ArrowRight}
               title={t('common.loadMore')}
-              onClick={() => void loadMoreSessions()}
+              onClick={() => {
+                setDisplayLimit((current) => current + 20);
+                void loadMoreSessions();
+              }}
             />
           )}
         </Flexbox>

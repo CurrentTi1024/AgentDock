@@ -94,12 +94,6 @@ export default function ChatPage() {
   const [editDraft, setEditDraft] = useState('');
   const [composerHeight, setComposerHeight] = useState(0);
   const surfaceRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  // 贴底跟随：用户主动上滑查看历史时停止自动滚动，重新回到底部附近或发送消息时恢复。
-  const stickToBottomRef = useRef(true);
-  const prevRunStatusRef = useRef<RunStatus | undefined>(undefined);
-  // 终态标记：run-persisted 历史刷新完成后据此再滚一次（确保在 DOM 重建之后）。
-  const terminalRunRef = useRef(false);
   const [feedbackModal, setFeedbackModal] = useState<FeedbackTarget>();
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
   const [mentionsLoading, setMentionsLoading] = useState(false);
@@ -210,60 +204,6 @@ export default function ChatPage() {
     return 'generating';
   }, [run]);
   const opStepCount = useMemo(() => Object.values(run?.steps || {}).length, [run]);
-
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
-    const node = scrollRef.current;
-    if (!node) return;
-    node.scrollTo({ top: node.scrollHeight, behavior });
-  }, []);
-
-  const handleScroll = useCallback(() => {
-    const node = scrollRef.current;
-    if (!node) return;
-    stickToBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 120;
-  }, []);
-
-  useEffect(() => {
-    const node = scrollRef.current;
-    if (!node) return;
-    node.addEventListener('scroll', handleScroll, { passive: true });
-    return () => node.removeEventListener('scroll', handleScroll);
-  }, [handleScroll]);
-
-  // 历史/异步内容（A2UI、图片等）渲染完成后高度变化：贴底状态继续跟随，避免停在半空。
-  useEffect(() => {
-    const node = scrollRef.current;
-    if (!node) return;
-    const observer = new ResizeObserver(() => {
-      if (stickToBottomRef.current) scrollToBottom('auto');
-    });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [scrollToBottom]);
-
-  // 禁止浏览器滚动恢复：进入会话一律从最新一条开始（顶部恢复会干扰贴底判断）。
-  useEffect(() => {
-    if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
-  }, [sessionId]);
-
-  // 运行结束（live → 历史重渲染）：强制恢复贴底并滚到最新一条，避免 DOM 重建把滚动重置回顶部。
-  useEffect(() => {
-    const previous = prevRunStatusRef.current;
-    prevRunStatusRef.current = run?.status;
-    if (
-      previous &&
-      (previous === 'running' || previous === 'paused') &&
-      run &&
-      ['success', 'error', 'cancelled'].includes(run.status)
-    ) {
-      terminalRunRef.current = true;
-      stickToBottomRef.current = true;
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => scrollToBottom('auto'));
-      });
-    }
-    if (run?.status === 'running' || run?.status === 'paused') terminalRunRef.current = false;
-  }, [run?.status, scrollToBottom]);
 
   // @ 触发时经 Service 拉取可提及 Agent（mock 模式返回 mock 数据），只拉一次并缓存。
   const mentionsLoadedRef = useRef(false);
@@ -478,37 +418,16 @@ export default function ChatPage() {
     return result;
   }, [deletedKeys, history, isActiveRun, run?.messages]);
 
-  // 同一轮 run 的连续助手文本合并为单个气泡（LobeHub 一轮回复 = 一个消息）：
-  // 内容取最后一条（最终答案），中间文本作为 narration 收进过程折叠；
-  // blocks 只挂一次，避免工具/折叠/A2UI 在每个子文本气泡里重复渲染。
-  const displayUnits = useMemo(() => {
-    const units: { blocks: SessionMessageRecord[]; narration: string[]; record: SessionMessageRecord }[] = [];
-    for (const item of storedMessages) {
-      const previous = units.at(-1);
-      if (
-        previous &&
-        previous.record.role === 'assistant' &&
-        item.record.role === 'assistant' &&
-        previous.record.runId &&
-        previous.record.runId === item.record.runId
-      ) {
-        if (previous.record.content && previous.record.content !== item.record.content) {
-          previous.narration.push(previous.record.content);
-        }
-        previous.record = item.record;
-        previous.blocks = item.blocks;
-      } else {
-        units.push({ blocks: item.blocks, narration: [], record: item.record });
-      }
-    }
-    return units;
-  }, [storedMessages]);
+  // 同一轮 run 的连续助手文本合并为单个气泡（单聊/群聊共用 buildDisplayUnits）。
+  const displayUnits = useMemo(() => buildDisplayUnits(storedMessages), [storedMessages]);
 
-  // 进入会话 / 新消息 / 运行状态变化 / 输入区高度变化：贴底时自动定位到最新一条。
-  useEffect(() => {
-    if (!stickToBottomRef.current) return;
-    scrollToBottom('auto');
-  }, [displayUnits, history.length, run?.status, answer, composerHeight, scrollToBottom]);
+  const { isTerminalRun, scrollRef, stickToBottom } = useChatScroll({
+    answer,
+    composerHeight,
+    contentVersion: displayUnits,
+    historyLength: history.length,
+    runStatus: run?.status,
+  });
 
   const blocks = renderRunBlocks(run, {
     onApproveHitl: (requestId, payload) =>

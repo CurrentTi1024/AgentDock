@@ -610,6 +610,8 @@ canary 已演进为“服务端 DB + 单记录库缓存”，AgentDock 是纯本
 2. `updateMessageContent` 同款前缀问题（当前无调用方，加固为前缀无关）。
 3. `reloadHistoryWindow` 可能先于首屏 `loadInitialHistory` 触发，用 1 条文本的小窗口覆盖 50 条首屏 → 首屏窗口未建立时跳过刷新。
 4. 侧栏容量角标首帧不显示 → sessionStore 启动即刷一次容量。
+5. HomeSidebar「加载更多」点击后列表不变（store 窗口增长但展示仍固定 slice(0,20)）→ 展示条数独立递增，与 store 窗口解耦。
+6. `persistRunSnapshot` 的 lastMessageAt 在重叠 flush 下可能回退（后到的 flush 基于旧 rows 覆盖更高值）→ 单调守卫：仅当新值更晚才更新。
 
 **确认无问题**
 
@@ -617,3 +619,4 @@ canary 已演进为“服务端 DB + 单记录库缓存”，AgentDock 是纯本
 - 防抖 flush 与页面隐藏兜底的并发安全：Dexie 事务串行 + bulkPut 幂等。
 - 终态不落 checkpoint 后，删除/编辑的一致性由 messages 权威 + 前缀归一化保证。
 - `estimate()` 的 origin 级口径与阈值/配色、导出先导出后删除的原子性。
+- runReducer 与存储契约一致：MESSAGES_SNAPSHOT 重建 messageOrder、eventId 精确去重、STATE 事件对恢复后 undefined 的兼容。
