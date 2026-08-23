@@ -57,6 +57,13 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
        输入区内部的 ChatInput 容器单独恢复 pointer-events。 */
     pointer-events: none;
   `,
+  surfaceBody: css`
+    margin-block-start: 4px;
+    padding: 8px;
+    border: 1px solid ${token.colorBorderSecondary};
+    border-radius: ${token.borderRadiusLG}px;
+    background: ${token.colorBgContainer};
+  `,
 }));
 
 // 连续同角色消息的时间间隔超过该值才插入「历史消息」分割线（LobeHub History divider）。
@@ -730,7 +737,9 @@ export default function ChatPage() {
                   {blocks}
                   {running && !answer && !blocks && <LoadingDots />}
                   {runtimeAgent ? (
-                    <OfficialActivityMessages agent={runtimeAgent as { messages?: unknown[] }} />
+                    <div className={styles.surfaceBody} data-testid="a2ui-surface-body">
+                      <OfficialActivityMessages agent={runtimeAgent as { messages?: unknown[] }} />
+                    </div>
                   ) : null}
                   {!running && answer && (
                     <Flexbox horizontal gap={8}>
