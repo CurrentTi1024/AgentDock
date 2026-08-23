@@ -53,7 +53,7 @@ export async function* createAgentRuntimeMockEvents(input: RunAgentInput, signal
     },
   });
   yield event({ type: 'TEXT_MESSAGE_START', messageId: assistantId, role: 'assistant' });
-  const text = '今天的飞行测试整体稳定。发现 09:42 振动峰值和 10:17 温度跃升两处短时异常，建议复核原始传感器数据并加入下一次试飞检查清单。';
+  const text = '今天的飞行测试整体稳定。发现 09:42 振动峰值和 10:17 温度跃升两处短时异常，建议复核原始传感器数据并加入下一次试飞检查清单。如需代码复核可联系 @CodeReview_Agent。';
   for (const token of text.match(/.{1,3}/g) || []) { await delay(24, signal); yield event({ type: 'TEXT_MESSAGE_CONTENT', messageId: assistantId, delta: token }); }
   yield event({ type: 'TEXT_MESSAGE_END', messageId: assistantId });
   yield event({ type: 'ACTIVITY_SNAPSHOT', messageId: `surface-${input.runId}`, activityType: 'a2ui.surface', surfaceId: `surface-${input.runId}`, content: { catalogId: 'agentdock://catalog', components: [{ id: 'summary', type: 'metricCard', props: { label: '异常数量', value: 2 } }, { id: 'open', type: 'button', props: { label: '打开报告', actionName: 'open_report' } }] } });
