@@ -23,7 +23,6 @@
 ```text
 Browser / Headless Client
   production(proxy): POST /api/copilotkit（single-route envelope）→ Copilot Runtime 按 FAB → {orchestrationBaseUrl}/ag-ui
-  direct dev: 按 FAB POST {orchestrationBaseUrl}/ag-ui（自研 SSE client，body 为全文 RunAgentInput）
     ↓
 Orchestration Service → text/event-stream
     ↓
@@ -44,7 +43,7 @@ Orchestration Service → Runtime → Browser
 
 ### Copilot Runtime
 
-- 生产 proxy 模式使用 single-route POST，并根据 FAB 路由；direct 联调模式不经过 Runtime。
+- 生产 proxy 模式使用 single-route POST，并根据 FAB 路由（唯一真实传输；direct 直连联调已移除）。
 - Browser 与 Runtime 之间使用官方 envelope：`{ method: "agent/run" | "agent/connect" | "agent/stop" | "info", params: { agentId, threadId }, body: RunAgentInput }`；只有 `body` 是标准 `RunAgentInput`。
 - 负责 Catalog definitions、A2UI Middleware、Agent proxy 和 Browser-facing run/connect/stop。
 - 将 SSO 凭据安全传递到 Orchestration Service。
@@ -142,7 +141,7 @@ type HitlMode =
 
 ### 3.2 单 Agent 请求示例
 
-> 该 JSON 是 `RunAgentInput`。生产 proxy 模式把它作为 `{ method: "agent/run", params: { agentId: "orchestration", threadId }, body: <本 JSON> }` 的 body 发送；direct 联调模式直接 POST 到 `{fab}/ag-ui`。
+> 该 JSON 是 `RunAgentInput`。生产 proxy 模式把它作为 `{ method: "agent/run", params: { agentId: "orchestration", threadId }, body: <本 JSON> }` 的 body 发送。
 
 ```json
 {
@@ -454,7 +453,7 @@ Core/中间件必须形成：
 
 官方路径：前端通过 `agent.connectAgent` 恢复，携带 `forwardedProps.action=resume` + `forwardedProps.resume.lastEventId`，并沿用相同 `runId/threadId`；`@ag-ui/client` transport 走 Runtime `agent/connect`。**已与后端冻结方向：按 eventId 游标恢复**。
 
-自研路径（mock/direct）Browser 保存：
+自研路径（mock）Browser 保存：
 
 ```ts
 {

@@ -42,7 +42,7 @@ AgentDock 是纯前端项目，对话能力对外只依赖两类接口：
 
 - **http 路径**（`useOfficialConversation`）：官方 CopilotKit v2 headless（`useAgent` + `useCopilotKit`），
   `agent.subscribe` 订阅事件 → `applyEvent` → reducer；
-- **mock/direct 路径**（`useMockConversation`）：自研 SSE + `runStore` reducer，mock 模式下不挂载
+- **mock 路径**（`useMockConversation`）：自研 runStore + reducer，mock 模式下不挂载
   CopilotKit Provider，事件与后端一致，保证页面无感。
 
 ### 2.1 RuntimeRunState（视图模型）

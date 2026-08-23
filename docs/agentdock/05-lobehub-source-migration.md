@@ -16,7 +16,7 @@
 | AgentDock 页面 | LobeHub 源码入口 | 数据替换 |
 |---|---|---|
 | 应用壳与桌面导航 | `src/spa/router/desktopRouter.config.tsx`、`src/routes/(main)/*/_layout` | 本地路由配置、功能开关 |
-| Agent 对话 | `src/routes/(main)/agent/(chat)`、`src/routes/(main)/agent/features/Conversation` | 官方 CopilotKit v2 headless（http+proxy）/ `agentRuntimeService` Mock 与自研 SSE（mock/direct） |
+| Agent 对话 | `src/routes/(main)/agent/(chat)`、`src/routes/(main)/agent/features/Conversation` | 官方 CopilotKit v2 headless（http+proxy）/ `agentRuntimeService` Mock 与自研 runStore（mock） |
 | 消息、推理、工具与任务过程 | `src/features/Conversation/ChatItem`、`Messages/AssistantGroup`、`Messages/Tool`、`Messages/Task` | 标准化本地事件 reducer |
 | 对话输入框 | `src/features/ChatInput`、`MainChatInput` | `getMentionAgentsList` mock，返回全部 Agent-FAB 组合 |
 | Agent 市场 | `src/routes/(main)/community/(list)/agent` | `agentMarketService` mock；页面顶部增加 FAB 选择器（`getFabOptions`），分类/列表按 FAB 查询 |

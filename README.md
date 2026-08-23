@@ -77,7 +77,7 @@ flowchart LR
 
 ### 前端动作与事件支持矩阵
 
-| 动作 | 入口 | mock / direct（自研 SSE） | http + proxy（官方 CopilotKit） | 携带 ID |
+| 动作 | 入口 | mock（自研 runStore） | http + proxy（官方 CopilotKit） | 携带 ID |
 |---|---|---|---|
 | 发送消息 | ChatInput 发送 | `forwardedProps.action=run` | envelope `agent/run` | `sessionId / agentId / fab / threadId / runId` |
 | 停止生成 | 输入框停止按钮 | `action=stop` + 本地 abort | `agent/stop` + 本地 CANCELLED 终态 | `threadId / runId / sessionId` |
@@ -100,7 +100,7 @@ flowchart LR
 | `MESSAGES_SNAPSHOT` | messages 全量重建 | 恢复渲染 |
 | `CUSTOM / RAW` | rawEvents | 不阻塞渲染 |
 
-**断线重连现状（方向已冻结：按 eventId 游标恢复）**：mock / direct 路径 `restoreSession + resume(lastEventId)`；http + proxy 路径刷新后恢复 UI/checkpoint、回填 `agent.setMessages`，并通过官方 `connectAgent` 携带 `action=resume` + `resume.lastEventId` 请求游标后的缺失事件。两条路径都携带 `sessionId / runId / threadId / lastEventId`；后端需按 `lastEventId` 游标过滤（Redis TTL 与超时行为见 `design/07` §9）。
+**断线重连现状（方向已冻结：按 eventId 游标恢复）**：mock 路径 `restoreSession + resume(lastEventId)`；http + proxy 路径刷新后恢复 UI/checkpoint、回填 `agent.setMessages`，并通过官方 `connectAgent` 携带 `action=resume` + `resume.lastEventId` 请求游标后的缺失事件。两条路径都携带 `sessionId / runId / threadId / lastEventId`；后端需按 `lastEventId` 游标过滤（Redis TTL 与超时行为见 `design/07` §9）。
 
 ### 前端内部架构
 
@@ -111,7 +111,7 @@ CopilotKit Agent（http+proxy 唯一状态源）
 useAgentDockConversation（投影 + 持久化 facade）
         ├─ RuntimeRunState（LobeHub ViewModel：messages/reasoning/toolCalls/steps/surfaces/activities）
         ├─ IndexedDB（sessionHistoryService v3：全量消息 + checkpoint）
-        └─ mock 模式回退自研 SSE + runStore（direct 联调同理）
+        └─ mock 模式回退自研 runStore（离线 UI 测试）
         ▼
 ChatPage / MessageBlocks / Markdown / A2UI renderer（只读投影，纯展示）
 ```
@@ -125,7 +125,7 @@ ChatPage / MessageBlocks / Markdown / A2UI renderer（只读投影，纯展示�
 | `sessionId` | 路由 `/chat/:id`；会话主键 = 路由 id（默认入口固定 `session-inbox`，真实会话为 `crypto.randomUUID()`），`createSession({ id: sessionId })` 保证会话行与消息/checkpoint 同键 | Dexie `sessions.id`；ChatPage `session` state；消息/checkpoint 按 sessionId 查询 |
 | `threadId` | 创建会话时 `crypto.randomUUID()` 固化进会话记录；hook 仅防御性兜底 `thread-${sessionId}` | Dexie `sessions.threadId`；同一会话所有 run 共用（DeepAgents 上下文线程） |
 | `runId` | 每次发送 `crypto.randomUUID()`（mock 在 `createRunInput`，官方在 `send()`）；HITL 续跑沿用同一 run | Dexie `checkpoints.runId`（主键）+ `snapshot.runId`；后端必须原样回显，禁止二次生成 |
-| `eventId` | 后端 SSE `id:` 或 `rawEvent.eventId`，前端 `parseSseStream` 提取 | 每个 run 的 `RuntimeRunState` 独立维护 `latestEventId + processedEventIds[]`（去重上限 5000）；checkpoint 落盘 `latestEventId`；每条文本消息记录自己的 eventId（最后一次更新的游标，含 END） |
+| `eventId` | 后端 SSE `id:` 或 `rawEvent.eventId`，前端 `runReducer` 提取 | 每个 run 的 `RuntimeRunState` 独立维护 `latestEventId + processedEventIds[]`（去重上限 5000）；checkpoint 落盘 `latestEventId`；每条文本消息记录自己的 eventId（最后一次更新的游标，含 END） |
 
 **会话列表刷新与会话标题**：
 
@@ -139,7 +139,7 @@ ChatPage / MessageBlocks / Markdown / A2UI renderer（只读投影，纯展示�
 
 - `threadId`：✅ 创建会话时 UUID 固化、持久化、同一会话所有 run 复用；切换 agent/fab 是否新建 threadId 待与后端确认。
 - `runId`：✅ 客户端生成、后端必须回显、checkpoint 持久化、HITL 与断线恢复沿用同一 runId；A2UI Action 官方路径暂不携带 `parentRunId`（官方 `runAgent` 参数不支持，mock 路径已带），如后端需要父子关联需在 `a2uiAction.userAction` 里显式传。
-- `eventId`：✅ 每个 run 独立维护 `latestEventId + processedEventIds[]`、checkpoint 落盘、mock/direct 与官方路径均按 `lastEventId` 游标恢复；待后端按游标过滤（方向已冻结）；同页多会话并发时防抖槽需按 sessionId 分槽（当前产品形态不触发）。
+- `eventId`：✅ 每个 run 独立维护 `latestEventId + processedEventIds[]`、checkpoint 落盘、mock 与官方路径均按 `lastEventId` 游标恢复；待后端按游标过滤（方向已冻结）；同页多会话并发时防抖槽需按 sessionId 分槽（当前产品形态不触发）。
 
 **eventId 维护的独立性**：
 
@@ -188,10 +188,8 @@ pnpm run server
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `VITE_SERVICE_MODE` | `mock` | `mock` 使用内置 Mock 数据；`http` 走真实后端接口 |
-| `VITE_CHAT_MODE` | 回退到 `VITE_SERVICE_MODE` | 对话运行时单独开关：`http` 走真实 AG-UI（Copilot Runtime）；`mock` 用内置 SSE。可与市场模式分开配置（如市场 mock、对话 http） |
+| `VITE_CHAT_MODE` | 回退到 `VITE_SERVICE_MODE` | 对话运行时单独开关：`http` 走真实 AG-UI（proxy，官方 CopilotKit → `/api/copilotkit`）；`mock` 用内置 mock runStore（离线 UI 测试）。可与市场模式分开配置 |
 | `VITE_API_BASE_URL` | `/api` | 普通业务 API 的 Base URL（同源代理） |
-| `VITE_AGENT_RUNTIME_TRANSPORT` | `proxy` | `proxy` 固定走 `/api/copilotkit`；`direct` 为本地联调直连 FAB `/ag-ui` |
-| `VITE_AGENT_ORCHESTRATION_ENDPOINTS_JSON` | `{}` | 仅 `direct` 模式使用：FAB → Orchestration Base URL 映射 |
 
 生产默认拓扑见上方「系统架构」：浏览器只访问同源 `/api/*`；SSO 与固定 path 转发由 OAuth2 Proxy 负责；FAB 地址通过服务端环境变量 `AGENT_ORCHESTRATION_BASE_URLS_JSON` 注入，不写入前端构建产物；仓库不自建反向代理。
 

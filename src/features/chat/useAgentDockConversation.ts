@@ -1,9 +1,10 @@
 // AgentDock 对话 hook：
-// - proxy（生产）走官方 CopilotKit v2 headless（useAgent + useCopilotKit）
-// - mock / direct 走自研 SSE + reducer（runStore），direct 仅用于本地联调
+// - proxy（生产，唯一真实传输）走官方 CopilotKit v2 headless（useAgent + useCopilotKit）
+// - mock（离线 UI 测试）走自研 runStore + reducer
+// direct（自研 SSE 直连上游 /ag-ui）已移除。
 // 官方事件经 agent.subscribe 投影为 RuntimeRunState，并写入 IndexedDB 检查点。
 // mock 模式下不挂载 CopilotKit Provider，因此本 hook 按模式拆成两条互斥路径；
-// serviceMode 每次会话固定、transport 为编译期常量，页面内不会中途切换。
+// serviceMode 每次会话固定，页面内不会中途切换。
 import { useAgent, useCopilotKit } from '@copilotkit/react-core/v2';
 import type { Message } from '@ag-ui/client';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -12,7 +13,6 @@ import { createRunInput } from '@/api/runtime/agentRuntimeService';
 import { createRunState, reduceRunEvent } from '@/api/runtime/runReducer';
 import type { AgUiEvent, RunAgentInput, RuntimeRunState } from '@/api/runtime/types';
 import { getChatServiceMode } from '@/api/core/serviceMode';
-import { runtimeConfig } from '@/api/runtimeConfig';
 import {
   flushRunCheckpoint,
   scheduleRunCheckpoint,
@@ -411,6 +411,7 @@ const useOfficialConversation = (
 export const useAgentDockConversation = (
   options: AgentDockConversationOptions,
 ): AgentDockConversationResult => {
-  const useOfficial = getChatServiceMode() === 'http' && runtimeConfig.transport === 'proxy';
+  // 仅 proxy 一种真实传输：http 服务模式即官方 CopilotKit；mock 走离线 runStore。
+  const useOfficial = getChatServiceMode() === 'http';
   return useOfficial ? useOfficialConversation(options) : useMockConversation(options);
 };

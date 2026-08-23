@@ -1,6 +1,6 @@
 # AG-UI 协议实现（现状、事件矩阵、与官方差距）
 
-> 状态：方案 A 已落地（官方 single-route envelope）；自研 SSE/reducer 仅保留给 mock/direct。事件协议基线见 `docs/agentdock/02-agui-a2ui-runtime-contract.md`
+> 状态：方案 A 已落地（官方 single-route envelope）；自研 runStore/reducer 仅保留给 mock。事件协议基线见 `docs/agentdock/02-agui-a2ui-runtime-contract.md`
 > 规范来源：<https://docs.ag-ui.com/sdk/js/core/types>、CopilotKit Runtime 文档
 
 ## 1. 标准 RunAgentInput
@@ -22,13 +22,10 @@ type RunAgentInput = {
 
 角色（AG-UI 标准）：`developer | system | assistant | user | tool | activity | reasoning`。当前 `RuntimeMessage` 只有 `assistant | system | tool | user`，reasoning/activity 由 reducer 用独立 map 存放，不进入 messages —— 这是“自研投影”设计，与官方 headless（messages 包含 reasoning/activity 角色）不同，见 `design/06`。
 
-## 2. SSE 解析（当前实现）
+## 2. 事件解析（当前实现）
 
-`src/api/runtime/sse.ts`：
-
-- 支持 `id:` 与多行 `data:`，CRLF/LF 归一化，忽略 `:` 注释（心跳）。
-- `eventId` 优先级：SSE `id:` → `event.rawEvent.eventId`。
-- 每个事件必须是完整 JSON，禁止跨 frame 拆分（后端契约要求）。
+对话实时传输只有 proxy（官方 CopilotKit transport 解析 SSE）；`direct` 自研 SSE 解析器
+（`sse.ts`）已随 direct 模式移除。`eventId` 由 `rawEvent.eventId` 携带，mock 路径直接透传。
 
 已知问题：
 
@@ -103,7 +100,7 @@ POST {basePath}/transcribe
 
 - 生产 proxy：官方 `@copilotkit/react-core/v2` transport 发送 envelope，`useAgentDockConversation` 消费 `agent.subscribe` 事件。
 - Runtime：`server/index.ts` 挂载 `createCopilotRuntimeHandler`（single-route）+ `FabRoutingAgent`；`/info` 已验证。
-- mock/direct：自研 `parseSseStream + runReducer + runStore`，body 为全文 `RunAgentInput`。
+- mock：自研 `runReducer + runStore`，body 为全文 `RunAgentInput`。
 
 ### 5.3 决策建议
 
@@ -120,7 +117,7 @@ POST {basePath}/transcribe
 | A1 | ~~STEP 消费与渲染~~ | ✅ WorkflowStepsBlock |
 | A2 | ~~Markdown 渲染~~ | ✅ `Markdown.tsx` |
 | A3 | ~~官方 envelope/transport~~ | ✅ single-route + headless |
-| A4 | SSE 残留 frame 处理、坏事件跳过、event: 字段（仅影响自研 mock/direct 路径） | P1 |
+| A4 | SSE 残留 frame 处理、坏事件跳过、event: 字段（仅影响自研 mock 路径） | P1 |
 | A5 | STATE_DELTA / ACTIVITY_DELTA 完整 RFC6902 path 支持 | P1 |
 | A6 | reasoning 生命周期（REASONING_START/END）与流式状态 | P1 |
 | A7 | Custom/RAW 事件可诊断面板（非白屏） | P2 |
