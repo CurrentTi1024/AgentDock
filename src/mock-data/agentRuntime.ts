@@ -2,7 +2,8 @@ import type { AgUiEvent, RunAgentInput } from '@/api/runtime/types';
 const delay = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => { const timer = setTimeout(resolve, ms); signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); }, { once: true }); });
 export async function* createAgentRuntimeMockEvents(input: RunAgentInput, signal?: AbortSignal): AsyncGenerator<AgUiEvent> {
   const assistantId = `assistant-${input.runId}`; const fab = input.forwardedProps.fab; let sequence = 0;
-  const event = (value: AgUiEvent) => ({ ...value, rawEvent: { runId: input.runId, streamId: `${Date.now()}-${sequence++}` } });
+  // eventId 序号定宽补零：与后端契约一致，保证字符串排序即事件顺序（续传按字符串比较游标）。
+  const event = (value: AgUiEvent) => ({ ...value, rawEvent: { runId: input.runId, eventId: `${Date.now()}-${String(sequence++).padStart(6, '0')}` } });
   if (input.forwardedProps.action === 'stop') { yield event({ type: 'RUN_ERROR', threadId: input.threadId, runId: input.runId, code: 'CANCELLED', message: 'Run cancelled by user.' }); return; }
   if (input.forwardedProps.action === 'run' || input.forwardedProps.action === 'a2uiAction') yield event({ type: 'RUN_STARTED', threadId: input.threadId, runId: input.runId });
   if (input.forwardedProps.group) {

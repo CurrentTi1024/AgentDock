@@ -103,7 +103,7 @@ const handler = createCopilotNodeHandler(fetchHandler);
 
 - 输入：官方 `agent.messages` / `agent.state` / events。
 - 输出：AgentDock `RuntimeRunState`（IndexedDB 可见历史 + 检查点）。
-- 不再直接解析 SSE；去重/恢复由官方 transport + 后端 streamId 约定共同保证。
+- 不再直接解析 SSE；去重/恢复由官方 transport + 后端 eventId 约定共同保证。
 
 若暂不接官方（方案 B，仅本地/Mock 过渡），必须把自研协议（全文 RunAgentInput + SSE 原样透传）写进 `docs/agentdock/02` 并冻结，且补齐 `/info`。生产不可用：OAuth2 Proxy 无法按 FAB 动态路由到多个 orchestration（见 `design/08` §7.0）。
 
@@ -120,7 +120,7 @@ const handler = createCopilotNodeHandler(fetchHandler);
 ## 7. 验收清单
 
 - [x] single-route `/info` 返回 agents + `a2uiEnabled`（已验证）。
-- [x] run/stop/HITL/a2uiAction 走同一条 single-route；connect 按 `lastStreamId` 游标恢复（方向已冻结）。
-- [x] runId 由浏览器产生且全程不变；恢复回填 checkpoint 消息并 `connectAgent(lastStreamId)`。
+- [x] run/stop/HITL/a2uiAction 走同一条 single-route；connect 按 `lastEventId` 游标恢复（方向已冻结）。
+- [x] runId 由浏览器产生且全程不变；恢复回填 checkpoint 消息并 `connectAgent(lastEventId)`。
 - [x] reasoning、tool、step、activity、A2UI 全部有渲染组件（`design/05` 矩阵）。
 - [ ] 与 DeepAgents 后端联调 Case 1-10 通过（`docs/agentdock/03`）。

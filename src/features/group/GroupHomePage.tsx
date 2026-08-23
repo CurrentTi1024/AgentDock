@@ -2,7 +2,7 @@
 import { Block, Button, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
 import { createStaticStyles } from 'antd-style';
 import { Plus, Users } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { sessionHistoryService, type SessionRecord } from '@/api/session/sessionHistoryService';
@@ -22,27 +22,26 @@ const GroupHomePage = () => {
   const { t } = useI18n();
   const location = useLocation();
   const [groups, setGroups] = useState<SessionRecord[]>([]);
+  const [groupLimit, setGroupLimit] = useState(10);
   const pendingSession = (location.state as { pendingSession?: SessionRecord } | null)?.pendingSession;
 
   useEffect(() => {
     const load = () => {
-      void sessionHistoryService.listSessions().then(setGroups);
+      void sessionHistoryService.listGroupSessions().then(setGroups);
     };
-    const applyPending = () => {
-      if (!pendingSession || pendingSession.type !== 'group') return;
-      setGroups((current) =>
-        current.some((session) => session.id === pendingSession.id)
-          ? current
-          : [pendingSession, ...current],
-      );
-    };
-    applyPending();
     load();
     window.addEventListener('agentdock:sessions-changed', load);
     return () => window.removeEventListener('agentdock:sessions-changed', load);
-  }, [pendingSession]);
+  }, []);
 
-  const visibleGroups = groups.filter((session) => session.type === 'group').slice(0, 10);
+  const effectiveGroups = useMemo(() => {
+    if (!pendingSession || pendingSession.type !== 'group') return groups;
+    return groups.some((group) => group.id === pendingSession.id)
+      ? groups
+      : [pendingSession, ...groups];
+  }, [groups, pendingSession]);
+  const visibleGroups = effectiveGroups.slice(0, groupLimit);
+  const hasMoreGroups = effectiveGroups.length > groupLimit;
 
   const createGroup = () => {
     const id = `group-${crypto.randomUUID()}`;
@@ -109,6 +108,11 @@ const GroupHomePage = () => {
               </Flexbox>
             </Block>
           ))
+        )}
+        {hasMoreGroups && (
+          <Button block onClick={() => setGroupLimit((current) => current + 10)}>
+            {t('common.loadMore')}
+          </Button>
         )}
       </Flexbox>
     </Flexbox>

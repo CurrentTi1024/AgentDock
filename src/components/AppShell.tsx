@@ -12,6 +12,7 @@ import HomeSidebar from '@/components/shell/HomeSidebar';
 import NavPanelDraggable from '@/components/shell/NavPanelDraggable';
 import GroupCreateModal from '@/features/group/GroupCreateModal';
 import { useI18n } from '@/i18n';
+import type { StorageUsage } from '@/api/session/sessionStorageService';
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -24,8 +25,21 @@ export default function AppShell({ children }: { children: ReactNode }) {
     const onBlocked = () => {
       message.warning(t('common.indexeddbBlocked'));
     };
+    const onStorageWarning = (event: Event) => {
+      const detail = (event as CustomEvent<StorageUsage>).detail;
+      message.warning(t('settings.storage.warningBanner', { percent: Math.round(detail.percent * 100) }));
+    };
+    const onStorageError = () => {
+      message.error(t('settings.storage.error'));
+    };
     window.addEventListener('agentdock:indexeddb-blocked', onBlocked);
-    return () => window.removeEventListener('agentdock:indexeddb-blocked', onBlocked);
+    window.addEventListener('agentdock:storage-warning', onStorageWarning);
+    window.addEventListener('agentdock:storage-error', onStorageError);
+    return () => {
+      window.removeEventListener('agentdock:indexeddb-blocked', onBlocked);
+      window.removeEventListener('agentdock:storage-warning', onStorageWarning);
+      window.removeEventListener('agentdock:storage-error', onStorageError);
+    };
   }, [t]);
 
   return (

@@ -1,5 +1,5 @@
 // AgentDock conversation page — LobeHub ConversationArea + ChatItem + ChatInput adaptation.
-import { ActionIcon, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
+import { ActionIcon, Button, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
 import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { LoadingDots } from '@lobehub/ui/chat';
 import { createStaticStyles, cssVar } from 'antd-style';
@@ -107,9 +107,51 @@ export default function ChatPage() {
   const [agent, setAgent] = useState('FlightAnalysis_Agent-F15B');
   const [session, setSession] = useState<SessionRecord>();
   const [history, setHistory] = useState<SessionMessageRecord[]>([]);
+  // 会话内消息懒加载：首屏最近一页，加载更早按文本所属 run 整轮追加。
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const nextCursorRef = useRef<number | undefined>(undefined);
+  const loadedTextCountRef = useRef(0);
+  const loadingOlderRef = useRef(false);
   const [artifactOpen, setArtifactOpen] = useState(false);
   const [artifact, setArtifact] = useState<{ html?: string; title?: string }>();
   const [runStartedAt, setRunStartedAt] = useState<number>();
+
+  const loadInitialHistory = useCallback(async () => {
+    const page = await sessionHistoryService.getMessagesPage(sessionId);
+    setHistory(page.records);
+    setHasMoreOlder(page.hasMore);
+    nextCursorRef.current = page.nextBeforeSequence;
+    loadedTextCountRef.current = page.records.filter((record) => record.kind === 'text').length;
+  }, [sessionId]);
+
+  const loadOlderHistory = useCallback(async () => {
+    if (loadingOlderRef.current || nextCursorRef.current === undefined) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const page = await sessionHistoryService.getMessagesPage(sessionId, {
+        beforeSequence: nextCursorRef.current,
+      });
+      setHistory((current) => [...page.records, ...current]);
+      setHasMoreOlder(page.hasMore);
+      nextCursorRef.current = page.nextBeforeSequence;
+      loadedTextCountRef.current += page.records.filter((record) => record.kind === 'text').length;
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [sessionId]);
+
+  /** 变更/终态后刷新：按当前已加载文本数重取“最新 N 条文本窗口”，保留已加载的更早内容。 */
+  const reloadHistoryWindow = useCallback(async () => {
+    const target = Math.max(loadedTextCountRef.current, 1);
+    const page = await sessionHistoryService.getMessagesPage(sessionId, { limit: target });
+    setHistory(page.records);
+    setHasMoreOlder(page.hasMore);
+    nextCursorRef.current = page.nextBeforeSequence;
+    loadedTextCountRef.current = page.records.filter((record) => record.kind === 'text').length;
+  }, [sessionId]);
 
   const fab = selectedAgent?.fab || session?.fab || agent.split('-').at(-1) || 'F15B';
   const agentId = resolveChatAgentId(selectedAgent?.agentId, session?.agentId);
@@ -298,26 +340,25 @@ export default function ChatPage() {
       // agentName 通常是 agentFullName（已含 FAB），不要再拼一次 -fab，避免双后缀。
       setAgent(value.agentName || `${value.title}-${value.fab}`.replace(/\s+/g, ''));
     });
-    void sessionHistoryService.getMessages(sessionId).then(setHistory);
+    void loadInitialHistory();
     void restore();
-  }, [ensureSession, restore, sessionId]);
+  }, [ensureSession, loadInitialHistory, restore, sessionId]);
 
   useEffect(() => {
     if (run && ['success', 'cancelled', 'error'].includes(run.status)) {
       // 运行终态时 flushRunCheckpoint 异步落库；延迟到落库完成后刷新历史，
       // 避免读到缺少助手回复的中间快照（竞态会导致完成后消息消失）。
       const timer = setTimeout(() => {
-        void sessionHistoryService.getMessages(sessionId).then(setHistory);
+        void loadInitialHistory();
       }, 600);
       return () => clearTimeout(timer);
     }
-  }, [run?.status, sessionId]);
+  }, [loadInitialHistory, run?.status, sessionId]);
 
   // 落库完成事件：确定性刷新历史（大 run 落库可能超过 600ms，时间兜底不可靠）。
   useEffect(() => {
     const refresh = () => {
-      void sessionHistoryService.getMessages(sessionId).then((messages) => {
-        setHistory(messages);
+      void reloadHistoryWindow().then(() => {
         // 终态落库完成后 DOM 会重建（live→历史），此时再滚一次确保停在最新一条。
         if (terminalRunRef.current) {
           stickToBottomRef.current = true;
@@ -329,7 +370,7 @@ export default function ChatPage() {
     };
     window.addEventListener('agentdock:run-persisted', refresh);
     return () => window.removeEventListener('agentdock:run-persisted', refresh);
-  }, [scrollToBottom, sessionId]);
+  }, [reloadHistoryWindow, scrollToBottom, sessionId]);
 
   const sendMessageWith = async (prompt: string) => {
     if (!prompt || running) return;
@@ -501,11 +542,9 @@ export default function ChatPage() {
 
   const deleteMessage = useCallback(
     (messageId: string) => {
-      void sessionHistoryService.removeMessage(sessionId, messageId).then(() =>
-        sessionHistoryService.getMessages(sessionId).then(setHistory),
-      );
+      void sessionHistoryService.removeMessage(sessionId, messageId).then(() => reloadHistoryWindow());
     },
-    [sessionId],
+    [reloadHistoryWindow, sessionId],
   );
 
   // branch 替换：删除以该用户消息开头的一整轮（用户消息 + 助手回复过程块 + checkpoint），
@@ -514,8 +553,7 @@ export default function ChatPage() {
     if (!prompt || running) return;
     // record.id 可能带 text: 前缀，removeTurn 按无前缀 id 查找。
     await sessionHistoryService.removeTurn(sessionId, userMessageId.replace(/^text:/, ''));
-    const refreshed = await sessionHistoryService.getMessages(sessionId);
-    setHistory(refreshed);
+    await reloadHistoryWindow();
     await sendMessageWith(prompt);
   };
 
@@ -706,6 +744,13 @@ export default function ChatPage() {
                 </Fragment>
               );
             })}
+            {hasMoreOlder && (
+              <Flexbox align="center" paddingBlock={10}>
+                <Button loading={loadingOlder} size="small" onClick={() => void loadOlderHistory()}>
+                  {t('chat.loadEarlier')}
+                </Button>
+              </Flexbox>
+            )}
             {isActiveRun && (answer || running || run?.status) && (
               <>
                 <ChatItem

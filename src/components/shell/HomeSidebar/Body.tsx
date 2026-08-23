@@ -24,6 +24,7 @@ import NavItem from '@/components/shell/NavItem';
 import SidebarSection from '@/components/shell/SidebarSection';
 import { useI18n } from '@/i18n';
 import { formatRelativeTime } from '@/lib/relativeTime';
+import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
@@ -68,41 +69,35 @@ const Body = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const thisMonthOnly = useUiStore((s) => s.thisMonthOnly);
-  const [sessions, setSessions] = useState<SessionRecord[]>([]);
+  const sessions = useSessionStore((state) => state.sessions);
+  const hasMoreSessions = useSessionStore((state) => state.hasMoreSessions);
+  const loadMoreSessions = useSessionStore((state) => state.loadMoreSessions);
   const [agents, setAgents] = useState<MentionAgent[]>([]);
   const [marketOpen, setMarketOpen] = useState(false);
   const [keyword, setKeyword] = useState('');
+  const [searchResults, setSearchResults] = useState<SessionRecord[] | undefined>();
   const pendingSession = (location.state as { pendingSession?: SessionRecord } | null)?.pendingSession;
 
+  // 会话列表由 sessionStore 统一维护（分页窗口 + 跨标签页同步），这里只做首次加载。
   useEffect(() => {
-    const load = () => {
-      if (!thisMonthOnly || isActive(location.pathname, '/chat')) {
-        void sessionHistoryService.listSessions().then(setSessions);
-      }
-    };
-    const applyPending = () => {
-      if (!pendingSession) return;
-      setSessions((current) =>
-        current.some((session) => session.id === pendingSession.id)
-          ? current
-          : [pendingSession, ...current],
-      );
-    };
-    const refresh = () => {
-      applyPending();
-      load();
-    };
-    applyPending();
-    load();
-    window.addEventListener('agentdock:sessions-changed', load);
-    window.addEventListener('focus', refresh);
-    document.addEventListener('visibilitychange', refresh);
+    void useSessionStore.getState().refreshSessions();
+  }, []);
+
+  // 搜索时全量扫标题/Agent 名（searchSessions），浏览态用 store 分页窗口。
+  useEffect(() => {
+    const query = keyword.trim().toLowerCase();
+    if (!query) {
+      setSearchResults(undefined);
+      return;
+    }
+    let cancelled = false;
+    void sessionHistoryService.searchSessions(query).then((items) => {
+      if (!cancelled) setSearchResults(items);
+    });
     return () => {
-      window.removeEventListener('agentdock:sessions-changed', load);
-      window.removeEventListener('focus', refresh);
-      document.removeEventListener('visibilitychange', refresh);
+      cancelled = true;
     };
-  }, [location.pathname, pendingSession, thisMonthOnly]);
+  }, [keyword]);
 
   // 直接展开有权限的全部 Agent（LobeHub Agents 手风琴）：数据走 Service（mock 返回 mock 数据）。
   useEffect(() => {
@@ -133,12 +128,20 @@ const Body = () => {
     });
   };
 
+  const effectiveSessions = useMemo(() => {
+    if (!pendingSession) return sessions;
+    return sessions.some((session) => session.id === pendingSession.id)
+      ? sessions
+      : [pendingSession, ...sessions];
+  }, [pendingSession, sessions]);
+
+  // 本月模式且不在 /chat 时不展示最近对话（沿用原行为）。
+  const showRecents = !thisMonthOnly || isActive(location.pathname, '/chat');
   const visibleSessions = useMemo(() => {
-    const query = keyword.toLowerCase();
-    return sessions
-      .filter((session) => !query || `${session.title}${session.agentName || ''}`.toLowerCase().includes(query))
-      .slice(0, 20);
-  }, [keyword, sessions]);
+    if (searchResults) return searchResults.slice(0, 50);
+    if (!showRecents) return [];
+    return effectiveSessions.slice(0, 20);
+  }, [effectiveSessions, searchResults, showRecents]);
 
   const visibleModules = moduleItems.filter((item) => !thisMonthOnly || item.month);
   const menuLabels: Record<string, string> = {
@@ -265,6 +268,13 @@ const Body = () => {
                 />
               );
             })
+          )}
+          {!searchResults && hasMoreSessions && (
+            <NavItem
+              icon={ArrowRight}
+              title={t('common.loadMore')}
+              onClick={() => void loadMoreSessions()}
+            />
           )}
         </Flexbox>
       </SidebarSection>

@@ -145,10 +145,10 @@ AgentDockProjection（纯函数，无副作用）
   - `onCustomEvent/onRawEvent` → 诊断日志。
 - `parseSseStream`/`runReducer` 仅保留给 Mock 联调与离线 fixture 测试，并在代码注释与文档中标注“非生产路径”。
 
-### 5.3 runId / streamId
+### 5.3 runId / eventId
 
 - `runId`：由官方客户端生成，事件回调中读取并写入 IndexedDB；后端必须原样回显。
-- `streamId`：如果公司保留 Redis 事件游标，把 `rawEvent.streamId` 透传（runtime 不裁剪）；恢复时用官方 connect/resume + 后端游标。
+- `eventId`：如果公司保留 Redis 事件游标，把 `rawEvent.eventId` 透传（runtime 不裁剪）；恢复时用官方 connect/resume + 后端游标。
 
 ## 6. A2UI 渲染决策
 

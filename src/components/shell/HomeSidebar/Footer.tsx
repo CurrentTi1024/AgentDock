@@ -48,7 +48,7 @@ const Footer = memo(() => {
         active={isSettingsActive(location.pathname)}
         icon={Settings}
         title={t('nav.settings')}
-        onClick={() => navigate('/settings/general')}
+        onClick={() => navigate('/settings')}
       />
     </Flexbox>
   );

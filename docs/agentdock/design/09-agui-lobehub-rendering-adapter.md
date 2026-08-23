@@ -220,7 +220,7 @@ export interface AgentDockProjection {
   error?: { code?: string; message: string };
   runId?: string;
   threadId: string;
-  latestStreamId?: string;
+  latestEventId?: string;
 }
 ```
 

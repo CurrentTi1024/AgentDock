@@ -84,7 +84,7 @@ flowchart LR
 | HITL 审批 | HITL 同意按钮 | `hitlResponse decision=approve` | `RunAgentInput.resume[] status=resolved` | `requestId / threadId / runId` |
 | HITL 拒绝（取消） | HITL 拒绝按钮 | `hitlResponse decision=reject` → `RUN_ERROR(CANCELLED)` | `resume[] status=cancelled` | `requestId / threadId / runId` |
 | A2UI Action | A2UI 组件点击 | `a2uiAction`（新 runId + parentRunId） | renderer bridge `forwardedProps.a2uiAction.userAction` | `surfaceId / actionName / context` |
-| 断线重连 | 页面刷新 / 重新进入 | ✅ `restoreSession` + `resume(lastStreamId)` | ✅ `connectAgent` 携带 `action=resume` + `resume.lastStreamId`（后端需按游标过滤） | `sessionId / runId / threadId / lastStreamId` |
+| 断线重连 | 页面刷新 / 重新进入 | ✅ `restoreSession` + `resume(lastEventId)` | ✅ `connectAgent` 携带 `action=resume` + `resume.lastEventId`（后端需按游标过滤） | `sessionId / runId / threadId / lastEventId` |
 
 消费的 AG-UI 事件（`runReducer` 支持矩阵）：
 
@@ -100,7 +100,7 @@ flowchart LR
 | `MESSAGES_SNAPSHOT` | messages 全量重建 | 恢复渲染 |
 | `CUSTOM / RAW` | rawEvents | 不阻塞渲染 |
 
-**断线重连现状（方向已冻结：按 streamId 游标恢复）**：mock / direct 路径 `restoreSession + resume(lastStreamId)`；http + proxy 路径刷新后恢复 UI/checkpoint、回填 `agent.setMessages`，并通过官方 `connectAgent` 携带 `action=resume` + `resume.lastStreamId` 请求游标后的缺失事件。两条路径都携带 `sessionId / runId / threadId / lastStreamId`；后端需按 `lastStreamId` 游标过滤（Redis TTL 与超时行为见 `design/07` §9）。
+**断线重连现状（方向已冻结：按 eventId 游标恢复）**：mock / direct 路径 `restoreSession + resume(lastEventId)`；http + proxy 路径刷新后恢复 UI/checkpoint、回填 `agent.setMessages`，并通过官方 `connectAgent` 携带 `action=resume` + `resume.lastEventId` 请求游标后的缺失事件。两条路径都携带 `sessionId / runId / threadId / lastEventId`；后端需按 `lastEventId` 游标过滤（Redis TTL 与超时行为见 `design/07` §9）。
 
 ### 前端内部架构
 
@@ -118,14 +118,14 @@ ChatPage / MessageBlocks / Markdown / A2UI renderer（只读投影，纯展示�
 
 对话历史：全部会话消息（单 Agent 与 Agent Group 的文本/reasoning/tool/activity/HITL/A2UI/step）保存在 IndexedDB（`agentdock-session-v3`），每次打开从本地恢复；清空浏览器存储后历史为空。
 
-### ID 生成与管理（sessionId / threadId / runId / streamId）
+### ID 生成与管理（sessionId / threadId / runId / eventId）
 
 | ID | 生成方式 | 管理位置 |
 |---|---|---|
 | `sessionId` | 路由 `/chat/:id`；会话主键 = 路由 id（默认入口固定 `session-inbox`，真实会话为 `crypto.randomUUID()`），`createSession({ id: sessionId })` 保证会话行与消息/checkpoint 同键 | Dexie `sessions.id`；ChatPage `session` state；消息/checkpoint 按 sessionId 查询 |
 | `threadId` | 创建会话时 `crypto.randomUUID()` 固化进会话记录；hook 仅防御性兜底 `thread-${sessionId}` | Dexie `sessions.threadId`；同一会话所有 run 共用（DeepAgents 上下文线程） |
 | `runId` | 每次发送 `crypto.randomUUID()`（mock 在 `createRunInput`，官方在 `send()`）；HITL 续跑沿用同一 run | Dexie `checkpoints.runId`（主键）+ `snapshot.runId`；后端必须原样回显，禁止二次生成 |
-| `streamId` | 后端 SSE `id:` 或 `rawEvent.streamId`，前端 `parseSseStream` 提取 | 每个 run 的 `RuntimeRunState` 独立维护 `latestStreamId + processedStreamIds[]`（去重上限 5000）；checkpoint 落盘 `latestStreamId`；每条文本消息记录自己的 streamId（最后一次更新的游标，含 END） |
+| `eventId` | 后端 SSE `id:` 或 `rawEvent.eventId`，前端 `parseSseStream` 提取 | 每个 run 的 `RuntimeRunState` 独立维护 `latestEventId + processedEventIds[]`（去重上限 5000）；checkpoint 落盘 `latestEventId`；每条文本消息记录自己的 eventId（最后一次更新的游标，含 END） |
 
 **会话列表刷新与会话标题**：
 
@@ -139,9 +139,9 @@ ChatPage / MessageBlocks / Markdown / A2UI renderer（只读投影，纯展示�
 
 - `threadId`：✅ 创建会话时 UUID 固化、持久化、同一会话所有 run 复用；切换 agent/fab 是否新建 threadId 待与后端确认。
 - `runId`：✅ 客户端生成、后端必须回显、checkpoint 持久化、HITL 与断线恢复沿用同一 runId；A2UI Action 官方路径暂不携带 `parentRunId`（官方 `runAgent` 参数不支持，mock 路径已带），如后端需要父子关联需在 `a2uiAction.userAction` 里显式传。
-- `streamId`：✅ 每个 run 独立维护 `latestStreamId + processedStreamIds[]`、checkpoint 落盘、mock/direct 与官方路径均按 `lastStreamId` 游标恢复；待后端按游标过滤（方向已冻结）；同页多会话并发时防抖槽需按 sessionId 分槽（当前产品形态不触发）。
+- `eventId`：✅ 每个 run 独立维护 `latestEventId + processedEventIds[]`、checkpoint 落盘、mock/direct 与官方路径均按 `lastEventId` 游标恢复；待后端按游标过滤（方向已冻结）；同页多会话并发时防抖槽需按 sessionId 分槽（当前产品形态不触发）。
 
-**streamId 维护的独立性**：
+**eventId 维护的独立性**：
 
 - 持久化层按 `runId` 主键 + `sessionId` 索引隔离，多个会话/run 的记录互不覆盖；多标签页各自独立，IndexedDB 同源共享但不冲突。
 - 单标签页同一时刻只展示一个会话：mock 路径用全局 `runStore`（切换会话时以该会话 checkpoint 替换内存状态）；官方路径为每个会话注册独立代理 `agentdock-${sessionId}`，`httpRun` 是组件本地状态，切换会话时 `restore()` 重载对应 checkpoint。

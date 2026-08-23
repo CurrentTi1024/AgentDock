@@ -41,6 +41,8 @@
 | [design/13-concurrent-run-guard.md](agentdock/design/13-concurrent-run-guard.md) | 并发 run 防护：hook 防重入、runtime 幂等守卫、陈旧 checkpoint 不自动 resume、流中断兜底 |
 | [design/14-a2ui-surface-persistence.md](agentdock/design/14-a2ui-surface-persistence.md) | A2UI Surface 持久化与前端 catalog 补齐（Metric/Title 等组件名对齐） |
 | [design/15-orchestration-integration-guide.md](agentdock/design/15-orchestration-integration-guide.md) | 公司内接入真实 Orchestration Service 指南：核心链路 mermaid、关键代码、payload/response 约定、坑清单 |
+| [design/16-indexeddb-storage-plan.md](agentdock/design/16-indexeddb-storage-plan.md) | Session 本地 IndexedDB（Dexie）完整方案：现状 vs LobeHub、schema v2 迁移、lastMessageAt、容量监控预警、导出清理、跨页同步、zustand 操作中间层 |
+| [design/chat-indexeddb-storage.md](design/chat-indexeddb-storage.md) | Chat 本地 IndexedDB 存储机制最终设计与实现：Schema/迁移、生命周期、断线续传 eventId、容量预警、导出清理、分页懒加载、跨页同步、测试验证 |
 
 ## 阅读顺序
 

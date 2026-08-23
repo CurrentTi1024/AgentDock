@@ -1,5 +1,5 @@
 import { LOBE_TASK_ROLES, type RuntimeMessage, type RuntimeRunState, type StreamedEvent } from './types.ts';
-export const createRunState = (runId: string, threadId: string): RuntimeRunState => ({ activities: {}, messageOrder: [], messages: {}, orderedBlocks: [], processedStreamIds: [], rawEvents: [], reasoning: {}, reasoningMeta: {}, runId, state: {}, status: 'idle', steps: {}, surfaces: {}, threadId, toolCalls: {} });
+export const createRunState = (runId: string, threadId: string): RuntimeRunState => ({ activities: {}, messageOrder: [], messages: {}, orderedBlocks: [], processedEventIds: [], rawEvents: [], reasoning: {}, reasoningMeta: {}, runId, state: {}, status: 'idle', steps: {}, surfaces: {}, threadId, toolCalls: {} });
 /** 消息首次出现时追加到时间线（幂等）；持久化依赖 messageOrder 分配稳定序号。 */
 const appendMessageId = (next: RuntimeRunState, id: string) => {
   if (id && !next.messageOrder.includes(id)) next.messageOrder.push(id);
@@ -34,17 +34,17 @@ const applyStateDelta = (state: unknown, delta: unknown) => {
   return next;
 };
 export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent): RuntimeRunState {
-  if (input.streamId && previous.processedStreamIds.includes(input.streamId)) return previous;
+  if (input.eventId && previous.processedEventIds.includes(input.eventId)) return previous;
   const next = structuredClone(previous); const event = input.event; const id = String(event.messageId || ''); const toolId = String(event.toolCallId || ''); next.rawEvents.push(event); if (next.rawEvents.length > 1000) next.rawEvents.shift();
-  if (input.streamId) { next.latestStreamId = input.streamId; next.processedStreamIds.push(input.streamId); if (next.processedStreamIds.length > 5000) next.processedStreamIds.shift(); }
+  if (input.eventId) { next.latestEventId = input.eventId; next.processedEventIds.push(input.eventId); if (next.processedEventIds.length > 5000) next.processedEventIds.shift(); }
   switch (event.type) {
     case 'RUN_STARTED': next.status = 'running'; break;
     case 'RUN_FINISHED': next.status = 'success'; break;
     case 'RUN_ERROR': next.status = event.code === 'CANCELLED' ? 'cancelled' : 'error'; next.error = { code: String(event.code || ''), message: String(event.message || 'Run failed') }; break;
-    case 'TEXT_MESSAGE_START': next.messages[id] = { id, role: String(event.role || 'assistant') as RuntimeMessage['role'], content: '', streamId: input.streamId }; appendMessageId(next, id); break;
-    case 'TEXT_MESSAGE_CONTENT': next.messages[id] ||= { id, role: 'assistant', content: '' }; appendMessageId(next, id); next.messages[id].content += String(event.delta || ''); if (input.streamId) next.messages[id].streamId = input.streamId; break;
-    case 'TEXT_MESSAGE_CHUNK': next.messages[id] ||= { id, role: 'assistant', content: '' }; appendMessageId(next, id); next.messages[id].content += String(event.delta || event.content || ''); if (input.streamId) next.messages[id].streamId = input.streamId; break;
-    case 'TEXT_MESSAGE_END': if (input.streamId && next.messages[id]) next.messages[id].streamId = input.streamId; break;
+    case 'TEXT_MESSAGE_START': next.messages[id] = { id, role: String(event.role || 'assistant') as RuntimeMessage['role'], content: '', eventId: input.eventId }; appendMessageId(next, id); break;
+    case 'TEXT_MESSAGE_CONTENT': next.messages[id] ||= { id, role: 'assistant', content: '' }; appendMessageId(next, id); next.messages[id].content += String(event.delta || ''); if (input.eventId) next.messages[id].eventId = input.eventId; break;
+    case 'TEXT_MESSAGE_CHUNK': next.messages[id] ||= { id, role: 'assistant', content: '' }; appendMessageId(next, id); next.messages[id].content += String(event.delta || event.content || ''); if (input.eventId) next.messages[id].eventId = input.eventId; break;
+    case 'TEXT_MESSAGE_END': if (input.eventId && next.messages[id]) next.messages[id].eventId = input.eventId; break;
     case 'REASONING_START': next.reasoningMeta[id] = { ...next.reasoningMeta[id], startedAt: Date.now(), streaming: true }; break;
     case 'REASONING_MESSAGE_START': next.reasoning[id] = ''; next.reasoningMeta[id] = { ...next.reasoningMeta[id], startedAt: Date.now(), streaming: true }; pushOrderedBlock(next, 'reasoning', id); break;
     case 'REASONING_MESSAGE_CONTENT': next.reasoning[id] = (next.reasoning[id] || '') + String(event.delta || ''); next.reasoningMeta[id] = { ...next.reasoningMeta[id], startedAt: next.reasoningMeta[id]?.startedAt ?? Date.now(), streaming: true }; break;

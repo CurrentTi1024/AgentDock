@@ -18,49 +18,42 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
   `,
 }));
 
+const GROUP_PAGE_SIZE = 20;
+
 const GroupSidebarBody = () => {
   const { t } = useI18n();
   const location = useLocation();
   const navigate = useNavigate();
   const [groups, setGroups] = useState<SessionRecord[]>([]);
   const [keyword, setKeyword] = useState('');
+  const [groupLimit, setGroupLimit] = useState(GROUP_PAGE_SIZE);
   const pendingSession = (location.state as { pendingSession?: SessionRecord } | null)?.pendingSession;
 
   useEffect(() => {
     const load = () => {
-      void sessionHistoryService.listSessions().then(setGroups);
+      void sessionHistoryService.listGroupSessions().then(setGroups);
     };
-    const applyPending = () => {
-      if (!pendingSession || pendingSession.type !== 'group') return;
-      setGroups((current) =>
-        current.some((session) => session.id === pendingSession.id)
-          ? current
-          : [pendingSession, ...current],
-      );
-    };
-    const refresh = () => {
-      applyPending();
-      load();
-    };
-    applyPending();
     load();
     window.addEventListener('agentdock:sessions-changed', load);
-    window.addEventListener('focus', refresh);
-    document.addEventListener('visibilitychange', refresh);
     return () => {
       window.removeEventListener('agentdock:sessions-changed', load);
-      window.removeEventListener('focus', refresh);
-      document.removeEventListener('visibilitychange', refresh);
     };
-  }, [location.pathname, pendingSession]);
+  }, []);
 
-  const visibleGroups = useMemo(() => {
+  const filteredAll = useMemo(() => {
     const query = keyword.toLowerCase();
     return groups
       .filter((session) => session.type === 'group')
-      .filter((session) => !query || session.title.toLowerCase().includes(query))
-      .slice(0, 20);
+      .filter((session) => !query || session.title.toLowerCase().includes(query));
   }, [groups, keyword]);
+  const effectiveGroups = useMemo(() => {
+    if (!pendingSession || pendingSession.type !== 'group') return filteredAll;
+    return filteredAll.some((group) => group.id === pendingSession.id)
+      ? filteredAll
+      : [pendingSession, ...filteredAll];
+  }, [filteredAll, pendingSession]);
+  const visibleGroups = effectiveGroups.slice(0, groupLimit);
+  const hasMoreGroups = effectiveGroups.length > groupLimit;
 
   return (
     <Flexbox gap={2} paddingBlock={4}>
@@ -87,6 +80,14 @@ const GroupSidebarBody = () => {
             onClick={() => navigate(`/group/${group.id}`)}
           />
         ))
+      )}
+      {hasMoreGroups && (
+        <NavItem
+          icon={Users}
+          iconSize={15}
+          title={t('common.loadMore')}
+          onClick={() => setGroupLimit((current) => current + GROUP_PAGE_SIZE)}
+        />
       )}
     </Flexbox>
   );

@@ -126,7 +126,7 @@ AgentDock 是公司内部使用的 Agent 前端工作台：
 | `threadId` | AgentDock/后端约定 | DeepAgents 上下文线程 | IndexedDB保存引用，后端保存上下文 |
 | `runId` | AG-UI Client | 一次用户提问/Agent 执行 | IndexedDB检查点、后端执行记录 |
 | `parentRunId` | AG-UI Client/Runtime | 子执行或续执行的父 Run | 按需 |
-| `streamId` | Orchestration Service/Redis | 一个 Run 内的事件游标 | Redis；必要时浏览器检查点 |
+| `eventId` | Orchestration Service/Redis | 一个 Run 内的事件游标 | Redis；必要时浏览器检查点 |
 | `messageId` | 事件产生方 | 一条用户、助手、reasoning 或 activity 消息 | IndexedDB可见历史 |
 | `toolCallId` | Agent/Core | 一次工具调用 | 可见消息块 |
 | `surfaceId` | A2UI 工具 | 一个 A2UI Surface | 可见消息块/快照 |

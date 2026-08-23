@@ -4,7 +4,7 @@ import { DropdownMenu } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { message } from 'antd';
 import { ChevronLeft, Clock3, Info, Play, Plus, Users, X } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { agentGroupService } from '@/api/agent-group/agentGroupService';
@@ -76,6 +76,12 @@ const GroupChatPage = () => {
     pendingSession?.id === sessionId ? pendingSession : undefined,
   );
   const [history, setHistory] = useState<SessionMessageRecord[]>([]);
+  // 会话内消息懒加载：首屏最近一页，加载更早按文本所属 run 整轮追加。
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const nextCursorRef = useRef<number | undefined>(undefined);
+  const loadedTextCountRef = useRef(0);
+  const loadingOlderRef = useRef(false);
   const [input, setInput] = useState('');
   const [modes, setModes] = useState<Array<{ modeId: string; name: string }>>([]);
   const [mode, setMode] = useState('supervisor');
@@ -92,6 +98,42 @@ const GroupChatPage = () => {
       : undefined;
   }, [session?.group]);
   const configuredMembers = groupConfig?.members?.length ? groupConfig.members : undefined;
+
+  const loadInitialHistory = useCallback(async () => {
+    const page = await sessionHistoryService.getMessagesPage(sessionId);
+    setHistory(page.records);
+    setHasMoreOlder(page.hasMore);
+    nextCursorRef.current = page.nextBeforeSequence;
+    loadedTextCountRef.current = page.records.filter((record) => record.kind === 'text').length;
+  }, [sessionId]);
+
+  const loadOlderHistory = useCallback(async () => {
+    if (loadingOlderRef.current || nextCursorRef.current === undefined) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const page = await sessionHistoryService.getMessagesPage(sessionId, {
+        beforeSequence: nextCursorRef.current,
+      });
+      setHistory((current) => [...page.records, ...current]);
+      setHasMoreOlder(page.hasMore);
+      nextCursorRef.current = page.nextBeforeSequence;
+      loadedTextCountRef.current += page.records.filter((record) => record.kind === 'text').length;
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [sessionId]);
+
+  /** 变更/终态后刷新：按当前已加载文本数重取“最新 N 条文本窗口”，保留已加载的更早内容。 */
+  const reloadHistoryWindow = useCallback(async () => {
+    const target = Math.max(loadedTextCountRef.current, 1);
+    const page = await sessionHistoryService.getMessagesPage(sessionId, { limit: target });
+    setHistory(page.records);
+    setHasMoreOlder(page.hasMore);
+    nextCursorRef.current = page.nextBeforeSequence;
+    loadedTextCountRef.current = page.records.filter((record) => record.kind === 'text').length;
+  }, [sessionId]);
 
   const mentionByMember = (member: { agentId: string; fab: string }) =>
     mentions.find((item) => item.agentId === member.agentId && item.fab === member.fab);
@@ -139,9 +181,9 @@ const GroupChatPage = () => {
       }
       setSession(value);
     });
-    void sessionHistoryService.getMessages(sessionId).then(setHistory);
+    void loadInitialHistory();
     void restore();
-  }, [navigate, pendingSession?.id, restore, sessionId]);
+  }, [loadInitialHistory, navigate, pendingSession?.id, restore, sessionId]);
 
   useEffect(() => {
     void agentGroupService
@@ -171,9 +213,9 @@ const GroupChatPage = () => {
 
   useEffect(() => {
     if (run && ['success', 'cancelled', 'error'].includes(run.status)) {
-      void sessionHistoryService.getMessages(sessionId).then(setHistory);
+      void reloadHistoryWindow();
     }
-  }, [run?.status, sessionId]);
+  }, [reloadHistoryWindow, run?.status, sessionId]);
 
   const storedMessages = useMemo<StoredTextMessage[]>(() => {
     const liveTextIds = isActiveRun ? new Set(Object.keys(run?.messages || {})) : new Set<string>();
@@ -421,7 +463,7 @@ const GroupChatPage = () => {
                           onCopy={(content) => void navigator.clipboard.writeText(content || '')}
                           onDelete={() =>
                             void sessionHistoryService.removeMessage(sessionId, record.id).then(() =>
-                              sessionHistoryService.getMessages(sessionId).then(setHistory),
+                              reloadHistoryWindow(),
                             )
                           }
                         />
@@ -442,7 +484,7 @@ const GroupChatPage = () => {
                           onCopy={(content) => void navigator.clipboard.writeText(content || '')}
                           onDelete={() =>
                             void sessionHistoryService.removeMessage(sessionId, record.id).then(() =>
-                              sessionHistoryService.getMessages(sessionId).then(setHistory),
+                              reloadHistoryWindow(),
                             )
                           }
                         />
@@ -481,6 +523,13 @@ const GroupChatPage = () => {
                 </Fragment>
               );
             })}
+            {hasMoreOlder && (
+              <Flexbox align="center" paddingBlock={10}>
+                <Button loading={loadingOlder} size="small" onClick={() => void loadOlderHistory()}>
+                  {t('chat.loadEarlier')}
+                </Button>
+              </Flexbox>
+            )}
             {isActiveRun && (answer || running || run?.status) && (
               <>
                 <ChatItem
