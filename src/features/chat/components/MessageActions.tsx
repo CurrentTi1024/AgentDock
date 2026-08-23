@@ -5,6 +5,7 @@ import { DropdownMenu } from '@lobehub/ui/base-ui';
 import {
   AudioLines,
   Copy,
+  Edit,
   Languages,
   MoreHorizontal,
   RotateCcw,
@@ -26,6 +27,8 @@ export interface MessageActionsProps {
   onDelete?: () => void;
   onDeleteAndRegenerate?: () => void;
   onDislike?: () => void;
+  /** 用户消息编辑（进入编辑态，等价官方 Actions 的 edit）。 */
+  onEdit?: () => void;
   onLike?: () => void;
   onRegenerate?: () => void;
   onRestoreToInput?: (content: string) => void;
@@ -40,6 +43,7 @@ export const MessageActions = memo<MessageActionsProps>(
     onDelete,
     onDeleteAndRegenerate,
     onDislike,
+    onEdit,
     onLike,
     onRegenerate,
     onRestoreToInput,
@@ -98,6 +102,15 @@ export const MessageActions = memo<MessageActionsProps>(
             size="small"
             title={t('chat.action.regenerate')}
             onClick={onRegenerate}
+          />
+        )}
+        {placement === 'user' && onEdit && (
+          <ActionIcon
+            aria-label={t('chat.action.edit')}
+            icon={Edit}
+            size="small"
+            title={t('chat.action.edit')}
+            onClick={onEdit}
           />
         )}
         {canDelete && onDelete && (

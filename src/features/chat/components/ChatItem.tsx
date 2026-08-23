@@ -7,6 +7,8 @@ import type { MetaData } from '@lobehub/ui/chat';
 import { type ComponentType, type ReactNode } from 'react';
 import { memo } from 'react';
 
+import { Markdown } from '@/features/chat/components/Markdown';
+
 export interface ChatItemProps {
   actions?: ReactNode;
   avatar?: string | ReactNode;
@@ -75,9 +77,14 @@ const ChatItem = memo<ChatItemProps>(
         onDoubleClick={onDoubleClick}
         onEditingChange={onEditingChange}
         placement={isUser ? 'right' : 'left'}
-        renderMessage={(content) => (
+        renderMessage={(node) => (
           <Flexbox gap={8} style={{ width: '100%' }}>
-            {content}
+            {/* 助手正文走带 @Agent 提及插件的 Markdown 管线（对齐 LobeHub useMarkdown）。 */}
+            {!isUser && typeof content === 'string' && content ? (
+              <Markdown content={content} />
+            ) : (
+              node
+            )}
             {children}
           </Flexbox>
         )}

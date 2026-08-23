@@ -420,6 +420,14 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   - 新增 `OpStatusTray.tsx` 逐项对齐官方：容器（padding 8/14、border 1px fillSecondary、顶部圆角 12、bgElevated）、`ActivityGlyph`（orbit 2s 旋转 + core 1.5s 呼吸）、`shinyText` 渐变扫光、`mm:ss` 计时、步数指标（>1 显示）；
   - activity 映射：工具调用→调用工具中、流式推理→思考中、其余→生成中轮播文案；短语与 5 个状态文案从官方 `locales/*/opStatusTray.json`、`chat.json` 抽取，18 语言各 +7 key（含 steps）；
   - 实测：真实后端运行中「调用工具中... 00:01」12px/500/次级色 + 旋转 glyph；mock 轮播「元气满满中... 00:27」、HITL 暂停时状态条保持；30/30 测试、build 通过。
+- **Step 10 自查（2026-08-24，全量 chat 组件源码级复核，修同类"近似而非原样"偏差）**：
+  - 根因复盘：早期多按截图写近似实现（如状态条用 antd Alert），只标 "Adapted from" 未逐文件对齐；本次以 `/Users/chenguo/lobehub` 完整官方源码为基线逐组件复核；
+  - **Thinking/ReasoningBlock**：补 24×24 轮廓状态块（思考中旋转 Loader / 完成 Atom 紫色 #bd54c6）；标题对齐官方（思考中 shinyText「深度思考中…」，完成 secondary「已深度思考（用时 X 秒）」）；内容改 ScrollArea 式 `max-height: min(40vh,320px)` + `colorTextDescription` + `article *` 颜色覆盖；删除多余的 11px 副标题；18 语言文案从官方 `components.json Thinking.*` 同步；
+  - **Tool 卡**：新增官方 `NeuralNetworkLoading`（节点呼吸+粒子流动+外环旋转）；头部改官方 Inspector 结构——24×24 状态 chip（运行=神经网络动画 / 完成=Check success / 失败=X error）+ 单行 `title › apiName (key:value +N)`（等宽字体、加载中 shiny）+ 执行中 100ms 实时计时；删除原 Wrench+Tag 近似；
+  - **ProcessFold**：标题去图标、去 500 字重，改官方 secondary 排版，保留「已处理 N 步 · 耗时」文案与右 chevron；
+  - **Markdown 提及**：官方 Mention 是 info 色内联 chip（0.25em 外边距、0.2/0.4em 内边距、0.875em、colorInfoBg），原实现只是普通加粗链接——已按官方样式改；并修复助手正文未接提及插件的问题（ChatItem 助手正文改走带 remark 插件的 Markdown 管线）；
+  - **MessageActions**：用户栏补官方 edit 动作（bar=[regenerate, edit, copy]），图标用官方 `Edit`，18 语言新增 `chat.action.edit`（官方 common.json 文案）；
+  - 浏览器实测（真实后端 + mock）：运行中 24×24 chip + 神经网络动画 + 计时、完成折叠「已处理 9 步 · 17.4s」、展开后工具标题 `generate_a2ui (intent:create +1)` 等宽字体、`已深度思考` 文案、提及 chip 计算样式（info 蓝/深蓝底/0.875em/0.25em 圆角）、用户消息操作栏「编辑」按钮全部通过；30/30 测试、typecheck、build 通过。
 
 第十二轮（2026-08-20，前后端联合端到端测试 + 消息组件渲染修复）：
 

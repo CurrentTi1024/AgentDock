@@ -507,6 +507,10 @@ export default function ChatPage() {
                           placement="user"
                           onCopy={copyMessage}
                           onDelete={() => deleteMessage(record.id)}
+                          onEdit={() => {
+                            setEditingId(record.id);
+                            setEditDraft(originalContent);
+                          }}
                           onRegenerate={() => regenerate(originalContent)}
                           onRestoreToInput={(content) => setInput(content)}
                         />

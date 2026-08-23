@@ -2,7 +2,7 @@
 import { ActionIcon, Block, Button, Flexbox, Icon, Tag, Text, TextArea } from '@lobehub/ui';
 import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Atom, CheckCircle2, ChevronDown, Crown, Layers, ListTodo, Loader2, Play, Users, Wrench, XCircle } from 'lucide-react';
+import { Atom, Check, CheckCircle2, ChevronDown, ChevronRight, Crown, Layers, ListTodo, Loader2, Play, Users, Wrench, X, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -11,6 +11,10 @@ import { useI18n } from '@/i18n';
 import { getChatServiceMode } from '@/api/core/serviceMode';
 import type { RuntimeReasoningMeta, RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
 import type { SessionMessageRecord } from '@/api/session/sessionHistoryService';
+import NeuralNetworkLoading from '@/components/NeuralNetworkLoading';
+
+// LobeHub Thinking 展开态的 Atom 图标色（主题无 purple token，用官方种子色）。
+const THINKING_PURPLE = '#bd54c6';
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
   block: css`
@@ -27,12 +31,82 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     line-height: 1.7;
     white-space: pre-wrap;
   `,
+  contentScroll: css`
+    max-height: min(40vh, 320px);
+    overflow: auto;
+    padding-block-end: 8px;
+    padding-inline: 8px;
+    color: ${token.colorTextDescription};
+
+    article * {
+      color: ${token.colorTextDescription};
+    }
+  `,
   header: css`
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 10px 12px;
     cursor: pointer;
+  `,
+  shinyText: css`
+    color: color-mix(in srgb, ${token.colorText} 45%, transparent);
+
+    background: linear-gradient(
+      120deg,
+      color-mix(in srgb, ${token.colorTextBase} 0%, transparent) 40%,
+      ${token.colorTextSecondary} 50%,
+      color-mix(in srgb, ${token.colorTextBase} 0%, transparent) 60%
+    );
+    background-clip: text;
+    background-size: 200% 100%;
+
+    animation: message-blocks-shine 1.5s linear infinite;
+
+    @keyframes message-blocks-shine {
+      0% {
+        background-position: 100%;
+      }
+
+      100% {
+        background-position: -100%;
+      }
+    }
+  `,
+  statusChip: css`
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: 1px solid ${token.colorBorder};
+    border-radius: ${token.borderRadiusSM}px;
+  `,
+  toolTitle: css`
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    min-width: 0;
+    color: ${token.colorTextDescription};
+  `,
+  toolTitleName: css`
+    color: ${token.colorTextDescription};
+  `,
+  toolApiName: css`
+    font-family: ${token.fontFamilyCode};
+    color: ${token.colorTextSecondary};
+  `,
+  toolParamKey: css`
+    font-family: ${token.fontFamilyCode};
+    font-size: 12px;
+    color: ${token.colorTextTertiary};
+  `,
+  toolParamValue: css`
+    font-family: ${token.fontFamilyCode};
+    font-size: 12px;
+    color: ${token.colorTextSecondary};
   `,
 }));
 
@@ -101,14 +175,19 @@ const createProcessCollector = (streaming: boolean) => {
   return { flush, state, track };
 };
 
-// LobeHub Thinking StatusIndicator：思考中显示旋转 Loader，完成后显示 Atom。
-const ThinkingStatus = ({ streaming }: { streaming: boolean }) => (
-  <Icon
-    color={streaming ? cssVar.colorTextDescription : cssVar.colorPrimary}
-    icon={streaming ? Loader2 : Atom}
-    size={14}
-    spin={streaming}
-  />
+// LobeHub Thinking StatusIndicator：24×24 轮廓块，思考中旋转 Loader，完成后 Atom。
+const ThinkingStatus = ({ streaming, showDetail }: { streaming: boolean; showDetail: boolean }) => (
+  <span className={styles.statusChip}>
+    {streaming ? (
+      <Icon color={cssVar.colorTextDescription} icon={Loader2} size={14} spin />
+    ) : (
+      <Icon
+        color={showDetail ? THINKING_PURPLE : cssVar.colorTextDescription}
+        icon={Atom}
+        size={14}
+      />
+    )}
+  </span>
 );
 
 export const ReasoningBlock = ({ id, meta, text }: { id: string; meta?: RuntimeReasoningMeta; text: string }) => {
@@ -123,23 +202,22 @@ export const ReasoningBlock = ({ id, meta, text }: { id: string; meta?: RuntimeR
   return (
     <div className={styles.block} key={id}>
       <div className={styles.header} onClick={() => setOpen((value) => !value)}>
-        <ThinkingStatus streaming={streaming} />
-        <Flexbox flex={1}>
-          <Text fontSize={12} weight={500}>
-            {streaming
-              ? t('chat.reasoningStreaming')
-              : duration !== undefined
+        <ThinkingStatus streaming={streaming} showDetail={open} />
+        <Flexbox flex={1} style={{ minWidth: 0 }}>
+          {streaming ? (
+            <span className={styles.shinyText}>{t('chat.reasoningStreaming')}</span>
+          ) : (
+            <Text style={{ fontSize: 12 }} type="secondary">
+              {duration !== undefined
                 ? t('chat.reasoningDuration', { seconds: duration })
-                : t('chat.reasoning')}
-          </Text>
-          <Text fontSize={11} type="secondary">
-            {streaming ? t('chat.reasoningInProgress') : t('chat.reasoningDone')}
-          </Text>
+                : t('chat.reasoningDone')}
+            </Text>
+          )}
         </Flexbox>
         <Icon icon={ChevronDown} size={14} />
       </div>
       {open && (
-        <div className={styles.content}>
+        <div className={styles.contentScroll}>
           {meta?.encrypted ? t('chat.reasoningEncrypted') : <Markdown content={text} />}
         </div>
       )}
@@ -168,9 +246,8 @@ export const ProcessFold = ({
   return (
     <div className={styles.block}>
       <div className={styles.header} onClick={() => setOpen((value) => !value)}>
-        <Icon color={cssVar.colorTextDescription} icon={streaming ? Loader2 : ListTodo} size={14} spin={streaming} />
-        <Flexbox flex={1}>
-          <Text fontSize={12} weight={500}>
+        <Flexbox flex={1} style={{ minWidth: 0 }}>
+          <Text style={{ fontSize: 12 }} type="secondary">
             {streaming
               ? t('chat.process.streaming')
               : t('chat.process.done', {
@@ -190,24 +267,77 @@ export const ProcessFold = ({
   );
 };
 
+// LobeHub Tool StatusIndicator：24×24 轮廓块；执行中神经网络动画，完成 Check，失败 X。
+const ToolStatusChip = ({ status }: { status: RuntimeToolCall['status'] }) => (
+  <span className={styles.statusChip}>
+    {status === 'error' ? (
+      <Icon color={cssVar.colorError} icon={X} size={14} />
+    ) : status === 'completed' ? (
+      <Icon color={cssVar.colorSuccess} icon={Check} size={14} />
+    ) : (
+      <NeuralNetworkLoading size={16} />
+    )}
+  </span>
+);
+
+// LobeHub ToolTitle：单行 title › apiName (key: value)，加载中扫光动画。
+const MAX_PARAMS = 1;
+const MAX_VALUE_LENGTH = 50;
+
+const truncateValue = (value: string, maxLength: number): string =>
+  value.length <= maxLength ? value : value.slice(0, maxLength) + '...';
+
+const formatParamValue = (value: unknown): string => {
+  if (typeof value === 'string') return truncateValue(value, MAX_VALUE_LENGTH);
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return truncateValue(JSON.stringify(value), MAX_VALUE_LENGTH);
+  if (typeof value === 'object' && value !== null)
+    return truncateValue(JSON.stringify(value), MAX_VALUE_LENGTH);
+  return String(value);
+};
+
+// LobeHub ExecutionTime：执行中 100ms 刷新耗时（ms / s / min+s）。
+const formatElapsedTime = (ms: number): string => {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const totalSeconds = Math.floor(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+  return `${minutes}min${remainingSeconds}s`;
+};
+
+const ToolExecutionTime = ({
+  running,
+  startedAt,
+}: {
+  running: boolean;
+  startedAt?: number;
+}) => {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!running || !startedAt) return;
+    const update = () => setElapsed(Math.max(0, Date.now() - startedAt));
+    update();
+    const id = window.setInterval(update, 100);
+    return () => window.clearInterval(id);
+  }, [running, startedAt]);
+  if (!running) return null;
+  return (
+    <Text
+      style={{ flexShrink: 0, fontSize: 12, whiteSpace: 'nowrap' }}
+      type="secondary"
+    >
+      {formatElapsedTime(elapsed)}
+    </Text>
+  );
+};
+
 export const ToolCallBlock = ({ call }: { call: RuntimeToolCall }) => {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [resultOpen, setResultOpen] = useState(false);
-  const duration = formatDuration(call.startedAt, call.finishedAt);
-  const statusKeys: Record<RuntimeToolCall['status'], 'chat.toolStatus.called' | 'chat.toolStatus.completed' | 'chat.toolStatus.error' | 'chat.toolStatus.running'> = {
-    called: 'chat.toolStatus.called',
-    completed: 'chat.toolStatus.completed',
-    error: 'chat.toolStatus.error',
-    running: 'chat.toolStatus.running',
-  };
-  const statusKey = statusKeys[call.status] as string | undefined;
-  const meta = statusKey
-    ? {
-        color: (call.status === 'completed' ? ('success' as const) : call.status === 'error' ? ('error' as const) : ('processing' as const)),
-        label: t(statusKey as 'chat.toolStatus.called'),
-      }
-    : { color: 'default' as const, label: call.status };
+  const running = call.status === 'running' || call.status === 'called';
   // 参数格式化：合法 JSON 缩进展示，否则原文。
   let formattedArgs = call.args;
   try {
@@ -215,6 +345,14 @@ export const ToolCallBlock = ({ call }: { call: RuntimeToolCall }) => {
   } catch {
     // keep raw args
   }
+  let argsObject: Record<string, unknown> | undefined;
+  try {
+    argsObject = JSON.parse(call.args) as Record<string, unknown>;
+  } catch {
+    // keep raw
+  }
+  const params = argsObject ? Object.entries(argsObject).slice(0, MAX_PARAMS) : [];
+  const remainingCount = argsObject ? Object.keys(argsObject).length - MAX_PARAMS : 0;
   const formattedResult =
     call.result === undefined
       ? undefined
@@ -224,18 +362,28 @@ export const ToolCallBlock = ({ call }: { call: RuntimeToolCall }) => {
   return (
     <div className={styles.block}>
       <div className={styles.header} onClick={() => setOpen((value) => !value)}>
-        <Icon color={cssVar.colorTextDescription} icon={Wrench} size={15} />
-        <Text fontSize={12} weight={500} style={{ flex: 1 }}>
-          {call.apiName || call.name || t('chat.toolCall')}
-        </Text>
-        {duration !== undefined && (
-          <Text fontSize={11} type="secondary">
-            {t('chat.toolDuration', { seconds: duration })}
-          </Text>
-        )}
-        <Tag color={meta.color} size="small">
-          {meta.label}
-        </Tag>
+        <ToolStatusChip status={call.status} />
+        <div className={running ? styles.shinyText : styles.toolTitle} style={{ flex: 1 }}>
+          <span className={styles.toolTitleName}>{call.name || call.apiName || t('chat.toolCall')}</span>
+          {call.apiName && call.apiName !== call.name && (
+            <>
+              <Icon icon={ChevronRight} size={12} style={{ marginInline: 4 }} />
+              <span className={styles.toolApiName}>{call.apiName}</span>
+            </>
+          )}
+          {params.length > 0 && (
+            <>
+              <span className={styles.toolParamKey}>{' ('}</span>
+              <span className={styles.toolParamKey}>{params[0][0]}:</span>
+              <span className={styles.toolParamValue}>{formatParamValue(params[0][1])}</span>
+              {remainingCount > 0 && (
+                <span className={styles.toolParamKey}>{` +${remainingCount}`}</span>
+              )}
+              <span className={styles.toolParamKey}>{')'}</span>
+            </>
+          )}
+        </div>
+        <ToolExecutionTime running={running} startedAt={call.startedAt} />
         <Icon icon={ChevronDown} size={14} />
       </div>
       {open && (
