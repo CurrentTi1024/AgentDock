@@ -176,7 +176,10 @@ const GroupChatPage = () => {
   // 已删消息墓碑：删除并重新生成时后端线程仍会带回被删轮次，展示与落库都需跳过。
   const deletedKeys = useMemo(() => new Set(session?.deletedMessageIds ?? []), [session?.deletedMessageIds]);
   const liveMessages = Object.values(run?.messages || {}).filter(
-    (message) => !deletedKeys.has(`text:${message.id}`) && !deletedKeys.has(`tool:${message.id}`),
+    (message) =>
+      !String(message.id).startsWith('lc_run--') &&
+      !deletedKeys.has(`text:${message.id}`) &&
+      !deletedKeys.has(`tool:${message.id}`),
   );
   const answer = liveMessages
     .filter((message) => message.role === 'assistant')
@@ -332,6 +335,8 @@ const GroupChatPage = () => {
 
   const sendMessage = async (message: string) => {
     if (!session) return;
+    stickToBottom();
+    setRunStartedAt(Date.now());
     await sessionHistoryService.updateSession(session.id, {
       title: session.title === t('nav.newGroup') ? message.slice(0, 32) || session.title : session.title,
     });
@@ -342,8 +347,6 @@ const GroupChatPage = () => {
   const sendInputMessage = () => {
     if (!input.trim() || !session) return;
     const prompt = input;
-    stickToBottom();
-    setRunStartedAt(Date.now());
     setInput('');
     void sendMessage(prompt);
   };
