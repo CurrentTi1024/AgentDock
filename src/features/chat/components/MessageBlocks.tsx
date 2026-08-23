@@ -2,9 +2,10 @@
 import { ActionIcon, Block, Button, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
 import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Brain, CheckCircle2, ChevronDown, Crown, Layers, ListTodo, Play, Users, Wrench, XCircle } from 'lucide-react';
+import { Atom, CheckCircle2, ChevronDown, Crown, Layers, ListTodo, Loader2, Play, Users, Wrench, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
+import { Markdown } from '@/features/chat/components/Markdown';
 import { useI18n } from '@/i18n';
 import { getChatServiceMode } from '@/api/core/serviceMode';
 import type { RuntimeReasoningMeta, RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
@@ -50,31 +51,140 @@ const formatDuration = (startedAt?: number, finishedAt?: number) => {
   const seconds = Math.max(0, Math.round((finishedAt - startedAt) / 100) / 10);
   return seconds;
 };
+const formatProcessDuration = (startedAt?: number, finishedAt?: number) => {
+  const seconds = formatDuration(startedAt, finishedAt);
+  return seconds !== undefined ? `${seconds}s` : undefined;
+};
+
+/** 收集一轮 run 的过程块（思考/工具/步骤），完成后折叠为 ProcessFold 汇总行。 */
+const createProcessCollector = (streaming: boolean) => {
+  const state = {
+    finishedAt: undefined as number | undefined,
+    hasReasoning: false,
+    hasWork: false,
+    nodes: [] as React.ReactNode[],
+    startedAt: undefined as number | undefined,
+    stepCount: 0,
+  };
+  const track = (startedAt?: number, finishedAt?: number) => {
+    if (startedAt && (!state.startedAt || startedAt < state.startedAt)) state.startedAt = startedAt;
+    if (finishedAt && (!state.finishedAt || finishedAt > state.finishedAt)) state.finishedAt = finishedAt;
+  };
+  const flush = (target: React.ReactNode[]) => {
+    if (!state.nodes.length) return;
+    // 快照节点副本再传给组件：state.nodes 随后会被 length=0 原地清空，
+    // 若按引用传递，React 渲染时 children 已变成空数组（折叠有标题无内容）。
+    const nodes = [...state.nodes];
+    // 单条 reasoning 独立展示（自身可折叠）；含工具/步骤或过程块≥2 时汇总折叠。
+    if (state.hasWork || nodes.length >= 2) {
+      target.push(
+        <ProcessFold
+          durationText={formatProcessDuration(state.startedAt, state.finishedAt)}
+          key={`process-${state.startedAt ?? state.nodes.length}`}
+          stepCount={state.stepCount}
+          streaming={streaming}
+        >
+          {nodes}
+        </ProcessFold>,
+      );
+    } else {
+      target.push(...nodes);
+    }
+    state.nodes.length = 0;
+    state.stepCount = 0;
+    state.startedAt = undefined;
+    state.finishedAt = undefined;
+    state.hasReasoning = false;
+    state.hasWork = false;
+  };
+  return { flush, state, track };
+};
+
+// LobeHub Thinking StatusIndicator：思考中显示旋转 Loader，完成后显示 Atom。
+const ThinkingStatus = ({ streaming }: { streaming: boolean }) => (
+  <Icon
+    color={streaming ? cssVar.colorTextDescription : cssVar.colorPrimary}
+    icon={streaming ? Loader2 : Atom}
+    size={14}
+    spin={streaming}
+  />
+);
 
 export const ReasoningBlock = ({ id, meta, text }: { id: string; meta?: RuntimeReasoningMeta; text: string }) => {
   const { t } = useI18n();
   const streaming = Boolean(meta?.streaming);
   const duration = formatDuration(meta?.startedAt, meta?.finishedAt);
   const [open, setOpen] = useState(streaming);
-  // 流式结束自动折叠（完成后默认收起；用户可点击重新展开）。
+  // LobeHub Thinking：思考中自动展开，完成自动收起；用户可点击重新展开。
   useEffect(() => {
-    if (!streaming) setOpen(false);
+    setOpen(streaming);
   }, [streaming]);
   return (
     <div className={styles.block} key={id}>
       <div className={styles.header} onClick={() => setOpen((value) => !value)}>
-        <Icon color={cssVar.colorTextDescription} icon={Brain} size={15} />
+        <ThinkingStatus streaming={streaming} />
         <Flexbox flex={1}>
           <Text fontSize={12} weight={500}>
-            {streaming ? t('chat.reasoningStreaming') : t('chat.reasoning')}
+            {streaming
+              ? t('chat.reasoningStreaming')
+              : duration !== undefined
+                ? t('chat.reasoningDuration', { seconds: duration })
+                : t('chat.reasoning')}
           </Text>
           <Text fontSize={11} type="secondary">
-            {streaming ? t('chat.reasoningInProgress') : duration !== undefined ? t('chat.reasoningDuration', { seconds: duration }) : t('chat.reasoningDone')}
+            {streaming ? t('chat.reasoningInProgress') : t('chat.reasoningDone')}
           </Text>
         </Flexbox>
         <Icon icon={ChevronDown} size={14} />
       </div>
-      {open && <div className={styles.content}>{meta?.encrypted ? t('chat.reasoningEncrypted') : text}</div>}
+      {open && (
+        <div className={styles.content}>
+          {meta?.encrypted ? t('chat.reasoningEncrypted') : <Markdown content={text} />}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// LobeHub ProcessFold：一轮 run 的思考+工具+步骤在完成后折叠为一行
+// “已处理 N 步 · 耗时”，运行中展开；一级=过程汇总，二级=单个块。
+export const ProcessFold = ({
+  children,
+  durationText,
+  stepCount,
+  streaming,
+}: {
+  children: React.ReactNode;
+  durationText?: string;
+  stepCount: number;
+  streaming: boolean;
+}) => {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(streaming);
+  useEffect(() => {
+    setOpen(streaming);
+  }, [streaming]);
+  return (
+    <div className={styles.block}>
+      <div className={styles.header} onClick={() => setOpen((value) => !value)}>
+        <Icon color={cssVar.colorTextDescription} icon={streaming ? Loader2 : ListTodo} size={14} spin={streaming} />
+        <Flexbox flex={1}>
+          <Text fontSize={12} weight={500}>
+            {streaming
+              ? t('chat.process.streaming')
+              : t('chat.process.done', {
+                  count: stepCount,
+                  duration: durationText ?? '–',
+                })}
+          </Text>
+        </Flexbox>
+        <Icon icon={ChevronDown} size={14} />
+      </div>
+      {open && (
+        <Flexbox gap={8} padding={8}>
+          {children}
+        </Flexbox>
+      )}
     </div>
   );
 };
@@ -421,7 +531,8 @@ export const renderStoredBlocks = (
 ): React.ReactNode[] => {
   const nodes: React.ReactNode[] = [];
   const stepRecords: SessionMessageRecord[] = [];
-  const flushSteps = () => {
+  const process = createProcessCollector(false);
+  const pushStepsIntoProcess = () => {
     if (!stepRecords.length) return;
     const steps: RuntimeStep[] = stepRecords.map((record) => {
       const payload = (record.payload || {}) as Record<string, unknown>;
@@ -433,8 +544,18 @@ export const renderStoredBlocks = (
         status: payload.status === 'error' ? 'error' : payload.status === 'completed' ? 'completed' : 'running',
       };
     });
-    nodes.push(<WorkflowStepsBlock key={`steps-${stepRecords[0].id}`} steps={steps} />);
+    process.state.nodes.push(<WorkflowStepsBlock key={`steps-${stepRecords[0].id}`} steps={steps} />);
+    process.state.hasWork = true;
+    process.state.stepCount += steps.length;
+    process.track(
+      Math.min(...steps.map((step) => step.startedAt ?? Number.POSITIVE_INFINITY)),
+      Math.max(...steps.map((step) => step.finishedAt ?? 0)),
+    );
     stepRecords.length = 0;
+  };
+  const flushSteps = () => {
+    pushStepsIntoProcess();
+    process.flush(nodes);
   };
 
   for (const record of blocks) {
@@ -442,14 +563,15 @@ export const renderStoredBlocks = (
       stepRecords.push(record);
       continue;
     }
-    flushSteps();
     const payload = (record.payload || {}) as Record<string, unknown>;
     if (record.kind === 'reasoning') {
       if (options.showReasoning !== false) {
-        nodes.push(<ReasoningBlock id={record.id} key={record.id} text={record.content || ''} />);
+        process.state.nodes.push(<ReasoningBlock id={record.id} key={record.id} text={record.content || ''} />);
+        process.state.hasReasoning = true;
       }
     } else if (record.kind === 'tool') {
-      nodes.push(
+      pushStepsIntoProcess();
+      process.state.nodes.push(
         <ToolCallBlock
           call={{
             apiName: typeof payload.apiName === 'string' ? payload.apiName : undefined,
@@ -464,11 +586,19 @@ export const renderStoredBlocks = (
           key={record.id}
         />,
       );
+      process.state.hasWork = true;
+      process.state.stepCount += 1;
+      process.track(
+        typeof payload.startedAt === 'number' ? payload.startedAt : undefined,
+        typeof payload.finishedAt === 'number' ? payload.finishedAt : undefined,
+      );
     } else if (record.kind === 'activity') {
       if (payload.activityType === 'a2ui.surface' || payload.activityType === 'a2ui-surface') continue;
       const requestId = typeof payload.requestId === 'string' ? payload.requestId : '';
       if (requestId) {
-        nodes.push(
+        // HITL 属于过程本身（LobeHub 干预在 workflow 内部）：
+        // 暂停时折叠展开可见，完成后随过程一起收起。
+        process.state.nodes.push(
           <HitlBlock
             description={typeof payload.description === 'string' ? payload.description : undefined}
             key={record.id}
@@ -477,10 +607,13 @@ export const renderStoredBlocks = (
             requestId={requestId}
           />,
         );
-      } else {
-        nodes.push(<ActivityBlock activity={payload} key={record.id} />);
+        process.state.hasWork = true;
+        continue;
       }
+      flushSteps();
+      nodes.push(<ActivityBlock activity={payload} key={record.id} />);
     } else if (record.kind === 'surface') {
+      flushSteps();
       if (options.showSurfaces === false) continue;
       const surfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : record.id;
       nodes.push(
@@ -508,20 +641,50 @@ export const renderRunBlocks = (
   if (!run) return null;
   const blocks: React.ReactNode[] = [];
   const stepBuffer: RuntimeStep[] = [];
-  const flushSteps = () => {
+  const process = createProcessCollector(run.status === 'running' || run.status === 'paused');
+  const pushStepsIntoProcess = () => {
     if (!stepBuffer.length) return;
-    blocks.push(<WorkflowStepsBlock key={`steps-${stepBuffer[0].id}`} steps={[...stepBuffer]} />);
+    process.state.nodes.push(<WorkflowStepsBlock key={`steps-${stepBuffer[0].id}`} steps={[...stepBuffer]} />);
+    process.state.hasWork = true;
+    process.state.stepCount += stepBuffer.length;
+    process.track(
+      Math.min(...stepBuffer.map((step) => step.startedAt ?? Number.POSITIVE_INFINITY)),
+      Math.max(...stepBuffer.map((step) => step.finishedAt ?? 0)),
+    );
     stepBuffer.length = 0;
+  };
+  const flushSteps = () => {
+    pushStepsIntoProcess();
+    process.flush(blocks);
   };
   const ordered = run.orderedBlocks?.length ? run.orderedBlocks : [];
   if (ordered.length === 0) {
     // 旧检查点兼容：按 map 分组渲染
     if (options.showReasoning !== false) {
-      for (const [id, text] of Object.entries(run.reasoning || {})) blocks.push(<ReasoningBlock id={id} key={`reasoning-${id}`} meta={run.reasoningMeta?.[id]} text={text} />);
+      for (const [id, text] of Object.entries(run.reasoning || {})) {
+        const meta = run.reasoningMeta?.[id];
+        process.state.nodes.push(<ReasoningBlock id={id} key={`reasoning-${id}`} meta={meta} text={text} />);
+        process.state.hasReasoning = true;
+        process.track(meta?.startedAt, meta?.finishedAt);
+      }
     }
-    for (const [id, call] of Object.entries(run.toolCalls || {})) blocks.push(<ToolCallBlock call={call} key={`tool-${id}`} />);
+    for (const [id, call] of Object.entries(run.toolCalls || {})) {
+      process.state.nodes.push(<ToolCallBlock call={call} key={`tool-${id}`} />);
+      process.state.hasWork = true;
+      process.state.stepCount += 1;
+      process.track(call.startedAt, call.finishedAt);
+    }
     const steps = Object.values(run.steps || {}).sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0));
-    if (steps.length) blocks.push(<WorkflowStepsBlock key="steps" steps={steps} />);
+    if (steps.length) {
+      process.state.nodes.push(<WorkflowStepsBlock key="steps" steps={steps} />);
+      process.state.hasWork = true;
+      process.state.stepCount += steps.length;
+      process.track(
+        Math.min(...steps.map((step) => step.startedAt ?? Number.POSITIVE_INFINITY)),
+        Math.max(...steps.map((step) => step.finishedAt ?? 0)),
+      );
+    }
+    flushSteps();
     if (options.showSurfaces !== false) {
       for (const [surfaceId, payload] of Object.entries(run.surfaces || {})) {
         if (typeof payload === 'object' && payload !== null) blocks.push(<A2uiStoredSurface key={`surface-${surfaceId}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId }} />);
@@ -532,24 +695,42 @@ export const renderRunBlocks = (
       if (ref.kind === 'reasoning') {
         if (options.showReasoning === false) continue;
         const text = run.reasoning?.[ref.id];
-        if (text !== undefined) blocks.push(<ReasoningBlock id={ref.id} key={`reasoning-${ref.id}`} meta={run.reasoningMeta?.[ref.id]} text={text} />);
+        if (text !== undefined) {
+          const meta = run.reasoningMeta?.[ref.id];
+          process.state.nodes.push(<ReasoningBlock id={ref.id} key={`reasoning-${ref.id}`} meta={meta} text={text} />);
+          process.state.hasReasoning = true;
+          process.track(meta?.startedAt, meta?.finishedAt);
+        }
       } else if (ref.kind === 'step') {
         const step = run.steps?.[ref.id];
-        if (step) stepBuffer.push(step);
+        if (step) {
+          stepBuffer.push(step);
+          process.state.hasWork = true;
+          process.track(step.startedAt, step.finishedAt);
+        }
       } else if (ref.kind === 'tool') {
-        flushSteps();
+        pushStepsIntoProcess();
         const call = run.toolCalls?.[ref.id];
-        if (call) blocks.push(<ToolCallBlock call={call} key={`tool-${ref.id}`} />);
+        if (call) {
+          process.state.nodes.push(<ToolCallBlock call={call} key={`tool-${ref.id}`} />);
+          process.state.hasWork = true;
+          process.state.stepCount += 1;
+          process.track(call.startedAt, call.finishedAt);
+        }
       } else if (ref.kind === 'activity') {
-        flushSteps();
         const activity = run.activities?.[ref.id];
         if (!activity || typeof activity !== 'object') continue;
         const value = activity as { activityType?: string; description?: string; requestId?: string; [key: string]: unknown };
-        if (value.activityType === 'a2ui.surface' || value.activityType === 'a2ui-surface') continue;
+        if (value.activityType === 'a2ui.surface' || value.activityType === 'a2ui-surface') {
+          flushSteps();
+          continue;
+        }
         if (value.requestId) {
-          blocks.push(<HitlBlock description={value.description} key={`hitl-${ref.id}`} onApprove={handlers.onApproveHitl} onReject={handlers.onRejectHitl} requestId={value.requestId} />);
+          // HITL 属于过程（LobeHub 干预在 workflow 内部）：进入折叠。
+          process.state.nodes.push(<HitlBlock description={value.description} key={`hitl-${ref.id}`} onApprove={handlers.onApproveHitl} onReject={handlers.onRejectHitl} requestId={value.requestId} />);
+          process.state.hasWork = true;
         } else if (value.activityType === 'agentDock.hitl') {
-          blocks.push(
+          process.state.nodes.push(
             <HitlBlock
               description={typeof value.description === 'string' ? value.description : undefined}
               key={`hitl-${ref.id}`}
@@ -558,7 +739,9 @@ export const renderRunBlocks = (
               requestId={String(value.requestId || ref.id)}
             />,
           );
+          process.state.hasWork = true;
         } else if (typeof value.activityType === 'string' && value.activityType.startsWith('agentDock.')) {
+          flushSteps();
           blocks.push(<ActivityBlock activity={value} key={`activity-${ref.id}`} />);
         }
       } else if (ref.kind === 'surface') {

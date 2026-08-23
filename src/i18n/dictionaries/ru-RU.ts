@@ -53,6 +53,8 @@ export default {
   'chat.mentionEmpty': 'Нет доступных агентов',
   'chat.openReport': 'Открыть отчёт об анализе',
   'chat.placeholder': 'Отправьте сообщение, введите @, чтобы выбрать Agent-FAB',
+  "chat.process.done": "Обработано шагов: {count} · {duration}",
+  "chat.process.streaming": "Обработка…",
   'chat.reasoning': 'Рассуждение',
   'chat.reasoningDone': 'Завершено',
   'chat.send': 'Отправить сообщение',

@@ -53,6 +53,8 @@ export default {
   'chat.mentionEmpty': '利用可能なエージェントがありません',
   'chat.openReport': '分析レポートを開く',
   'chat.placeholder': 'メッセージを送信、@ で Agent-FAB を選択',
+  "chat.process.done": "{count} ステップを処理 · {duration}",
+  "chat.process.streaming": "処理中…",
   'chat.reasoning': '推論',
   'chat.reasoningDone': '完了',
   'chat.send': 'メッセージを送信',

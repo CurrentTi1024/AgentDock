@@ -53,6 +53,8 @@ export default {
   'chat.mentionEmpty': 'عاملی در دسترس نیست',
   'chat.openReport': 'باز کردن گزارش تحلیل',
   'chat.placeholder': 'پیام بفرستید، برای انتخاب Agent-FAB علامت @ را تایپ کنید',
+  "chat.process.done": "{count} مرحله پردازش شد · {duration}",
+  "chat.process.streaming": "در حال پردازش…",
   'chat.reasoning': 'استدلال',
   'chat.reasoningDone': 'تکمیل شد',
   'chat.send': 'ارسال پیام',

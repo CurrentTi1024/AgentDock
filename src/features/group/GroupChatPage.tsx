@@ -177,19 +177,22 @@ const GroupChatPage = () => {
 
   const storedMessages = useMemo<StoredTextMessage[]>(() => {
     const liveTextIds = isActiveRun ? new Set(Object.keys(run?.messages || {})) : new Set<string>();
+    // 块按 runId 归属（等价 LobeHub 的 messageId 归属），助手文本拿到该 run 的全部块。
+    const blocksByRun = new Map<string, SessionMessageRecord[]>();
+    for (const record of history) {
+      if (record.kind === 'text' || !record.runId) continue;
+      const bucket = blocksByRun.get(record.runId) ?? [];
+      bucket.push(record);
+      blocksByRun.set(record.runId, bucket);
+    }
     const result: StoredTextMessage[] = [];
-    for (let index = 0; index < history.length; index += 1) {
-      const record = history[index];
-      // 防御：过滤历史遗留的流式占位行（lc_run--），避免同一回复双气泡。
+    for (const record of history) {
       if (record.id.startsWith('lc_run--')) continue;
       const rawTextId = record.id.replace(/^text:/, '');
       if (record.kind !== 'text' || liveTextIds.has(rawTextId)) continue;
-      const blocks: SessionMessageRecord[] = [];
-      for (let next = index + 1; next < history.length; next += 1) {
-        const candidate = history[next];
-        if (candidate.kind === 'text') break;
-        blocks.push(candidate);
-      }
+      const blocks = record.role === 'assistant' && record.runId
+        ? (blocksByRun.get(record.runId) ?? [])
+        : [];
       result.push({ blocks, record });
     }
     return result;

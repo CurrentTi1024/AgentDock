@@ -53,6 +53,8 @@ export default {
   'chat.mentionEmpty': 'Không có đại lý khả dụng',
   'chat.openReport': 'Mở báo cáo phân tích',
   'chat.placeholder': 'Gửi tin nhắn, gõ @ để chọn Agent-FAB',
+  "chat.process.done": "Đã xử lý {count} bước · {duration}",
+  "chat.process.streaming": "Đang xử lý…",
   'chat.reasoning': 'Lập luận',
   'chat.reasoningDone': 'Hoàn tất',
   'chat.send': 'Gửi tin nhắn',

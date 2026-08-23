@@ -300,20 +300,24 @@ export default function ChatPage() {
 
   const storedMessages = useMemo<StoredTextMessage[]>(() => {
     const liveTextIds = isActiveRun ? new Set(Object.keys(run?.messages || {})) : new Set<string>();
+    // 块按 runId 归属（LobeHub 以 messageId 归属块的等价物）：助手文本拿到该 run 的全部
+    // reasoning/tool/step/activity/surface。不能用“相邻文本即止”切分——paused 中间落库会把
+    // 前段块排在助手文本之前，导致块挂错消息或刷新丢失。
+    const blocksByRun = new Map<string, SessionMessageRecord[]>();
+    for (const record of history) {
+      if (record.kind === 'text' || !record.runId) continue;
+      const bucket = blocksByRun.get(record.runId) ?? [];
+      bucket.push(record);
+      blocksByRun.set(record.runId, bucket);
+    }
     const result: StoredTextMessage[] = [];
-    for (let index = 0; index < history.length; index += 1) {
-      const record = history[index];
-      // 防御：过滤历史遗留的流式占位行（lc_run--），避免同一回复双气泡。
+    for (const record of history) {
       if (record.id.startsWith('lc_run--')) continue;
-      // 落库 id 带 kind 前缀（text:xxx），run.messages 使用原始 id。
       const rawTextId = record.id.replace(/^text:/, '');
       if (record.kind !== 'text' || liveTextIds.has(rawTextId)) continue;
-      const blocks: SessionMessageRecord[] = [];
-      for (let next = index + 1; next < history.length; next += 1) {
-        const candidate = history[next];
-        if (candidate.kind === 'text') break;
-        blocks.push(candidate);
-      }
+      const blocks = record.role === 'assistant' && record.runId
+        ? (blocksByRun.get(record.runId) ?? [])
+        : [];
       result.push({ blocks, record });
     }
     return result;

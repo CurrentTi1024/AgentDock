@@ -53,6 +53,8 @@ export default {
   'chat.mentionEmpty': '暫無可用的 Agent-FAB',
   'chat.openReport': '開啟分析報告',
   'chat.placeholder': '傳送訊息，輸入 @ 選擇 Agent-FAB',
+  "chat.process.done": "已處理 {count} 步 · {duration}",
+  "chat.process.streaming": "處理中…",
   'chat.reasoning': '推理過程',
   'chat.reasoningDone': '已完成',
   'chat.send': '傳送訊息',

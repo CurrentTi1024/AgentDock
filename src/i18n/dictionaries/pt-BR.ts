@@ -53,6 +53,8 @@ export default {
   'chat.mentionEmpty': 'Nenhum agente disponível',
   'chat.openReport': 'Abrir relatório de análise',
   'chat.placeholder': 'Envie uma mensagem, digite @ para escolher Agent-FAB',
+  "chat.process.done": "{count} etapas processados · {duration}",
+  "chat.process.streaming": "Processando…",
   'chat.reasoning': 'Raciocínio',
   'chat.reasoningDone': 'Concluído',
   'chat.send': 'Enviar mensagem',

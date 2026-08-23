@@ -53,6 +53,8 @@ export default {
   'chat.mentionEmpty': 'لا يوجد وكلاء متاحون',
   'chat.openReport': 'فتح تقرير التحليل',
   'chat.placeholder': 'أرسل رسالة، اكتب @ لاختيار Agent-FAB',
+  "chat.process.done": "تمت معالجة {count} خطوات · {duration}",
+  "chat.process.streaming": "جارٍ المعالجة…",
   'chat.reasoning': 'التفكير',
   'chat.reasoningDone': 'مكتمل',
   'chat.send': 'إرسال رسالة',

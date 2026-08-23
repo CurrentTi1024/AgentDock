@@ -53,6 +53,8 @@ export default {
   'chat.mentionEmpty': 'Kullanılabilir ajan yok',
   'chat.openReport': 'Analiz raporunu aç',
   'chat.placeholder': 'Mesaj gönder, Agent-FAB seçmek için @ yaz',
+  "chat.process.done": "{count} adım işlendi · {duration}",
+  "chat.process.streaming": "İşleniyor…",
   'chat.reasoning': 'Akıl yürütme',
   'chat.reasoningDone': 'Tamamlandı',
   'chat.send': 'Mesaj gönder',

@@ -53,6 +53,8 @@ export default {
   'chat.mentionEmpty': '暂无可用的 Agent-FAB',
   'chat.openReport': '打开分析报告',
   'chat.placeholder': '发送消息，输入 @ 选择 Agent-FAB',
+  "chat.process.done": "已处理 {count} 步 · {duration}",
+  "chat.process.streaming": "正在处理…",
   'chat.reasoning': '推理过程',
   'chat.reasoningDone': '已完成',
   'chat.send': '发送消息',

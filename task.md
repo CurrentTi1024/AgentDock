@@ -393,6 +393,15 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。
 
+### LobeHub Chat 全量复刻（分步，见 `docs/agentdock/design/12-lobehub-chat-full-copy-plan.md`）
+
+- **Step 1 ✅（2026-08-23）思考/过程折叠系统**：
+  - ReasoningBlock 升级为 LobeHub Thinking 视觉：思考中旋转 Loader + “思考中…”，完成自动收起并显示耗时；内容走 Markdown。
+  - 新增 `ProcessFold`：一轮 run 的思考+工具+步骤完成后折叠为一行“已处理 N 步 · Xs”，运行中展开；一级=过程汇总、二级=单个块展开；HITL 属于过程（暂停时可见，完成后随过程收起）。
+  - 修复块归属：`storedMessages` 改为按 runId 分组（等价 LobeHub messageId 归属），paused 中间落库不再把前段块排到助手文本之前（刷新丢失/挂错消息）。
+  - 修复折叠内容空：flush 把 nodes 副本传给 ProcessFold（原按引用 + length=0 原地清空导致有标题无内容）。
+  - 浏览器实测：单一折叠“已处理 2 步 · 0.3s”，展开可见 plan 步骤 + 工具卡；30/30 测试通过。
+
 第十二轮（2026-08-20，前后端联合端到端测试 + 消息组件渲染修复）：
 
 - **联调拓扑打通**：AgentDock（http://127.0.0.1:3000）→ Copilot Runtime `/api/copilotkit`（single-route）→ FabRoutingAgent（`AGENT_ORCHESTRATION_BASE_URLS_JSON={"F15B":"http://127.0.0.1:8123"}`）→ demo 后端 `/ag-ui`（ag-ui-langgraph 0.0.40 + copilotkit 0.1.94 + DeepAgents 0.7.5）→ DeepSeek v4 flash（Responses API）。

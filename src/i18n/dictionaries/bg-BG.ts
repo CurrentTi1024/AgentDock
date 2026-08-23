@@ -53,6 +53,8 @@ export default {
   'chat.mentionEmpty': 'Няма налични агенти',
   'chat.openReport': 'Отвори аналитичния доклад',
   'chat.placeholder': 'Изпрати съобщение, напиши @, за да избереш Agent-FAB',
+  "chat.process.done": "Обработени {count} стъпки · {duration}",
+  "chat.process.streaming": "Обработва се…",
   'chat.reasoning': 'Разсъждение',
   'chat.reasoningDone': 'Завършено',
   'chat.send': 'Изпрати съобщение',

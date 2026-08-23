@@ -53,6 +53,8 @@ export default {
   'chat.mentionEmpty': '사용 가능한 에이전트가 없습니다',
   'chat.openReport': '분석 보고서 열기',
   'chat.placeholder': '메시지 보내기, @를 입력해 Agent-FAB 선택',
+  "chat.process.done": "{count}단계 처리됨 · {duration}",
+  "chat.process.streaming": "처리 중…",
   'chat.reasoning': '추론',
   'chat.reasoningDone': '완료',
   'chat.send': '메시지 보내기',
