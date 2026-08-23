@@ -415,14 +415,17 @@ export const sessionHistoryService = {
       rows.filter((record) => record.status === 'running' || record.status === 'paused').map((record) => record.runId),
     );
     const terminal = rows.filter((record) => !recoverable.has(record.runId));
+    // 终态不落 checkpoint（历史由 messages 表渲染）：存量终态行全部回收。
     if (terminal.length) await db.checkpoints.bulkDelete(terminal.map((record) => record.runId));
   },
   async saveRunCheckpoint(sessionId: string, input: RunAgentInput, snapshot: RuntimeRunState) {
+    await this._writeCheckpoint(sessionId, input, snapshot);
+  },
+  async _writeCheckpoint(sessionId: string, input: RunAgentInput, snapshot: RuntimeRunState) {
     const updatedAt = new Date().toISOString();
     const isRecoverable = snapshot.status === 'running' || snapshot.status === 'paused';
-    let record: RunCheckpointRecord | undefined;
     if (isRecoverable) {
-      record = {
+      const record: RunCheckpointRecord = {
         input: compactRunInput(input),
         latestEventId: snapshot.latestEventId,
         runId: snapshot.runId,
@@ -435,13 +438,21 @@ export const sessionHistoryService = {
       await db.checkpoints.put(record);
       // 顺带回收本会话遗留的终态 checkpoint（旧格式存量）。
       await this.pruneCheckpoints(sessionId);
+    } else {
+      // 终态不落 checkpoint（历史由 messages 表渲染）：
+      // 必须删除本 run 在流式期间残留的 running checkpoint，否则刷新后 restore()
+      // 会把它当作“最新”快照并转 cancelled，误显示“已中断”。
+      await db.checkpoints
+        .where('sessionId')
+        .equals(sessionId)
+        .and((record) => record.runId === snapshot.runId)
+        .delete();
     }
     await this.persistRunSnapshot(sessionId, snapshot);
     await db.sessions.update(sessionId, { updatedAt });
     notifySessionsChanged();
     // 落库完成后广播，供对话页确定性刷新历史（避免与异步落库竞态）。
     notifyRunPersisted();
-    return record;
   },
   async persistRunSnapshot(sessionId: string, snapshot: RuntimeRunState) {
     // 多轮 run 快照会累积完整会话（MESSAGES_SNAPSHOT），每轮 flush 都会重写全部行。

@@ -90,6 +90,14 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     border: 1px solid ${token.colorBorder};
     border-radius: ${token.borderRadiusSM}px;
   `,
+  // A2UI Surface 属于消息正文（不是过程/思考），用独立卡片样式与折叠视觉分离。
+  surfaceBody: css`
+    margin-block-start: 4px;
+    padding: 8px;
+    border: 1px solid ${token.colorBorderSecondary};
+    border-radius: ${token.borderRadiusLG}px;
+    background: ${token.colorBgContainer};
+  `,
   toolTitle: css`
     overflow: hidden;
     display: -webkit-box;
@@ -1084,11 +1092,12 @@ export const renderStoredBlocks = (
       if (options.showSurfaces === false) continue;
       const surfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : record.id;
       nodes.push(
-        <StoredA2uiSurface
-          key={record.id}
-          onAction={(actionName) => handlers.onSurfaceAction(actionName, surfaceId)}
-          payload={{ ...payload, surfaceId }}
-        />,
+        <div className={styles.surfaceBody} data-testid="a2ui-surface-body" key={record.id}>
+          <StoredA2uiSurface
+            onAction={(actionName) => handlers.onSurfaceAction(actionName, surfaceId)}
+            payload={{ ...payload, surfaceId }}
+          />
+        </div>,
       );
     }
   }
@@ -1159,7 +1168,11 @@ export const renderRunBlocks = (
     flushSteps();
     if (options.showSurfaces !== false) {
       for (const [surfaceId, payload] of Object.entries(run.surfaces || {})) {
-        if (typeof payload === 'object' && payload !== null) blocks.push(<A2uiStoredSurface key={`surface-${surfaceId}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId }} />);
+        if (typeof payload === 'object' && payload !== null) blocks.push(
+          <div className={styles.surfaceBody} data-testid="a2ui-surface-body" key={`surface-${surfaceId}`}>
+            <A2uiStoredSurface onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId }} />
+          </div>,
+        );
       }
     }
   } else {
