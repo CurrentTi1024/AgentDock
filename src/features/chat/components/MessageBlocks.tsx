@@ -157,8 +157,9 @@ const createProcessCollector = (streaming: boolean) => {
     // 快照节点副本再传给组件：state.nodes 随后会被 length=0 原地清空，
     // 若按引用传递，React 渲染时 children 已变成空数组（折叠有标题无内容）。
     const nodes = [...state.nodes];
-    // 单条 reasoning 独立展示（自身可折叠）；含工具/步骤或过程块≥2 时汇总折叠。
-    if (state.hasWork || nodes.length >= 2) {
+    // 单条 reasoning 独立展示（自身可折叠）；只有真实步骤/工具（stepCount>0）才汇总为折叠，
+    // 避免 narration/HITL/纯推理等 0 步过程渲染出「已处理 0 步 · –」的空折叠卡。
+    if (state.stepCount > 0) {
       target.push(
         <ProcessFold
           durationText={formatProcessDuration(state.startedAt, state.finishedAt)}
