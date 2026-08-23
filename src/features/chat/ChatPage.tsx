@@ -157,6 +157,7 @@ export default function ChatPage() {
   const agentId = resolveChatAgentId(selectedAgent?.agentId, session?.agentId);
   const {
     agent: runtimeAgent,
+    refreshAgentContext,
     respondToHitl,
     restore,
     run,
@@ -554,6 +555,9 @@ export default function ChatPage() {
     // record.id 可能带 text: 前缀，removeTurn 按无前缀 id 查找。
     await sessionHistoryService.removeTurn(sessionId, userMessageId.replace(/^text:/, ''));
     await reloadHistoryWindow();
+    // 删除轮次后重建 agent 上下文：否则后端线程仍携带已删消息，
+    // 新 run 的 MESSAGES_SNAPSHOT 会把它们复活（user 消息重复、旧回复混入）。
+    await refreshAgentContext();
     await sendMessageWith(prompt);
   };
 

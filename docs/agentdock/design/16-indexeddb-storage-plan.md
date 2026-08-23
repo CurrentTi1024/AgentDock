@@ -155,6 +155,8 @@ checkpoint 是**运行状态快照**（完整 `RuntimeRunState`），用途只�
 
 ### 3.6 容量监控与预警（`src/api/session/sessionStorageService.ts`）
 
+**阈值与配色（产品口径）**：< 70% 健康（绿）/ 70–90% 需注意（橙）/ ≥ 90% 高危（红）。设置页进度条与健康标签同色；高危红字横幅 + 「导出与清理」按钮滚动到清理区；侧栏「设置」入口常驻橙/红角标；跨级 toast 可点击，深链直达 `/settings?tab=storage`；写入 QuotaExceededError → storage-error 引导清理。清理后回绿、角标消失，形成闭环。
+
 ```ts
 const STORAGE_WARNING_THRESHOLD = 0.7;  // 70% 提醒
 const STORAGE_CRITICAL_THRESHOLD = 0.9; // 90% 高危
@@ -233,7 +235,8 @@ type CleanupCriteria =
 ### 3.12 分页与懒加载（长会话/海量会话）
 
 - **会话列表分页**：`listSessions({ limit, offset })` + `countSessions()`；`sessionStore` 维护首屏 50 条窗口 + `loadMoreSessions()` 追加；HomeSidebar「加载更多」按 updatedAt 倒序继续翻页。搜索态走 `searchSessions`（全量扫标题/Agent 名）。Agent 话题与群组列表改用索引查询 `listSessionsByAgent` / `listGroupSessions`，并各自带“加载更多”。
-- **会话内消息懒加载**：messages v3 增加 `[sessionId+sequence]` 复合索引；`getMessagesPage({ beforeSequence, limit })` 以“文本所属 run”为最小完整单位——每页取最近 N 条文本并整轮装载过程块，分页边界不会切断一轮（避免块挂错/重复）；`hasMore` 用索引探测游标之前是否还有文本。ChatPage/GroupChatPage 首屏只加载最近 50 条文本 + 「加载更早消息」按钮；删除/编辑/终态后按“当前已加载文本数”重取窗口，保留已加载的更早内容。
+- **会话内消息懒加载**：messages v3 增加 `[sessionId+sequence]` 复合索引；`getMessagesPage({ beforeSequence, limit })` 以“文本所属 run”为最小完整单位——每页取最近 N 条文本并整轮装载过程块，分页边界不会切断一轮（避免块挂错/重复）；**游标必须是“页内全局最小 sequence（整轮最旧行）”而非最旧文本**——分页在轮中间截断时（每轮 2 条文本、每页 7 条）最旧文本所在轮的用户文本早于该文本，游标若取最旧文本会跨页重复该轮；`hasMore` 用索引探测游标之前是否还有文本。ChatPage/GroupChatPage 首屏只加载最近 50 条文本 + 「加载更早消息」按钮；删除/编辑/终态后按“当前已加载文本数”重取窗口，保留已加载的更早内容。
+- **sequence 单调性**：`Date.now()*1000 + 递增种子`，种子随机起步、不取模——同标签页内严格单调（消除同毫秒回绕），跨标签页同毫秒并发写同一会话的碰撞概率压到约 1/1000（该并发形态非产品支持场景）。
 - **收益**：进会话不再全量拉长历史；侧栏不再一次读全部 session；Dexie 索引查询让翻页只读页内数据。
 
 ---
