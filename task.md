@@ -410,6 +410,11 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **Step 8 ✅ Artifact 侧边栏自动打开**：agentDock.artifact 活动触发右侧面板，html 用 sandbox iframe 渲染。
 - **Step 9 ✅ Markdown @Agent 提及**：@AgentName 转为站内链接（SPA 导航）。
 - 所有步骤均浏览器实测（单 Agent + 群聊）+ 30/30 测试通过；分支 `codex/lobehub-chat-full-copy` 统一提交，最后一起 push。
+- **Step 10 ✅（2026-08-23）真实后端端到端补测 + antd6 下拉紧凑修复**：
+  - 前后端联调（3000 Node Runtime ↔ 8123 demo 后端 ↔ DeepSeek v4 flash）：运行中状态提示、停止按钮、A2UI Surface（Metric 指标卡）、过程折叠“已处理 9 步 · 10.1s”及展开、答案渲染全部通过；
+  - 浏览器逐功能复验：首页侧边栏（搜索/chat/Chat Group/任务/文档/记忆/Channel/文件/商场/最近对话/Agents）、Agent 空间（返回首页/切换 Agent/新话题/搜索/话题折叠）、@ 提及菜单、消息操作栏（复制/重新生成/删除/更多/点赞/点踩→反馈表单）、双击用户消息进入编辑态、审批模式手动/自动；
+  - 修复：antd v6 Select DOM 为 `.ant-select-content`，`compactSelect` 原只写 `.ant-select-selector` 未生效，切换 Agent/审批下拉高 36px；显式锁高 22px 并补 `.ant-select-content`/`.ant-select-input` 规则，两类下拉均恢复 22px 紧凑样式；
+  - 验证：`pnpm run build` 通过，Chrome 实测下拉 22px、其余全量 PASS。
 
 第十二轮（2026-08-20，前后端联合端到端测试 + 消息组件渲染修复）：
 

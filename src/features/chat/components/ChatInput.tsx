@@ -30,15 +30,34 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
       font-size: 12px !important;
       line-height: 20px !important;
     }
+    .ant-select-item-option {
+      font-size: 12px !important;
+      line-height: 20px !important;
+    }
   `,
   compactSelect: css`
+    /* antd v6 DOM：外层 wrapper 高度受 flex 拉伸影响，需显式锁高。 */
+    height: 22px !important;
+    min-height: 22px !important;
     .ant-select-selector {
       height: 22px !important;
       min-height: 22px !important;
       font-size: 12px !important;
     }
+    .ant-select-content {
+      height: 22px !important;
+      min-height: 22px !important;
+      font-size: 12px !important;
+      line-height: 22px !important;
+      align-items: center;
+    }
     .ant-select-selection-item,
-    .ant-select-selection-placeholder {
+    .ant-select-selection-placeholder,
+    .ant-select-selection-search {
+      font-size: 12px !important;
+      line-height: 22px !important;
+    }
+    .ant-select-input {
       font-size: 12px !important;
       line-height: 22px !important;
     }
