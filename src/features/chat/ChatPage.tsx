@@ -467,6 +467,7 @@ export default function ChatPage() {
                           onCopy={copyMessage}
                           onDelete={() => deleteMessage(record.id)}
                           onRegenerate={() => regenerate(originalContent)}
+                          onRestoreToInput={(content) => setInput(content)}
                         />
                       }
                       content={record.content}
@@ -506,6 +507,7 @@ export default function ChatPage() {
                               feedback: 'like',
                             })
                           }
+                          onDeleteAndRegenerate={() => regenerateAssistant(record.id)}
                           onRegenerate={() => regenerateAssistant(record.id)}
                         />
                       }
@@ -543,6 +545,7 @@ export default function ChatPage() {
                       content={currentUserMessage || input}
                       placement="user"
                       onCopy={copyMessage}
+                      onRestoreToInput={(content) => setInput(content)}
                     />
                   }
                   content={currentUserMessage || input}
