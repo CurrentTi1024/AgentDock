@@ -51,6 +51,9 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     inset-block-end: 0;
     padding: 12px 24px 16px;
     background: linear-gradient(transparent, ${token.colorBgContainer} 24%);
+    /* 透明渐变区不拦截点击：最后一条消息的悬浮操作栏（重新生成/删除/更多）可被真实鼠标点击；
+       输入区内部的 ChatInput 容器单独恢复 pointer-events。 */
+    pointer-events: none;
   `,
 }));
 
@@ -141,8 +144,13 @@ export default function ChatPage() {
   // LobeHub OpStatusTray 的 activity 等价物：有工具在跑→调用工具中；有流式推理→思考中；否则生成中。
   const opStatusActivity: OpStatusActivity = useMemo(() => {
     if (!run) return 'generating';
-    const anyToolRunning = [...Object.values(run.steps || {}), ...Object.values(run.toolCalls || {})]
-      .some((entry) => 'status' in entry && (entry.status === 'running' || entry.status === 'called'));
+    // 只认真实工具调用（排除 A2UI 内部工具）；中间件 step 不是工具调用。
+    const anyToolRunning = Object.values(run.toolCalls || {}).some(
+      (call) =>
+        (call.status === 'running' || call.status === 'called') &&
+        call.apiName !== 'generate_a2ui' &&
+        call.apiName !== 'render_a2ui',
+    );
     if (anyToolRunning) return 'toolCalling';
     const anyReasoningStreaming = Object.values(run.reasoningMeta || {}).some(
       (meta) => meta?.streaming,
@@ -504,18 +512,24 @@ export default function ChatPage() {
   // 再以新 prompt 重跑——编辑与「重新生成」统一走这条路径（LobeHub regenerate 语义）。
   const replaceTurn = async (userMessageId: string, prompt: string) => {
     if (!prompt || running) return;
-    await sessionHistoryService.removeTurn(sessionId, userMessageId);
+    // record.id 可能带 text: 前缀，removeTurn 按无前缀 id 查找。
+    await sessionHistoryService.removeTurn(sessionId, userMessageId.replace(/^text:/, ''));
     const refreshed = await sessionHistoryService.getMessages(sessionId);
     setHistory(refreshed);
     await sendMessageWith(prompt);
   };
 
   const regenerateAssistant = (assistantRecordId: string) => {
-    const index = history.findIndex((record) => record.id === `text:${assistantRecordId}`);
+    // storedMessages 的 record.id 带 text: 前缀，这里兼容两种形态，避免拼成 text:text:xxx 查不到。
+    const index = history.findIndex(
+      (record) => record.id === assistantRecordId || record.id === `text:${assistantRecordId}`,
+    );
     if (index < 0) return;
     let userRecord: SessionMessageRecord | undefined;
     for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-      if (history[cursor].kind === 'text') {
+      // 必须回找到真正的用户消息：同 run 里可能有一条空的助手文本（kind 也是 text），
+      // 只判 kind 会误把它当用户记录，导致 prompt 为空、替换静默失败。
+      if (history[cursor].kind === 'text' && history[cursor].role === 'user') {
         userRecord = history[cursor];
         break;
       }
@@ -762,7 +776,14 @@ export default function ChatPage() {
           </Flexbox>
         </Flexbox>
         <Flexbox className={styles.surface} ref={surfaceRef}>
-          <Flexbox style={{ marginInline: 'auto', maxWidth: 840, width: '100%' }}>
+          <Flexbox
+            style={{
+              marginInline: 'auto',
+              maxWidth: 840,
+              pointerEvents: 'auto',
+              width: '100%',
+            }}
+          >
             <ChatInput
               activity={opStatusActivity}
               agentName={agent}

@@ -16,6 +16,13 @@ import NeuralNetworkLoading from '@/components/NeuralNetworkLoading';
 // LobeHub Thinking 展开态的 Atom 图标色（主题无 purple token，用官方种子色）。
 const THINKING_PURPLE = '#bd54c6';
 
+/** A2UI 内部工具：surface 结果即用户可见输出，调用过程不展示、不计数。 */
+const A2UI_TOOL_NAMES = new Set(['generate_a2ui', 'render_a2ui']);
+/** 内部中间件步骤（langgraph 管道节点），不是用户可理解的执行步骤，不展示也不计数。 */
+const INTERNAL_STEP_RE = /Middleware|^model$/i;
+const isInternalStep = (name?: string) => !name || INTERNAL_STEP_RE.test(name);
+const isA2uiTool = (apiName?: string) => !!apiName && A2UI_TOOL_NAMES.has(apiName);
+
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
   block: css`
     overflow: hidden;
@@ -962,7 +969,10 @@ export const renderStoredBlocks = (
 
   for (const record of blocks) {
     if (record.kind === 'step') {
-      stepRecords.push(record);
+      const payload = (record.payload || {}) as Record<string, unknown>;
+      if (!isInternalStep(typeof payload.name === 'string' ? payload.name : undefined)) {
+        stepRecords.push(record);
+      }
       continue;
     }
     const payload = (record.payload || {}) as Record<string, unknown>;
@@ -973,6 +983,7 @@ export const renderStoredBlocks = (
       }
     } else if (record.kind === 'tool') {
       pushStepsIntoProcess();
+      if (isA2uiTool(typeof payload.apiName === 'string' ? payload.apiName : undefined)) continue;
       process.state.nodes.push(
         <ToolCallBlock
           call={{
@@ -1089,19 +1100,21 @@ export const renderRunBlocks = (
       }
     }
     for (const [id, call] of Object.entries(run.toolCalls || {})) {
+      if (isA2uiTool(call.apiName)) continue;
       process.state.nodes.push(<ToolCallBlock call={call} key={`tool-${id}`} />);
       process.state.hasWork = true;
       process.state.stepCount += 1;
       process.track(call.startedAt, call.finishedAt);
     }
     const steps = Object.values(run.steps || {}).sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0));
-    if (steps.length) {
-      process.state.nodes.push(<WorkflowStepsBlock key="steps" steps={steps} />);
+    const visibleSteps = steps.filter((step) => !isInternalStep(step.name));
+    if (visibleSteps.length) {
+      process.state.nodes.push(<WorkflowStepsBlock key="steps" steps={visibleSteps} />);
       process.state.hasWork = true;
-      process.state.stepCount += steps.length;
+      process.state.stepCount += visibleSteps.length;
       process.track(
-        Math.min(...steps.map((step) => step.startedAt ?? Number.POSITIVE_INFINITY)),
-        Math.max(...steps.map((step) => step.finishedAt ?? 0)),
+        Math.min(...visibleSteps.map((step) => step.startedAt ?? Number.POSITIVE_INFINITY)),
+        Math.max(...visibleSteps.map((step) => step.finishedAt ?? 0)),
       );
     }
     flushSteps();
@@ -1123,7 +1136,7 @@ export const renderRunBlocks = (
         }
       } else if (ref.kind === 'step') {
         const step = run.steps?.[ref.id];
-        if (step) {
+        if (step && !isInternalStep(step.name)) {
           stepBuffer.push(step);
           process.state.hasWork = true;
           process.track(step.startedAt, step.finishedAt);
@@ -1131,7 +1144,7 @@ export const renderRunBlocks = (
       } else if (ref.kind === 'tool') {
         pushStepsIntoProcess();
         const call = run.toolCalls?.[ref.id];
-        if (call) {
+        if (call && !isA2uiTool(call.apiName)) {
           process.state.nodes.push(<ToolCallBlock call={call} key={`tool-${ref.id}`} />);
           process.state.hasWork = true;
           process.state.stepCount += 1;

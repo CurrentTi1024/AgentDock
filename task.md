@@ -444,6 +444,12 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
     2. **HITL 暂停态**：`running` 只判 `status==='running'`，暂停时发送按钮可用但 `send()` 内部守卫拦截 → 输入框清空但消息丢失。修复：`running` 纳入 `paused`，暂停期按钮切换为停止、Enter 不发送、草稿保留；
   - 顺带修复：`HomePage.start()` 发送前补 `setInput('')`（导航后 bfcache/返回不残留，与会话页一致）；
   - 实测（干净会话 + 真实后端）：IME 组合 Enter 不发送且草稿保留、正常 Enter 发送并清空、运行中 Enter 不发送且草稿保留（按钮为停止）、结束后发送清空、mock HITL 暂停态按钮为停止不可误发；30/30 测试通过。
+- **工具痕迹/操作栏功能修复（2026-08-24）**：
+  - 现象①：简单问题（如「你好」）回答完还显示「调用工具中」，结束后折叠里看不到工具痕迹——根因是 demo 后端 langgraph 的中间件节点（PatchToolCallsMiddleware/CopilotKitMiddleware/model 等）被当作「步骤」展示并计数，且 opStatusActivity 把任何 running step 误判为 toolCalling；
+  - 修复：`MessageBlocks` 过滤内部中间件步骤（Middleware/^model$）与 A2UI 内部工具（generate_a2ui/render_a2ui，surface 本身即输出，不展示调用过程）；`ChatPage.opStatusActivity` 只认真实工具调用（排除 A2UI）；简单问题不再出现折叠，复杂问题的折叠只含可见步骤；
+  - 现象②：消息操作栏「重新生成/删除/删除并重新生成」点击无效——三个根因：a) `storedMessages` 的 record.id 带 `text:` 前缀，`regenerateAssistant` 又拼一次成 `text:text:xxx` 查不到；b) 回找上一条用户消息只判 `kind==='text'`，命中了同 run 里空的助手文本（content 空 → prompt 空 → 静默 return）；c) 最后一条消息的悬浮操作栏被输入区透明渐变层挡住，真实鼠标点击落在 textarea 上；
+  - 修复：`regenerateAssistant` 兼容两种 id 形态并强制 `role==='user'`；`replaceTurn` 归一化 `text:` 前缀；输入区外层 `pointer-events:none`、仅输入容器恢复 auto；
+  - 实测（真实后端 + IndexedDB 校验）：简单问题运行中不再显示「调用工具中」、完成后无折叠；重新生成触发新 run 且旧 run 被替换；删除从 IndexedDB 移除目标消息+过程块；更多菜单真实点击可打开、删除并重新生成替换 run；30/30 测试通过。
 
 第十二轮（2026-08-20，前后端联合端到端测试 + 消息组件渲染修复）：
 
