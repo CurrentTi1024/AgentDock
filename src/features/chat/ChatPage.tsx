@@ -98,6 +98,7 @@ export default function ChatPage() {
   const [session, setSession] = useState<SessionRecord>();
   const [history, setHistory] = useState<SessionMessageRecord[]>([]);
   const [artifactOpen, setArtifactOpen] = useState(false);
+  const [artifact, setArtifact] = useState<{ html?: string; title?: string }>();
 
   const fab = selectedAgent?.fab || session?.fab || agent.split('-').at(-1) || 'F15B';
   const agentId = resolveChatAgentId(selectedAgent?.agentId, session?.agentId);
@@ -414,6 +415,19 @@ export default function ChatPage() {
     void navigator.clipboard.writeText(content || '');
   }, []);
 
+  // LobeHub Portal：输出含 artifact（agentDock.artifact 活动）时自动打开右侧面板。
+  useEffect(() => {
+    if (!run) return;
+    for (const value of Object.values(run.activities || {})) {
+      const activity = value as { activityType?: string; html?: string; title?: string };
+      if (activity.activityType === 'agentDock.artifact' && typeof activity.html === 'string') {
+        setArtifact({ html: activity.html, title: activity.title });
+        setArtifactOpen(true);
+        return;
+      }
+    }
+  }, [run]);
+
   // 消息列底部留白跟随输入区实际高度（textarea 自动变高时也能滚到最后一条）。
   useEffect(() => {
     const node = surfaceRef.current;
@@ -666,22 +680,40 @@ export default function ChatPage() {
             <ActionIcon aria-label={t('common.close')} icon={X} onClick={() => setArtifactOpen(false)} />
           </Flexbox>
           <Flexbox gap={20} padding={20} style={{ overflowY: 'auto' }}>
-            <Text as="h1" fontSize={22} weight={600}>
-              {t('chat.artifact.title')}
-            </Text>
-            <Text type="secondary">{t('chat.artifact.subtitle', { name: agent })}</Text>
-            <Flexbox gap={8} padding={16} style={{ border: `1px solid ${cssVar.colorBorderSecondary}`, borderRadius: 12 }}>
-              <Text weight={500}>{t('chat.artifact.status')}</Text>
-              <Text fontSize={30} weight={600}>
-                {t('chat.artifact.stable')}
-              </Text>
-              <Tag color="success">{t('chat.artifact.passed')}</Tag>
-            </Flexbox>
-            <Flexbox gap={8} padding={16} style={{ border: `1px solid ${cssVar.colorBorderSecondary}`, borderRadius: 12 }}>
-              <Text weight={500}>{t('chat.artifact.anomalies')}</Text>
-              <Text>{t('chat.artifact.anomaly1')}</Text>
-              <Text>{t('chat.artifact.anomaly2')}</Text>
-            </Flexbox>
+            {artifact?.html ? (
+              <iframe
+                sandbox="allow-same-origin"
+                srcDoc={artifact.html}
+                style={{
+                  border: 'none',
+                  borderRadius: 12,
+                  background: '#fff',
+                  flex: 1,
+                  minHeight: 420,
+                  width: '100%',
+                }}
+                title={artifact.title || t('chat.artifact.title')}
+              />
+            ) : (
+              <>
+                <Text as="h1" fontSize={22} weight={600}>
+                  {artifact?.title || t('chat.artifact.title')}
+                </Text>
+                <Text type="secondary">{t('chat.artifact.subtitle', { name: agent })}</Text>
+                <Flexbox gap={8} padding={16} style={{ border: `1px solid ${cssVar.colorBorderSecondary}`, borderRadius: 12 }}>
+                  <Text weight={500}>{t('chat.artifact.status')}</Text>
+                  <Text fontSize={30} weight={600}>
+                    {t('chat.artifact.stable')}
+                  </Text>
+                  <Tag color="success">{t('chat.artifact.passed')}</Tag>
+                </Flexbox>
+                <Flexbox gap={8} padding={16} style={{ border: `1px solid ${cssVar.colorBorderSecondary}`, borderRadius: 12 }}>
+                  <Text weight={500}>{t('chat.artifact.anomalies')}</Text>
+                  <Text>{t('chat.artifact.anomaly1')}</Text>
+                  <Text>{t('chat.artifact.anomaly2')}</Text>
+                </Flexbox>
+              </>
+            )}
           </Flexbox>
         </Flexbox>
       )}

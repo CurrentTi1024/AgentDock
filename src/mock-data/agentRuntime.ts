@@ -57,5 +57,14 @@ export async function* createAgentRuntimeMockEvents(input: RunAgentInput, signal
   for (const token of text.match(/.{1,3}/g) || []) { await delay(24, signal); yield event({ type: 'TEXT_MESSAGE_CONTENT', messageId: assistantId, delta: token }); }
   yield event({ type: 'TEXT_MESSAGE_END', messageId: assistantId });
   yield event({ type: 'ACTIVITY_SNAPSHOT', messageId: `surface-${input.runId}`, activityType: 'a2ui.surface', surfaceId: `surface-${input.runId}`, content: { catalogId: 'agentdock://catalog', components: [{ id: 'summary', type: 'metricCard', props: { label: '异常数量', value: 2 } }, { id: 'open', type: 'button', props: { label: '打开报告', actionName: 'open_report' } }] } });
+  yield event({
+    type: 'ACTIVITY_SNAPSHOT',
+    messageId: `artifact-${input.runId}`,
+    activityType: 'agentDock.artifact',
+    content: {
+      title: '飞行测试分析报告',
+      html: '<h2>飞行测试概览</h2><table border="1" cellpadding="6"><tr><th>指标</th><th>数值</th><th>状态</th></tr><tr><td>振动峰值</td><td>+18%</td><td style="color:#faad14">关注</td></tr><tr><td>温度跃升</td><td>+6.2°C</td><td style="color:#faad14">关注</td></tr><tr><td>总体状态</td><td>稳定</td><td style="color:#52c41a">通过</td></tr></table><p>建议复核 09:42 与 10:17 两处异常并加入下次检查清单。</p>',
+    },
+  });
   yield event({ type: 'RUN_FINISHED', threadId: input.threadId, runId: input.runId });
 }
