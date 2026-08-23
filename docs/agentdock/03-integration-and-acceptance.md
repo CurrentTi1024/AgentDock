@@ -49,7 +49,7 @@
 - 沿用输入的 `runId`。
 - 将当前 user message、`agentId/fab/threadId` 送到 Core。
 - 将 Redis 相同 `runId` 的事件按序流式返回。
-- 在 SSE `id` 和 event `rawEvent.streamId` 中提供游标。
+- 在 SSE `id` 和 event `rawEvent.eventId` 中提供游标。
 
 ### Orchestration Core
 
@@ -86,7 +86,7 @@
 - single-route POST 可访问。
 - 用 Mock AG-UI Server 验证远端 `HttpAgent` 代理。
 - 验证 `forwardedProps` 到达上游。
-- 验证事件 `rawEvent.streamId` 经过 Runtime 后仍存在。
+- 验证事件 `rawEvent.eventId` 经过 Runtime 后仍存在。
 
 ### 4.3 联合检查
 
@@ -114,7 +114,7 @@
 
 - 页面进入 running 状态。
 - `runId` 与 Browser 请求一致。
-- `rawEvent.streamId` 存在。
+- `rawEvent.eventId` 存在。
 
 ### Case 2：流式文本
 
@@ -173,9 +173,9 @@
 
 ### Case 8：断线恢复
 
-- 人工在文本流中断开连接；前端保存 `runId + latestStreamId`（IndexedDB checkpoint）。
-- 官方 proxy 路径：恢复走 Runtime `agent/connect`，携带 `action=resume` + `resume.lastStreamId`；**按 streamId 游标恢复（方向已冻结）**，后端需只返回游标之后的事件。
-- 自研 mock/direct 路径：`restoreSession` 用相同 runId + `resume.lastStreamId` 恢复。
+- 人工在文本流中断开连接；前端保存 `runId + latestEventId`（IndexedDB checkpoint）。
+- 官方 proxy 路径：恢复走 Runtime `agent/connect`，携带 `action=resume` + `resume.lastEventId`；**按 eventId 游标恢复（方向已冻结）**，后端需只返回游标之后的事件。
+- 自研 mock/direct 路径：`restoreSession` 用相同 runId + `resume.lastEventId` 恢复。
 - 只补发缺失事件；文本不重复、不缺失。
 
 ### Case 9：HITL
@@ -236,7 +236,7 @@
   "sessionId": "session-001",
   "threadId": "thread-001",
   "runId": "run-001",
-  "streamId": "1723870000000-0",
+  "eventId": "1723870000000-0",
   "messageId": "assistant-001",
   "toolCallId": null,
   "surfaceId": null
@@ -283,7 +283,7 @@
 - sessionId：
 - threadId：
 - runId：
-- lastStreamId：
+- lastEventId：
 - 期望事件：
 - 实际事件：
 - Service 原始 SSE：
@@ -307,13 +307,13 @@
 | Case 5 Tool Call | ✅ | ls / render_a2ui 工具块（参数/结果/耗时/状态） |
 | Case 6 错误 | ✅ 兜底 | `runAgent` 失败写 RUN_ERROR；停止→cancelled |
 | Case 7 Stop | ✅ | 停止生成退出 running，保留部分内容 |
-| Case 8 断线恢复 | ✅ 服务层 / ⚠️ 端到端 | demo 后端已实现 streamId 注入 + 游标回放（69 事件全带 streamId；resume 第 40 条精确回放 29 条、无重执行；未知 run→STREAM_EXPIRED）；CopilotKit single-route 纯尾回放受其 SSE 校验限制（须 RUN_STARTED 开头），真实接入用 agent/connect 或全量回放+去重（见 02 §10.5） |
+| Case 8 断线恢复 | ✅ 服务层 / ⚠️ 端到端 | demo 后端已实现 eventId 注入 + 游标回放（69 事件全带 eventId；resume 第 40 条精确回放 29 条、无重执行；未知 run→STREAM_EXPIRED）；CopilotKit single-route 纯尾回放受其 SSE 校验限制（须 RUN_STARTED 开头），真实接入用 agent/connect 或全量回放+去重（见 02 §10.5） |
 | Case 9 HITL | ✅ 展示与请求 / ⚠️ 续跑 | 真实 interrupt（write_file）已触发：页面渲染 HitlBlock、批准携带真实 interruptId + decisions payload 到达后端；纯 deepagents 层 resume 后工具执行成功；ag_ui-langgraph 0.0.40 的 HTTP resume 映射与 langchain interrupt() 返回值约定不兼容，续跑执行需公司服务层实现/升级适配器（见 02 §8.2） |
 | Case 10 A2UI | ✅ 单轮 | 指标卡片叶子节点渲染 + render_a2ui 工具块 + a2ui-surface 事件；多轮上下文受 DeepSeek 偏离影响 |
 
 ### 遗留项
 
-- 断线恢复（streamId 游标）端到端注入测试。
+- 断线恢复（eventId 游标）端到端注入测试。
 - 真实 HITL wire 冻结（样本已抓取；续跑执行依赖公司服务层实现 resume 映射或升级 ag_ui-langgraph）。
 - A2UI 多轮上下文稳定性（模型 forced tool_choice 偏离）。
 - 刷新后 A2UI surface 持久化恢复。

@@ -1,12 +1,14 @@
 // Adapted from: src/features/ChatInput/Desktop + SendArea + ControlBar (LobeHub canary)
 // 桌面输入区：圆角容器 + 自动高度输入 + 底部发送/停止 + 外部功能行（左工具、右审批模式）。
-import { ActionIcon, Avatar, Button, Flexbox, Select, Tag, Text, TextArea } from '@lobehub/ui';
+import { ActionIcon, Alert, Avatar, Button, Flexbox, Select, Tag, Text, TextArea } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { ArrowBigUp, CornerDownLeft, Mic, Paperclip, Send, Square } from 'lucide-react';
 import { type KeyboardEvent, memo, useMemo, useRef, useState } from 'react';
 
 import { type MentionAgent } from '@/api/market/agentMarketService';
+import type { RunStatus } from '@/api/runtime/types';
 import AgentMentionMenu from '@/features/chat/components/AgentMentionMenu';
+import OpStatusTray, { type OpStatusActivity } from '@/features/chat/components/OpStatusTray';
 import { useI18n } from '@/i18n';
 
 export type ApprovalMode = 'auto' | 'manual';
@@ -29,15 +31,34 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
       font-size: 12px !important;
       line-height: 20px !important;
     }
+    .ant-select-item-option {
+      font-size: 12px !important;
+      line-height: 20px !important;
+    }
   `,
   compactSelect: css`
+    /* antd v6 DOM：外层 wrapper 高度受 flex 拉伸影响，需显式锁高。 */
+    height: 22px !important;
+    min-height: 22px !important;
     .ant-select-selector {
       height: 22px !important;
       min-height: 22px !important;
       font-size: 12px !important;
     }
+    .ant-select-content {
+      height: 22px !important;
+      min-height: 22px !important;
+      font-size: 12px !important;
+      line-height: 22px !important;
+      align-items: center;
+    }
     .ant-select-selection-item,
-    .ant-select-selection-placeholder {
+    .ant-select-selection-placeholder,
+    .ant-select-selection-search {
+      font-size: 12px !important;
+      line-height: 22px !important;
+    }
+    .ant-select-input {
       font-size: 12px !important;
       line-height: 22px !important;
     }
@@ -51,6 +72,8 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
 }));
 
 interface ChatInputProps {
+  /** 当前活动（官方 OpStatusTray 的 activity 等价物）。 */
+  activity?: OpStatusActivity;
   agentName?: string;
   approvalMode?: ApprovalMode;
   fab?: string;
@@ -66,14 +89,20 @@ interface ChatInputProps {
   onStop: () => void;
   onSwitchAgent?: (agent: MentionAgent) => void;
   placeholder?: string;
+  runStatus?: RunStatus;
   running: boolean;
   sendDisabled?: boolean;
+  /** 本轮 run 开始时间，用于状态条计时。 */
+  startTime?: number;
+  /** 工具步骤数，>1 时状态条右侧显示步数。 */
+  stepCount?: number;
   switchAgents?: MentionAgent[];
   value: string;
 }
 
 const ChatInput = memo<ChatInputProps>(
   ({
+    activity,
     agentName,
     approvalMode = 'manual',
     fab,
@@ -88,8 +117,11 @@ const ChatInput = memo<ChatInputProps>(
     onStop,
     onSwitchAgent,
     placeholder,
+    runStatus,
     running,
     sendDisabled = false,
+    startTime,
+    stepCount,
     switchAgents,
     value,
   }) => {
@@ -107,7 +139,13 @@ const ChatInput = memo<ChatInputProps>(
   }, [agentName, fab, switchAgents]);
 
     const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key === 'Enter' && !event.shiftKey && !sendDisabled) {
+      // IME 组合中按 Enter 是确认候选词：跳过发送，避免消息已发出后输入法把文字重新写回输入框。
+      if (
+        event.key === 'Enter' &&
+        !event.shiftKey &&
+        !sendDisabled &&
+        !event.nativeEvent.isComposing
+      ) {
         event.preventDefault();
         if (!running) onSend();
       }
@@ -115,6 +153,23 @@ const ChatInput = memo<ChatInputProps>(
 
     return (
       <Flexbox gap={0}>
+        {(runStatus === 'running' || runStatus === 'paused') && (
+          <OpStatusTray
+            activity={activity}
+            runStatus={runStatus}
+            startTime={startTime}
+            steps={stepCount}
+          />
+        )}
+        {runStatus === 'cancelled' && (
+          <Alert
+            description={t('chat.notice.interruptedHint')}
+            showIcon
+            title={t('chat.notice.interrupted')}
+            type="warning"
+            variant="borderless"
+          />
+        )}
         <Flexbox className={styles.composer} gap={4} padding={12} style={{ position: 'relative' }}>
           {mentionOpen && (
             <AgentMentionMenu

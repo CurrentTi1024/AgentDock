@@ -1264,7 +1264,7 @@ env:
 | 逻辑动作 | 官方 envelope method | 关键字段 |
 |---|---|---|
 | 发起执行 | `agent/run` | `sessionId`、`agentId` 或 `group`、`fab`、当前 message（在 `forwardedProps`） |
-| 断线恢复 | `agent/connect` | 相同 `runId`/`threadId`；`lastStreamId` 语义由后端决定 |
+| 断线恢复 | `agent/connect` | 相同 `runId`/`threadId`；`lastEventId` 语义由后端决定 |
 | 停止执行 | `agent/stop` | `agentId`、`threadId` |
 | HITL 响应 | `agent/run` + `RunAgentInput.resume[]`（标准 interrupt）或 `forwardedProps.hitlResponse`（后备） | `requestId`、mode 和对应输入 |
 | A2UI Action | `agent/run` + `forwardedProps.a2uiAction.userAction` | `surfaceId`、`actionName`、`context`、`sourceComponentId` |

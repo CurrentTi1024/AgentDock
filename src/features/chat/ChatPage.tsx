@@ -1,5 +1,5 @@
 // AgentDock conversation page — LobeHub ConversationArea + ChatItem + ChatInput adaptation.
-import { ActionIcon, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
+import { ActionIcon, Button, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
 import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { LoadingDots } from '@lobehub/ui/chat';
 import { createStaticStyles, cssVar } from 'antd-style';
@@ -11,9 +11,12 @@ import { resolveChatAgentId } from '@/features/chat/agentDetail';
 import ChatHeader from '@/features/chat/components/ChatHeader';
 import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
+import FeedbackModal, { type FeedbackTarget } from '@/features/chat/components/FeedbackModal';
 import { MessageActions } from '@/features/chat/components/MessageActions';
+import type { OpStatusActivity } from '@/features/chat/components/OpStatusTray';
 import Welcome from '@/features/chat/components/Welcome';
 import {
+  buildDisplayUnits,
   HistoryDivider,
   renderStoredBlocks,
   renderRunBlocks,
@@ -22,13 +25,14 @@ import {
 import { messageFeedbackService } from '@/api/conversation/messageFeedbackService';
 import { getChatServiceMode } from '@/api/core/serviceMode';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
-import type { RuntimeStep } from '@/api/runtime/types';
+import type { RunStatus, RuntimeStep } from '@/api/runtime/types';
 import {
   sessionHistoryService,
   type SessionMessageRecord,
   type SessionRecord,
 } from '@/api/session/sessionHistoryService';
 import { useAgentDockConversation } from '@/features/chat/useAgentDockConversation';
+import { useChatScroll } from '@/features/chat/hooks/useChatScroll';
 import { useUiStore } from '@/stores/uiStore';
 import { useI18n } from '@/i18n';
 
@@ -49,6 +53,9 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     inset-block-end: 0;
     padding: 12px 24px 16px;
     background: linear-gradient(transparent, ${token.colorBgContainer} 24%);
+    /* 透明渐变区不拦截点击：最后一条消息的悬浮操作栏（重新生成/删除/更多）可被真实鼠标点击；
+       输入区内部的 ChatInput 容器单独恢复 pointer-events。 */
+    pointer-events: none;
   `,
 }));
 
@@ -89,18 +96,67 @@ export default function ChatPage() {
   const [editDraft, setEditDraft] = useState('');
   const [composerHeight, setComposerHeight] = useState(0);
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const [feedbackModal, setFeedbackModal] = useState<FeedbackTarget>();
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
   const [mentionsLoading, setMentionsLoading] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<MentionAgent>();
   const [agent, setAgent] = useState('FlightAnalysis_Agent-F15B');
   const [session, setSession] = useState<SessionRecord>();
   const [history, setHistory] = useState<SessionMessageRecord[]>([]);
+  // 会话内消息懒加载：首屏最近一页，加载更早按文本所属 run 整轮追加。
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const nextCursorRef = useRef<number | undefined>(undefined);
+  const loadedTextCountRef = useRef(0);
+  const loadingOlderRef = useRef(false);
   const [artifactOpen, setArtifactOpen] = useState(false);
+  const [artifact, setArtifact] = useState<{ html?: string; title?: string }>();
+  const [runStartedAt, setRunStartedAt] = useState<number>();
+
+  const loadInitialHistory = useCallback(async () => {
+    const page = await sessionHistoryService.getMessagesPage(sessionId);
+    setHistory(page.records);
+    setHasMoreOlder(page.hasMore);
+    nextCursorRef.current = page.nextBeforeSequence;
+    loadedTextCountRef.current = page.records.filter((record) => record.kind === 'text').length;
+  }, [sessionId]);
+
+  const loadOlderHistory = useCallback(async () => {
+    if (loadingOlderRef.current || nextCursorRef.current === undefined) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const page = await sessionHistoryService.getMessagesPage(sessionId, {
+        beforeSequence: nextCursorRef.current,
+      });
+      setHistory((current) => [...page.records, ...current]);
+      setHasMoreOlder(page.hasMore);
+      nextCursorRef.current = page.nextBeforeSequence;
+      loadedTextCountRef.current += page.records.filter((record) => record.kind === 'text').length;
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [sessionId]);
+
+  /** 变更/终态后刷新：按当前已加载文本数重取“最新 N 条文本窗口”，保留已加载的更早内容。 */
+  const reloadHistoryWindow = useCallback(async () => {
+    // 首屏尚未建立窗口时跳过：避免 run-persisted 先于 loadInitialHistory 触发，
+    // 用 1 条文本的小窗口覆盖 50 条首屏。
+    if (loadedTextCountRef.current === 0) return;
+    const target = Math.max(loadedTextCountRef.current, 1);
+    const page = await sessionHistoryService.getMessagesPage(sessionId, { limit: target });
+    setHistory(page.records);
+    setHasMoreOlder(page.hasMore);
+    nextCursorRef.current = page.nextBeforeSequence;
+    loadedTextCountRef.current = page.records.filter((record) => record.kind === 'text').length;
+  }, [sessionId]);
 
   const fab = selectedAgent?.fab || session?.fab || agent.split('-').at(-1) || 'F15B';
   const agentId = resolveChatAgentId(selectedAgent?.agentId, session?.agentId);
   const {
     agent: runtimeAgent,
+    refreshAgentContext,
     respondToHitl,
     restore,
     run,
@@ -113,17 +169,43 @@ export default function ChatPage() {
     sessionId,
     threadId: session?.threadId,
   });
-  const running = run?.status === 'running';
+  // 运行中与 HITL 暂停都视为忙态：发送按钮切换为停止、Enter 不发送、草稿保留，
+  // 避免暂停期间 send 被内部守卫静默拦截（输入框已清空但消息丢失）。
+  const running = run?.status === 'running' || run?.status === 'paused';
   // 只有进行中的 run（running/paused）才走 live 渲染；完成的 run 刷新后按历史消息渲染，
   // 保证最后一条消息也有编辑/重新生成等操作（LobeHub 无“live 消息”概念）。
   const isActiveRun = run?.status === 'running' || run?.status === 'paused';
-  const answer = Object.values(run?.messages || {})
+  // 已删消息墓碑：删除并重新生成时后端线程仍会带回被删轮次，展示与落库都需跳过。
+  const deletedKeys = useMemo(() => new Set(session?.deletedMessageIds ?? []), [session?.deletedMessageIds]);
+  const liveMessages = Object.values(run?.messages || {}).filter(
+    (message) => !deletedKeys.has(`text:${message.id}`) && !deletedKeys.has(`tool:${message.id}`),
+  );
+  const answer = liveMessages
     .filter((message) => message.role === 'assistant')
     .at(-1)?.content;
-  const currentUserMessage = Object.values(run?.messages || {})
+  const currentUserMessage = liveMessages
     .filter((message) => message.role === 'user')
     .at(-1)?.content;
   const surface = Object.entries(run?.surfaces || {}).at(-1);
+
+  // LobeHub OpStatusTray 的 activity 等价物：有工具在跑→调用工具中；有流式推理→思考中；否则生成中。
+  const opStatusActivity: OpStatusActivity = useMemo(() => {
+    if (!run) return 'generating';
+    // 只认真实工具调用（排除 A2UI 内部工具）；中间件 step 不是工具调用。
+    const anyToolRunning = Object.values(run.toolCalls || {}).some(
+      (call) =>
+        (call.status === 'running' || call.status === 'called') &&
+        call.apiName !== 'generate_a2ui' &&
+        call.apiName !== 'render_a2ui',
+    );
+    if (anyToolRunning) return 'toolCalling';
+    const anyReasoningStreaming = Object.values(run.reasoningMeta || {}).some(
+      (meta) => meta?.streaming,
+    );
+    if (anyReasoningStreaming) return 'reasoning';
+    return 'generating';
+  }, [run]);
+  const opStepCount = useMemo(() => Object.values(run?.steps || {}).length, [run]);
 
   // @ 触发时经 Service 拉取可提及 Agent（mock 模式返回 mock 数据），只拉一次并缓存。
   const mentionsLoadedRef = useRef(false);
@@ -209,32 +291,25 @@ export default function ChatPage() {
       // agentName 通常是 agentFullName（已含 FAB），不要再拼一次 -fab，避免双后缀。
       setAgent(value.agentName || `${value.title}-${value.fab}`.replace(/\s+/g, ''));
     });
-    void sessionHistoryService.getMessages(sessionId).then(setHistory);
+    void loadInitialHistory();
     void restore();
-  }, [ensureSession, restore, sessionId]);
+  }, [ensureSession, loadInitialHistory, restore, sessionId]);
 
   useEffect(() => {
     if (run && ['success', 'cancelled', 'error'].includes(run.status)) {
       // 运行终态时 flushRunCheckpoint 异步落库；延迟到落库完成后刷新历史，
       // 避免读到缺少助手回复的中间快照（竞态会导致完成后消息消失）。
       const timer = setTimeout(() => {
-        void sessionHistoryService.getMessages(sessionId).then(setHistory);
+        void loadInitialHistory();
       }, 600);
       return () => clearTimeout(timer);
     }
-  }, [run?.status, sessionId]);
-
-  // 落库完成事件：确定性刷新历史（大 run 落库可能超过 600ms，时间兜底不可靠）。
-  useEffect(() => {
-    const refresh = () => {
-      void sessionHistoryService.getMessages(sessionId).then(setHistory);
-    };
-    window.addEventListener('agentdock:run-persisted', refresh);
-    return () => window.removeEventListener('agentdock:run-persisted', refresh);
-  }, [sessionId]);
+  }, [loadInitialHistory, run?.status, sessionId]);
 
   const sendMessageWith = async (prompt: string) => {
     if (!prompt || running) return;
+    stickToBottom();
+    setRunStartedAt(Date.now());
     setArtifactOpen(false);
     const active = session ?? (await ensureSession());
     if (!active) return;
@@ -300,28 +375,63 @@ export default function ChatPage() {
 
   const storedMessages = useMemo<StoredTextMessage[]>(() => {
     const liveTextIds = isActiveRun ? new Set(Object.keys(run?.messages || {})) : new Set<string>();
+    // 块按 runId 归属（LobeHub 以 messageId 归属块的等价物）：助手文本拿到该 run 的全部
+    // reasoning/tool/step/activity/surface。不能用“相邻文本即止”切分——paused 中间落库会把
+    // 前段块排在助手文本之前，导致块挂错消息或刷新丢失。
+    const blocksByRun = new Map<string, SessionMessageRecord[]>();
+    for (const record of history) {
+      if (record.kind === 'text' || !record.runId) continue;
+      const bucket = blocksByRun.get(record.runId) ?? [];
+      bucket.push(record);
+      blocksByRun.set(record.runId, bucket);
+    }
     const result: StoredTextMessage[] = [];
-    for (let index = 0; index < history.length; index += 1) {
-      const record = history[index];
-      // 防御：过滤历史遗留的流式占位行（lc_run--），避免同一回复双气泡。
+    for (const record of history) {
       if (record.id.startsWith('lc_run--')) continue;
-      // 落库 id 带 kind 前缀（text:xxx），run.messages 使用原始 id。
       const rawTextId = record.id.replace(/^text:/, '');
-      if (record.kind !== 'text' || liveTextIds.has(rawTextId)) continue;
-      const blocks: SessionMessageRecord[] = [];
-      for (let next = index + 1; next < history.length; next += 1) {
-        const candidate = history[next];
-        if (candidate.kind === 'text') break;
-        blocks.push(candidate);
-      }
+      if (record.kind !== 'text' || liveTextIds.has(rawTextId) || deletedKeys.has(record.id)) continue;
+      const blocks = record.role === 'assistant' && record.runId
+        ? (blocksByRun.get(record.runId) ?? [])
+        : [];
       result.push({ blocks, record });
     }
     return result;
-  }, [history, isActiveRun, run?.messages]);
+  }, [deletedKeys, history, isActiveRun, run?.messages]);
+
+  // 同一轮 run 的连续助手文本合并为单个气泡（单聊/群聊共用 buildDisplayUnits）。
+  const displayUnits = useMemo(() => buildDisplayUnits(storedMessages), [storedMessages]);
+
+  const { isTerminalRun, scrollRef, stickToBottom } = useChatScroll({
+    answer,
+    composerHeight,
+    contentVersion: displayUnits,
+    historyLength: history.length,
+    runStatus: run?.status,
+  });
+
+  // 落库完成事件：确定性刷新历史（大 run 落库可能超过 600ms，时间兜底不可靠）；
+  // 终态落库完成后 DOM 会重建（live→历史），此时再滚一次确保停在最新一条。
+  useEffect(() => {
+    const refresh = () => {
+      void reloadHistoryWindow().then(() => {
+        if (isTerminalRun()) stickToBottom();
+      });
+    };
+    window.addEventListener('agentdock:run-persisted', refresh);
+    return () => window.removeEventListener('agentdock:run-persisted', refresh);
+  }, [isTerminalRun, reloadHistoryWindow, sessionId, stickToBottom]);
 
   const blocks = renderRunBlocks(run, {
-    onApproveHitl: (requestId) =>
-      void respondToHitl({ mode: 'toolAuthorization', decision: 'approve', requestId }),
+    onApproveHitl: (requestId, payload) =>
+      void respondToHitl({
+        mode: String(payload?.mode || 'toolAuthorization'),
+        decision: 'approve',
+        requestId,
+        ...(payload?.editedArguments !== undefined ? { editedArguments: payload.editedArguments as Record<string, unknown> } : {}),
+        ...(payload?.input !== undefined ? { input: String(payload.input) } : {}),
+        ...(payload?.selectedValues !== undefined ? { selectedValues: payload.selectedValues as string[] } : {}),
+        ...(payload?.formValues !== undefined ? { formValues: payload.formValues as Record<string, unknown> } : {}),
+      }),
     onRejectHitl: (requestId) =>
       void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
     onSurfaceAction: (actionName = 'open_report') =>
@@ -332,7 +442,7 @@ export default function ChatPage() {
         sourceComponentId: 'action-button',
         surfaceId: surface[0],
       }),
-  }, { showReasoning, showSurfaces: true });
+  }, { deletedKeys, showReasoning, showSurfaces: true });
 
   const lastLiveMessageId = Object.keys(run?.messages || {}).at(-1) || '';
   const feedbackTarget = {
@@ -352,29 +462,35 @@ export default function ChatPage() {
 
   const deleteMessage = useCallback(
     (messageId: string) => {
-      void sessionHistoryService.removeMessage(sessionId, messageId).then(() =>
-        sessionHistoryService.getMessages(sessionId).then(setHistory),
-      );
+      void sessionHistoryService.removeMessage(sessionId, messageId).then(() => reloadHistoryWindow());
     },
-    [sessionId],
+    [reloadHistoryWindow, sessionId],
   );
 
   // branch 替换：删除以该用户消息开头的一整轮（用户消息 + 助手回复过程块 + checkpoint），
   // 再以新 prompt 重跑——编辑与「重新生成」统一走这条路径（LobeHub regenerate 语义）。
   const replaceTurn = async (userMessageId: string, prompt: string) => {
     if (!prompt || running) return;
-    await sessionHistoryService.removeTurn(sessionId, userMessageId);
-    const refreshed = await sessionHistoryService.getMessages(sessionId);
-    setHistory(refreshed);
+    // record.id 可能带 text: 前缀，removeTurn 按无前缀 id 查找。
+    await sessionHistoryService.removeTurn(sessionId, userMessageId.replace(/^text:/, ''));
+    await reloadHistoryWindow();
+    // 删除轮次后重建 agent 上下文：否则后端线程仍携带已删消息，
+    // 新 run 的 MESSAGES_SNAPSHOT 会把它们复活（user 消息重复、旧回复混入）。
+    await refreshAgentContext();
     await sendMessageWith(prompt);
   };
 
   const regenerateAssistant = (assistantRecordId: string) => {
-    const index = history.findIndex((record) => record.id === `text:${assistantRecordId}`);
+    // storedMessages 的 record.id 带 text: 前缀，这里兼容两种形态，避免拼成 text:text:xxx 查不到。
+    const index = history.findIndex(
+      (record) => record.id === assistantRecordId || record.id === `text:${assistantRecordId}`,
+    );
     if (index < 0) return;
     let userRecord: SessionMessageRecord | undefined;
     for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-      if (history[cursor].kind === 'text') {
+      // 必须回找到真正的用户消息：同 run 里可能有一条空的助手文本（kind 也是 text），
+      // 只判 kind 会误把它当用户记录，导致 prompt 为空、替换静默失败。
+      if (history[cursor].kind === 'text' && history[cursor].role === 'user') {
         userRecord = history[cursor];
         break;
       }
@@ -400,6 +516,19 @@ export default function ChatPage() {
     void navigator.clipboard.writeText(content || '');
   }, []);
 
+  // LobeHub Portal：输出含 artifact（agentDock.artifact 活动）时自动打开右侧面板。
+  useEffect(() => {
+    if (!run) return;
+    for (const value of Object.values(run.activities || {})) {
+      const activity = value as { activityType?: string; html?: string; title?: string };
+      if (activity.activityType === 'agentDock.artifact' && typeof activity.html === 'string') {
+        setArtifact({ html: activity.html, title: activity.title });
+        setArtifactOpen(true);
+        return;
+      }
+    }
+  }, [run]);
+
   // 消息列底部留白跟随输入区实际高度（textarea 自动变高时也能滚到最后一条）。
   useEffect(() => {
     const node = surfaceRef.current;
@@ -422,7 +551,7 @@ export default function ChatPage() {
           status={run?.status}
           onToggleArtifact={() => setArtifactOpen((open) => !open)}
         />
-        <Flexbox className={styles.scroll}>
+        <Flexbox className={styles.scroll} data-testid="chat-scroll" ref={scrollRef}>
           <Flexbox
             gap={8}
             style={{
@@ -436,16 +565,8 @@ export default function ChatPage() {
             {!hasAnyMessage && (
               <Welcome agentName={agent} onSuggestion={(suggestion) => setInput(t(suggestion))} />
             )}
-            {storedMessages.map(({ blocks: storedBlocks, record }, index) => {
-              const previous = index > 0 ? storedMessages[index - 1].record : undefined;
-              // 仅合并同一轮 run 内的连续同角色消息（如一轮内多条助手文本）；
-              // 不同 run 的独立回复必须各自显示头像/标题，避免出现“只有气泡没有头像”。
-              const merged = Boolean(
-                previous &&
-                  previous.role === record.role &&
-                  previous.runId &&
-                  previous.runId === record.runId,
-              );
+            {displayUnits.map(({ blocks: storedBlocks, narration, record }, index) => {
+              const previous = index > 0 ? displayUnits[index - 1].record : undefined;
               const gap = previous
                 ? new Date(record.createdAt).getTime() - new Date(previous.createdAt).getTime()
                 : 0;
@@ -462,7 +583,12 @@ export default function ChatPage() {
                           placement="user"
                           onCopy={copyMessage}
                           onDelete={() => deleteMessage(record.id)}
+                          onEdit={() => {
+                            setEditingId(record.id);
+                            setEditDraft(originalContent);
+                          }}
                           onRegenerate={() => regenerate(originalContent)}
+                          onRestoreToInput={(content) => setInput(content)}
                         />
                       }
                       content={record.content}
@@ -478,7 +604,7 @@ export default function ChatPage() {
                         if (!next) commitEdit(record.id, originalContent);
                       }}
                       role="user"
-                      showAvatar={!merged}
+                      showAvatar
                       showTitle={false}
                       time={new Date(record.createdAt).getTime()}
                     />
@@ -490,10 +616,11 @@ export default function ChatPage() {
                           onCopy={copyMessage}
                           onDelete={() => deleteMessage(record.id)}
                           onDislike={() =>
-                            void messageFeedbackService.submitMessageFeedback({
-                              ...feedbackTarget,
-                              feedback: 'dislike',
-                              reasonCode: 'incorrect',
+                            setFeedbackModal({
+                              messageId: record.id,
+                              runId: record.runId || '',
+                              sessionId,
+                              threadId: session?.threadId || '',
                             })
                           }
                           onLike={() =>
@@ -502,6 +629,7 @@ export default function ChatPage() {
                               feedback: 'like',
                             })
                           }
+                          onDeleteAndRegenerate={() => regenerateAssistant(record.id)}
                           onRegenerate={() => regenerateAssistant(record.id)}
                         />
                       }
@@ -509,13 +637,21 @@ export default function ChatPage() {
                       id={record.id}
                       name={agent}
                       role="assistant"
-                      showAvatar={!merged}
-                      showTitle={!merged}
+                      showAvatar
+                      showTitle
                       time={new Date(record.createdAt).getTime()}
                     >
                       {renderStoredBlocks(storedBlocks, {
-                        onApproveHitl: (requestId) =>
-                          void respondToHitl({ mode: 'toolAuthorization', decision: 'approve', requestId }),
+                        onApproveHitl: (requestId, payload) =>
+                          void respondToHitl({
+                            mode: String(payload?.mode || 'toolAuthorization'),
+                            decision: 'approve',
+                            requestId,
+                            ...(payload?.editedArguments !== undefined ? { editedArguments: payload.editedArguments as Record<string, unknown> } : {}),
+                            ...(payload?.input !== undefined ? { input: String(payload.input) } : {}),
+                            ...(payload?.selectedValues !== undefined ? { selectedValues: payload.selectedValues as string[] } : {}),
+                            ...(payload?.formValues !== undefined ? { formValues: payload.formValues as Record<string, unknown> } : {}),
+                          }),
                         onRejectHitl: (requestId) =>
                           void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
                         onSurfaceAction: (actionName, surfaceId) =>
@@ -525,12 +661,19 @@ export default function ChatPage() {
                             sourceComponentId: 'action-button',
                             surfaceId,
                           }),
-                      }, { showReasoning, showSurfaces: true })}
+                      }, { deletedKeys, narration, showReasoning, showSurfaces: true })}
                     </ChatItem>
                   )}
                 </Fragment>
               );
             })}
+            {hasMoreOlder && (
+              <Flexbox align="center" paddingBlock={10}>
+                <Button loading={loadingOlder} size="small" onClick={() => void loadOlderHistory()}>
+                  {t('chat.loadEarlier')}
+                </Button>
+              </Flexbox>
+            )}
             {isActiveRun && (answer || running || run?.status) && (
               <>
                 <ChatItem
@@ -539,6 +682,7 @@ export default function ChatPage() {
                       content={currentUserMessage || input}
                       placement="user"
                       onCopy={copyMessage}
+                      onRestoreToInput={(content) => setInput(content)}
                     />
                   }
                   content={currentUserMessage || input}
@@ -554,10 +698,11 @@ export default function ChatPage() {
                         content={answer || ''}
                         onCopy={copyMessage}
                         onDislike={() =>
-                          void messageFeedbackService.submitMessageFeedback({
-                            ...feedbackTarget,
-                            feedback: 'dislike',
-                            reasonCode: 'incorrect',
+                          setFeedbackModal({
+                            messageId: lastLiveMessageId,
+                            runId: run?.runId || '',
+                            sessionId,
+                            threadId: session?.threadId || '',
                           })
                         }
                         onLike={() =>
@@ -599,8 +744,16 @@ export default function ChatPage() {
           </Flexbox>
         </Flexbox>
         <Flexbox className={styles.surface} ref={surfaceRef}>
-          <Flexbox style={{ marginInline: 'auto', maxWidth: 840, width: '100%' }}>
+          <Flexbox
+            style={{
+              marginInline: 'auto',
+              maxWidth: 840,
+              pointerEvents: 'auto',
+              width: '100%',
+            }}
+          >
             <ChatInput
+              activity={opStatusActivity}
               agentName={agent}
               approvalMode={approvalMode}
               fab={fab}
@@ -615,6 +768,9 @@ export default function ChatPage() {
               onSend={() => void sendMessage()}
               onStop={() => void stop()}
               onSwitchAgent={(agent) => switchAgent(agent)}
+              runStatus={run?.status}
+              startTime={runStartedAt}
+              stepCount={opStepCount}
               switchAgents={mentions}
             />
           </Flexbox>
@@ -638,25 +794,48 @@ export default function ChatPage() {
             <ActionIcon aria-label={t('common.close')} icon={X} onClick={() => setArtifactOpen(false)} />
           </Flexbox>
           <Flexbox gap={20} padding={20} style={{ overflowY: 'auto' }}>
-            <Text as="h1" fontSize={22} weight={600}>
-              {t('chat.artifact.title')}
-            </Text>
-            <Text type="secondary">{t('chat.artifact.subtitle', { name: agent })}</Text>
-            <Flexbox gap={8} padding={16} style={{ border: `1px solid ${cssVar.colorBorderSecondary}`, borderRadius: 12 }}>
-              <Text weight={500}>{t('chat.artifact.status')}</Text>
-              <Text fontSize={30} weight={600}>
-                {t('chat.artifact.stable')}
-              </Text>
-              <Tag color="success">{t('chat.artifact.passed')}</Tag>
-            </Flexbox>
-            <Flexbox gap={8} padding={16} style={{ border: `1px solid ${cssVar.colorBorderSecondary}`, borderRadius: 12 }}>
-              <Text weight={500}>{t('chat.artifact.anomalies')}</Text>
-              <Text>{t('chat.artifact.anomaly1')}</Text>
-              <Text>{t('chat.artifact.anomaly2')}</Text>
-            </Flexbox>
+            {artifact?.html ? (
+              <iframe
+                sandbox="allow-same-origin"
+                srcDoc={artifact.html}
+                style={{
+                  border: 'none',
+                  borderRadius: 12,
+                  background: '#fff',
+                  flex: 1,
+                  minHeight: 420,
+                  width: '100%',
+                }}
+                title={artifact.title || t('chat.artifact.title')}
+              />
+            ) : (
+              <>
+                <Text as="h1" fontSize={22} weight={600}>
+                  {artifact?.title || t('chat.artifact.title')}
+                </Text>
+                <Text type="secondary">{t('chat.artifact.subtitle', { name: agent })}</Text>
+                <Flexbox gap={8} padding={16} style={{ border: `1px solid ${cssVar.colorBorderSecondary}`, borderRadius: 12 }}>
+                  <Text weight={500}>{t('chat.artifact.status')}</Text>
+                  <Text fontSize={30} weight={600}>
+                    {t('chat.artifact.stable')}
+                  </Text>
+                  <Tag color="success">{t('chat.artifact.passed')}</Tag>
+                </Flexbox>
+                <Flexbox gap={8} padding={16} style={{ border: `1px solid ${cssVar.colorBorderSecondary}`, borderRadius: 12 }}>
+                  <Text weight={500}>{t('chat.artifact.anomalies')}</Text>
+                  <Text>{t('chat.artifact.anomaly1')}</Text>
+                  <Text>{t('chat.artifact.anomaly2')}</Text>
+                </Flexbox>
+              </>
+            )}
           </Flexbox>
         </Flexbox>
       )}
+      <FeedbackModal
+        onClose={() => setFeedbackModal(undefined)}
+        open={!!feedbackModal}
+        target={feedbackModal}
+      />
     </Flexbox>
   );
 }

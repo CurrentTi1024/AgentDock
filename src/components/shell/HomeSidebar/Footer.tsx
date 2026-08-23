@@ -9,6 +9,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 import NavItem from '@/components/shell/NavItem';
 import { useI18n } from '@/i18n';
+import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
@@ -32,6 +33,10 @@ const Footer = memo(() => {
   const [thisMonthOnly, toggleThisMonthOnly] = useUiStore(
     useShallow((s) => [s.thisMonthOnly, s.toggleThisMonthOnly]),
   );
+  // 容量状态角标：warning 橙点 / critical 红点，常驻提醒（不依赖一次性 toast）。
+  const storageHealth = useSessionStore((state) => state.storageUsage?.health);
+  const healthColor =
+    storageHealth === 'critical' ? '#ff4d4f' : storageHealth === 'warning' ? '#faad14' : undefined;
 
   return (
     <Flexbox className={styles.footer} gap={2}>
@@ -46,9 +51,23 @@ const Footer = memo(() => {
       </Flexbox>
       <NavItem
         active={isSettingsActive(location.pathname)}
+        extra={
+          healthColor ? (
+            <span
+              aria-label="storage-warning"
+              style={{
+                background: healthColor,
+                borderRadius: '50%',
+                flex: 'none',
+                height: 8,
+                width: 8,
+              }}
+            />
+          ) : undefined
+        }
         icon={Settings}
         title={t('nav.settings')}
-        onClick={() => navigate('/settings/general')}
+        onClick={() => navigate(healthColor ? '/settings?tab=storage' : '/settings')}
       />
     </Flexbox>
   );

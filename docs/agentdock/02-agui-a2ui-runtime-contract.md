@@ -15,7 +15,7 @@
 - reasoning、tool call、error 和 lifecycle 不丢失。
 - Catalog 能到达 Core，A2UI 能形成并渲染 Surface。
 - HITL 能暂停、展示用户操作并继续执行。
-- 使用统一 `runId`，支持基于 `streamId` 的断线恢复。
+- 使用统一 `runId`，支持基于 `eventId` 的断线恢复。
 - 为 Agent Group delegation、Task 和 Artifact 保留标准扩展方式。
 
 ## 2. 服务链路与责任
@@ -57,8 +57,8 @@ Orchestration Service → Runtime → Browser
 - 必须读取并沿用 `RunAgentInput.runId`，不得创建第二个 Run ID。
 - 把任务发送给 Core。
 - 监听 Redis 中相同 `runId` 的消息。
-- 按 `streamId` 顺序输出 SSE。
-- 支持从 `lastStreamId` 后恢复。
+- 按 `eventId` 顺序输出 SSE。
+- 支持从 `lastEventId` 后恢复。
 - 不丢弃、不合并、不重排未知事件或 `TOOL_CALL_ARGS`。
 
 ### Orchestration Core
@@ -106,7 +106,7 @@ interface AgentDockForwardedProps {
   };
 
   resume?: {
-    lastStreamId: string;
+    lastEventId: string;
   };
 
   hitlResponse?: {
@@ -185,10 +185,12 @@ type HitlMode =
 - 同一个 `runId` 的重复 `action=run` 请求不得重复启动 Core 任务。
 - `RUN_STARTED`、`RUN_FINISHED` 必须返回同一个 `runId`。
 
-### 4.2 streamId
+### 4.2 eventId
 
 - 由 Orchestration Service/Redis Message Hub 产生。
 - 在同一个 `runId` 内严格递增或严格有序。
+- **必须字符串可排序**：resume 续传按 `eventId > lastEventId` 字符串比较过滤，序号必须定宽补零
+  （建议 `{epoch_ms}-{seq:06d}`，如 `1723870000000-000042`）；未补零时 run 超过 9 个事件会漏事件。
 - SSE 必须输出：
 
 ```text
@@ -206,7 +208,7 @@ data: {"type":"TEXT_MESSAGE_CONTENT", ...}
   "delta": "分析结果",
   "rawEvent": {
     "runId": "9f338642-e569-42e1-8f91-a3e5fe22fc54",
-    "streamId": "1723870000000-0"
+    "eventId": "1723870000000-000000"
   }
 }
 ```
@@ -237,7 +239,7 @@ Connection: keep-alive
 
 ```
 
-心跳不进入 AG-UI event stream，不分配业务 `streamId`。
+心跳不进入 AG-UI event stream，不分配业务 `eventId`。
 
 ## 6. 首期必须支持的标准事件
 
@@ -450,14 +452,14 @@ Core/中间件必须形成：
 
 ### 10.1 Browser → Runtime
 
-官方路径：前端通过 `agent.connectAgent` 恢复，携带 `forwardedProps.action=resume` + `forwardedProps.resume.lastStreamId`，并沿用相同 `runId/threadId`；`@ag-ui/client` transport 走 Runtime `agent/connect`。**已与后端冻结方向：按 streamId 游标恢复**。
+官方路径：前端通过 `agent.connectAgent` 恢复，携带 `forwardedProps.action=resume` + `forwardedProps.resume.lastEventId`，并沿用相同 `runId/threadId`；`@ag-ui/client` transport 走 Runtime `agent/connect`。**已与后端冻结方向：按 eventId 游标恢复**。
 
 自研路径（mock/direct）Browser 保存：
 
 ```ts
 {
   runId: string;
-  latestStreamId: string;
+  latestEventId: string;
 }
 ```
 
@@ -467,19 +469,19 @@ Core/中间件必须形成：
 {
   "action": "resume",
   "resume": {
-    "lastStreamId": "1723870000000-0"
+    "lastEventId": "1723870000000-0"
   }
 }
 ```
 
 ### 10.2 Runtime → Orchestration Service
 
-Runtime Adapter 使用相同 `runId` 请求 `/ag-ui`（官方 `agent/connect`），透传 `lastStreamId`；**Service 必须只返回游标之后的事件**（按 streamId 游标恢复，已冻结）。Redis event TTL 到期后的错误行为见 10.4。
+Runtime Adapter 使用相同 `runId` 请求 `/ag-ui`（官方 `agent/connect`），透传 `lastEventId`；**Service 必须只返回游标之后的事件**（按 eventId 游标恢复，已冻结）。Redis event TTL 到期后的错误行为见 10.4。
 
 ### 10.3 去重
 
-- Service 按 `streamId` 排序和恢复。
-- Browser 对同一 `streamId` 去重。
+- Service 按 `eventId` 排序和恢复。
+- Browser 对同一 `eventId` 去重。
 - Message reducer 对同一 `messageId/toolCallId` 幂等。
 - 重放 `TEXT_MESSAGE_CONTENT` 时不能重复拼接已经持久化的 delta。
 
@@ -497,9 +499,9 @@ Runtime Adapter 使用相同 `runId` 请求 `/ag-ui`（官方 `agent/connect`）
 
 ### 10.5 实测补充（demo 后端，2026-08-20）
 
-- demo 后端（`backend/streaming.py`）已实现：逐事件注入 `rawEvent.streamId`（`{epoch_ms}-{seq}` 严格递增）、按 runId 内存缓冲（FIFO 上限 100 run）、`action=resume + lastStreamId` 只回放游标后事件（不重新执行 Core）、未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`。
-- 实测：首轮 69 事件全部带 streamId；resume（第 40 条游标）精确回放 29 条且无模型调用；未知 runId 返回 STREAM_EXPIRED。
-- ⚠️ 经 CopilotKit single-route `agent/run` envelope 走纯尾回放时，runtime SSE 校验要求首事件为 `RUN_STARTED` 且以终态结束，纯尾回放会判 `INCOMPLETE_STREAM`。真实接入二选一：① 使用官方 `agent/connect`（lastSeenEventId）语义；② 全量回放（相同 streamId）+ Browser 按 streamId 去重（前端 reducer 已支持）。
+- demo 后端（`backend/streaming.py`）已实现：逐事件注入 `rawEvent.eventId`（`{epoch_ms}-{seq}` 严格递增）、按 runId 内存缓冲（FIFO 上限 100 run）、`action=resume + lastEventId` 只回放游标后事件（不重新执行 Core）、未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`。
+- 实测：首轮 69 事件全部带 eventId；resume（第 40 条游标）精确回放 29 条且无模型调用；未知 runId 返回 STREAM_EXPIRED。
+- ⚠️ 经 CopilotKit single-route `agent/run` envelope 走纯尾回放时，runtime SSE 校验要求首事件为 `RUN_STARTED` 且以终态结束，纯尾回放会判 `INCOMPLETE_STREAM`。真实接入二选一：① 使用官方 `agent/connect`（lastSeenEventId）语义；② 全量回放（相同 eventId）+ Browser 按 eventId 去重（前端 reducer 已支持）。
 - 前端当前策略：Service 未提供可验证的 connect/游标前，陈旧 running checkpoint 在恢复时转为 cancelled，不自动 resume（避免重放并发）；HITL(paused) 通过 `runAgent(resume[])` 续跑。
 
 ## 11. Stop/Cancel
@@ -547,7 +549,7 @@ Runtime Adapter 使用相同 `runId` 请求 `/ag-ui`（官方 `agent/connect`）
 - [ ] DeepAgents + CopilotKitMiddleware 真实 HITL event fixture。
 - [x]（2026-08-20 已抓取，见 §8.2）真实 HITL event fixture：CUSTOM(on_interrupt) + resume[] 约定；⚠️ ag_ui-langgraph 0.0.40 的 HTTP resume 映射与 langchain interrupt() 返回值约定不兼容，续跑执行需公司服务层实现/升级适配器。
 - [ ] A2UI 由 Runtime Middleware 形成 Activity，还是 Core 已输出最终 Surface Activity；必须避免重复转换。
-- [x]（demo 已实现 streamId 游标回放，见 §10.5）Copilot Runtime Adapter 的 connect 是否能取得 Browser 的 `lastStreamId`——demo 侧已通；公司 connect 语义仍需验证。
+- [x]（demo 已实现 eventId 游标回放，见 §10.5）Copilot Runtime Adapter 的 connect 是否能取得 Browser 的 `lastEventId`——demo 侧已通；公司 connect 语义仍需验证。
 - [ ] Stop 的最终事件采用 `RUN_ERROR/CANCELLED` 还是后端已有终止表达。
 - [ ] Redis event log TTL 和最大单 Run 事件数（demo 为内存缓冲 FIFO 100 run，TTL 语义待公司服务确认）。
 - [ ] Agent delegation 是已有 Tool Call、Activity，还是两者都有。

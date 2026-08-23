@@ -163,12 +163,12 @@ curl -sSN -X POST http://127.0.0.1:3000/api/copilotkit \
 
 - `sessions`：sessionId/threadId/agent/fab。
 - `messages`：全部消息类型（text/reasoning/tool/activity/step/surface）按 `sequence` 排序。
-- `checkpoints`：每次 run 的 input + snapshot + latestStreamId + status。
+- `checkpoints`：每次 run 的 input + snapshot + latestEventId + status。
 
 刷新恢复逻辑：
 
-- http+proxy：`restore()` 读取最新 checkpoint → 回填 `agent.setMessages` → 若 `running/paused` 且有 `latestStreamId`，自动 `agent.connectAgent` 携带 `action=resume + resume.lastStreamId`（按 streamId 游标恢复，方向已冻结；后端需按游标过滤）。
-- mock/direct：`runStore.restoreSession` → 若 `status === 'running'` 且 `latestStreamId` 存在 → `resume(lastStreamId)`。
+- http+proxy：`restore()` 读取最新 checkpoint → 回填 `agent.setMessages` → 若 `running/paused` 且有 `latestEventId`，自动 `agent.connectAgent` 携带 `action=resume + resume.lastEventId`（按 eventId 游标恢复，方向已冻结；后端需按游标过滤）。
+- mock/direct：`runStore.restoreSession` → 若 `status === 'running'` 且 `latestEventId` 存在 → `resume(lastEventId)`。
 
 ## 5. A2UI 调试
 
@@ -199,7 +199,7 @@ curl -sSN -X POST http://127.0.0.1:3000/api/copilotkit \
 | 收到事件但页面无流式 | applyEvent/runReducer 断点；事件类型是否被 switch 覆盖 | 前端 |
 | runId 与请求不一致 | Orchestration 是否沿用输入 runId（禁止二次生成） | 后端 |
 | 刷新后对话消失 | IndexedDB v3 checkpoint 是否写入；restore 是否被调用 | 前端 |
-| 刷新后重复拼接文本 | 官方路径：agent.messages 回填是否重复；mock：resume lastStreamId | 前端/后端 |
+| 刷新后重复拼接文本 | 官方路径：agent.messages 回填是否重复；mock：resume lastEventId | 前端/后端 |
 | HITL 按钮无响应 | requestId 是否为空；标准 interrupt 还是 legacy on_interrupt（wire 需先冻结） | 前端/后端 |
 | A2UI 按钮无响应 | `userAction` 嵌套；catalog 是否匹配 | 前端/Runtime |
 | 中文/英文混排 | locale 是否传了用户设置；请求 locale 是否硬编码 | 前端 |
@@ -210,7 +210,7 @@ curl -sSN -X POST http://127.0.0.1:3000/api/copilotkit \
 
 ```js
 const s = window.__AGENTDOCK__?.runStore?.getState?.().run;
-console.table(s?.rawEvents?.map(e => [e.type, e.messageId || e.toolCallId || '', e.streamId]));
+console.table(s?.rawEvents?.map(e => [e.type, e.messageId || e.toolCallId || '', e.eventId]));
 ```
 
 期望序列示例：`RUN_STARTED → STEP_STARTED → REASONING_* → TOOL_CALL_* → ACTIVITY_SNAPSHOT(a2ui-surface) → TEXT_MESSAGE_* → RUN_FINISHED`。
@@ -229,7 +229,7 @@ console.table(s?.rawEvents?.map(e => [e.type, e.messageId || e.toolCallId || '',
 ## 9. 联调前与后端确认清单
 
 - [ ] HITL wire：标准 `RUN_FINISHED(outcome=interrupt) + RunAgentInput.resume[]`，还是 legacy `on_interrupt`（前端双路径已实现，需冻结一种）。
-- [x] 断线恢复方向：**按 `lastStreamId` 游标恢复**（已冻结）；后端需只返回游标之后的事件。
+- [x] 断线恢复方向：**按 `lastEventId` 游标恢复**（已冻结）；后端需只返回游标之后的事件。
 - [ ] Redis event log TTL 与游标过期后的错误行为（`STREAM_EXPIRED`）。
 - [ ] A2UI：动态 schema（`injectA2UITool`）还是固定 schema（`a2ui_operations`）；提供一条真实 `render_a2ui` fixture。
 - [ ] `AGENT_ORCHESTRATION_BASE_URLS_JSON` 的 FAB → 域名映射与 SSO 透传方式（Cookie vs Authorization）。

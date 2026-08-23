@@ -9,10 +9,11 @@ import { useNavigate } from 'react-router-dom';
 
 import NavHeader from '@/components/shell/NavHeader';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
-import { sessionHistoryService, type SessionRecord } from '@/api/session/sessionHistoryService';
+import { sessionHistoryService } from '@/api/session/sessionHistoryService';
 import ChatInput from '@/features/chat/components/ChatInput';
 import { useI18n } from '@/i18n';
 import { formatRelativeTime } from '@/lib/relativeTime';
+import { useSessionStore } from '@/stores/sessionStore';
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
   row: css`
@@ -43,7 +44,7 @@ const HomePage = memo(() => {
   const [agents, setAgents] = useState<MentionAgent[]>([]);
   const [selected, setSelected] = useState<MentionAgent>();
   const [input, setInput] = useState('');
-  const [sessions, setSessions] = useState<SessionRecord[]>([]);
+  const sessions = useSessionStore((state) => state.sessions);
 
   useEffect(() => {
     void agentMarketService.getMentionAgentsList({ locale: 'zh-CN' }).then(({ items }) => {
@@ -51,19 +52,9 @@ const HomePage = memo(() => {
     });
   }, []);
 
+  // 会话列表由 sessionStore 统一维护（含跨标签页 BroadcastChannel 同步），这里只做首次加载。
   useEffect(() => {
-    const load = () => {
-      void sessionHistoryService.listSessions().then(setSessions);
-    };
-    load();
-    window.addEventListener('agentdock:sessions-changed', load);
-    window.addEventListener('focus', load);
-    document.addEventListener('visibilitychange', load);
-    return () => {
-      window.removeEventListener('agentdock:sessions-changed', load);
-      window.removeEventListener('focus', load);
-      document.removeEventListener('visibilitychange', load);
-    };
+    void useSessionStore.getState().refreshSessions();
   }, []);
 
   const recentSessions = useMemo(() => sessions.slice(0, 8), [sessions]);
@@ -83,6 +74,8 @@ const HomePage = memo(() => {
     }
     if (!target || !input.trim()) return;
     const prompt = input.trim();
+    // 发送即清空输入框（与会话页一致）：导航后首页若被浏览器 bfcache 恢复也不残留旧消息。
+    setInput('');
     // 选中/解析出的 Agent 从输入里去掉 @ 前缀（保留正文）。
     const cleanPrompt = prompt.replace(/^@\S*\s*/, '').trim() || prompt;
     const id = `session-${crypto.randomUUID()}`;

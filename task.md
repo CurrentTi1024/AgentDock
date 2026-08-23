@@ -13,7 +13,7 @@
 - A2UI 由官方 catalog + renderer 渲染，action 以 `forwardedProps.a2uiAction.userAction` 回传。
 - Copilot Runtime（`server/index.ts` + `FabRoutingAgent`）按 `fab` 路由到 Orchestration `/ag-ui`。
 - 后端 DeepAgents + CopilotKitMiddleware 输出 AG-UI SSE；前端逐事件投影到对应组件。
-- 端到端保证：流式回显、HITL（标准 resume[] / legacy 双 wire）、断线恢复（按 streamId 游标）、A2UI 增量更新。
+- 端到端保证：流式回显、HITL（标准 resume[] / legacy 双 wire）、断线恢复（按 eventId 游标）、A2UI 增量更新。
 
 ### R2 Chat / Group Chat 全量复刻 LobeHub
 
@@ -74,7 +74,7 @@
 
 1. **HITL wire**：标准 `RUN_FINISHED(outcome=interrupt) + resume[]` 还是 legacy `on_interrupt`（前端双路径已实现，需后端 fixture 冻结一种）。
 2. **A2UI**：动态 schema（Runtime `injectA2UITool: true`）还是固定 schema（`a2ui_operations`）；需要一条真实 `render_a2ui` fixture。
-3. **Orchestration connect 语义**：前端已按 `lastStreamId` 游标恢复实现（方向已冻结），需后端确认支持并按游标过滤；Redis event TTL。
+3. **Orchestration connect 语义**：前端已按 `lastEventId` 游标恢复实现（方向已冻结），需后端确认支持并按游标过滤；Redis event TTL。
 4. **threadId 策略**：同一本地会话切换 agent/fab 时是否新建 threadId（建议新建）。
 5. **市场字段契约**：sortBy / sortOrder 枚举值；skill/mcp 数量字段名与空值规则；`permissioned` 为空时的文案。
 6. **SSO 透传**：Cookie 还是 Authorization，Runtime → Orchestration 的透传方式。
@@ -208,7 +208,7 @@
 
 - `createRunInput`：runId = `crypto.randomUUID()`；消息、threadId、forwardedProps（action/agentId/fab/sessionId/group）齐全。
 - `server/index.ts + fabRoutingAgent.ts`：官方 single-route handler + `AGENT_ORCHESTRATION_BASE_URLS_JSON` → `{fab}/ag-ui`（HttpAgent）。
-- `runReducer`：run/text/reasoning/tool/state/activity/surface 事件消费；streamId 去重；IndexedDB checkpoint + resume。
+- `runReducer`：run/text/reasoning/tool/state/activity/surface 事件消费；eventId 去重；IndexedDB checkpoint + resume。
 - A2UI Action：新 runId + parentRunId，结构正确。
 
 ### 3.3 缺口（P0 汇总）
@@ -393,6 +393,68 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 
 待联调项：HITL wire 冻结、A2UI fixture、`AGENT_ORCHESTRATION_BASE_URLS_JSON` 路由验证；前端保留项：构建体积优化。
 
+### LobeHub Chat 全量复刻（分步，见 `docs/agentdock/design/12-lobehub-chat-full-copy-plan.md`）
+
+- **Step 1 ✅（2026-08-23）思考/过程折叠系统**：
+  - ReasoningBlock 升级为 LobeHub Thinking 视觉：思考中旋转 Loader + “思考中…”，完成自动收起并显示耗时；内容走 Markdown。
+  - 新增 `ProcessFold`：一轮 run 的思考+工具+步骤完成后折叠为一行“已处理 N 步 · Xs”，运行中展开；一级=过程汇总、二级=单个块展开；HITL 属于过程（暂停时可见，完成后随过程收起）。
+  - 修复块归属：`storedMessages` 改为按 runId 分组（等价 LobeHub messageId 归属），paused 中间落库不再把前段块排到助手文本之前（刷新丢失/挂错消息）。
+  - 修复折叠内容空：flush 把 nodes 副本传给 ProcessFold（原按引用 + length=0 原地清空导致有标题无内容）。
+  - 浏览器实测：单一折叠“已处理 2 步 · 0.3s”，展开可见 plan 步骤 + 工具卡；30/30 测试通过。
+- **Step 2 ✅ 输入区顶部运行/中断状态提示**：运行中 Alert（转圈）“正在运行…”，完成自动消失；中断显示“已中断”。
+- **Step 3 ✅ 消息操作栏扩展**：更多菜单（回填输入框/删除并重新生成/朗读/翻译/分享）。
+- **Step 4 ✅ 表单式用户反馈**：点踩弹表单（原因多选 + 补充说明）→ messageFeedbackService。
+- **Step 5 ✅ HITL 全模式**：HitlBlock 支持 editArguments/textInput/singleSelect/multiSelect/form，批准回传对应 payload。
+- **Step 6 ✅ Tool Inspector 升级**：参数 JSON 缩进、结果独立折叠、耗时/状态。
+- **Step 7 ✅ 委派树/技能卡**：agentDelegation 渲染 Supervisor→成员树 + 技能标签 + 查看技能页面/调用信息。
+- **Step 8 ✅ Artifact 侧边栏自动打开**：agentDock.artifact 活动触发右侧面板，html 用 sandbox iframe 渲染。
+- **Step 9 ✅ Markdown @Agent 提及**：@AgentName 转为站内链接（SPA 导航）。
+- 所有步骤均浏览器实测（单 Agent + 群聊）+ 30/30 测试通过；分支 `codex/lobehub-chat-full-copy` 统一提交，最后一起 push。
+- **Step 10 ✅（2026-08-23）真实后端端到端补测 + antd6 下拉紧凑修复**：
+  - 前后端联调（3000 Node Runtime ↔ 8123 demo 后端 ↔ DeepSeek v4 flash）：运行中状态提示、停止按钮、A2UI Surface（Metric 指标卡）、过程折叠“已处理 9 步 · 10.1s”及展开、答案渲染全部通过；
+  - 浏览器逐功能复验：首页侧边栏（搜索/chat/Chat Group/任务/文档/记忆/Channel/文件/商场/最近对话/Agents）、Agent 空间（返回首页/切换 Agent/新话题/搜索/话题折叠）、@ 提及菜单、消息操作栏（复制/重新生成/删除/更多/点赞/点踩→反馈表单）、双击用户消息进入编辑态、审批模式手动/自动；
+  - 修复：antd v6 Select DOM 为 `.ant-select-content`，`compactSelect` 原只写 `.ant-select-selector` 未生效，切换 Agent/审批下拉高 36px；显式锁高 22px 并补 `.ant-select-content`/`.ant-select-input` 规则，两类下拉均恢复 22px 紧凑样式；
+  - 验证：`pnpm run build` 通过，Chrome 实测下拉 22px、其余全量 PASS。
+- **Step 10 补充（2026-08-24，输入框上方状态条对齐 LobeHub OpStatusTray）**：
+  - 用户反馈「正在思考文字颜色/大小不一样」：原实现是 antd Alert（14px 信息色），官方是 12px `colorTextSecondary` + 500 字重 + 主色旋转 glyph + 计时 + 4s 轮播生成短语；
+  - 新增 `OpStatusTray.tsx` 逐项对齐官方：容器（padding 8/14、border 1px fillSecondary、顶部圆角 12、bgElevated）、`ActivityGlyph`（orbit 2s 旋转 + core 1.5s 呼吸）、`shinyText` 渐变扫光、`mm:ss` 计时、步数指标（>1 显示）；
+  - activity 映射：工具调用→调用工具中、流式推理→思考中、其余→生成中轮播文案；短语与 5 个状态文案从官方 `locales/*/opStatusTray.json`、`chat.json` 抽取，18 语言各 +7 key（含 steps）；
+  - 实测：真实后端运行中「调用工具中... 00:01」12px/500/次级色 + 旋转 glyph；mock 轮播「元气满满中... 00:27」、HITL 暂停时状态条保持；30/30 测试、build 通过。
+- **Step 10 自查（2026-08-24，全量 chat 组件源码级复核，修同类"近似而非原样"偏差）**：
+  - 根因复盘：早期多按截图写近似实现（如状态条用 antd Alert），只标 "Adapted from" 未逐文件对齐；本次以 `/Users/chenguo/lobehub` 完整官方源码为基线逐组件复核；
+  - **Thinking/ReasoningBlock**：补 24×24 轮廓状态块（思考中旋转 Loader / 完成 Atom 紫色 #bd54c6）；标题对齐官方（思考中 shinyText「深度思考中…」，完成 secondary「已深度思考（用时 X 秒）」）；内容改 ScrollArea 式 `max-height: min(40vh,320px)` + `colorTextDescription` + `article *` 颜色覆盖；删除多余的 11px 副标题；18 语言文案从官方 `components.json Thinking.*` 同步；
+  - **Tool 卡**：新增官方 `NeuralNetworkLoading`（节点呼吸+粒子流动+外环旋转）；头部改官方 Inspector 结构——24×24 状态 chip（运行=神经网络动画 / 完成=Check success / 失败=X error）+ 单行 `title › apiName (key:value +N)`（等宽字体、加载中 shiny）+ 执行中 100ms 实时计时；删除原 Wrench+Tag 近似；
+  - **ProcessFold**：标题去图标、去 500 字重，改官方 secondary 排版，保留「已处理 N 步 · 耗时」文案与右 chevron；
+  - **Markdown 提及**：官方 Mention 是 info 色内联 chip（0.25em 外边距、0.2/0.4em 内边距、0.875em、colorInfoBg），原实现只是普通加粗链接——已按官方样式改；并修复助手正文未接提及插件的问题（ChatItem 助手正文改走带 remark 插件的 Markdown 管线）；
+  - **MessageActions**：用户栏补官方 edit 动作（bar=[regenerate, edit, copy]），图标用官方 `Edit`，18 语言新增 `chat.action.edit`（官方 common.json 文案）；
+  - 浏览器实测（真实后端 + mock）：运行中 24×24 chip + 神经网络动画 + 计时、完成折叠「已处理 9 步 · 17.4s」、展开后工具标题 `generate_a2ui (intent:create +1)` 等宽字体、`已深度思考` 文案、提及 chip 计算样式（info 蓝/深蓝底/0.875em/0.25em 圆角）、用户消息操作栏「编辑」按钮全部通过；30/30 测试、typecheck、build 通过。
+- **Step 10 气泡重复修复（2026-08-24）**：
+  - 现象：同一轮 run 模型先输出中间文本（如 "I'll create..."）再调用工具、最后输出正式答案，刷新后渲染成两个助手气泡，且工具/折叠/A2UI 内容在两条气泡里重复；
+  - 根因：`storedMessages` 里同一 runId 的每条助手文本各渲染一个 ChatItem，且每条都挂同一份 blocks（renderStoredBlocks 按 runId 整桶返回），`merged` 只隐藏了头像/标题并没有合并气泡；
+  - 修复：新增 `displayUnits` 分组——同一 runId 的连续助手文本合并为单气泡（内容取最后一条最终答案，中间文本作 narration 收进过程折叠）；blocks 只挂一次；`renderStoredBlocks` 增加 `narration` 选项，在折叠内渲染中间文本；
+  - 实测（真实后端，问题原句「帮我生成一个飞行数据看板，展示最近一次飞行数据」）：折叠「已处理 9 步 · 21.5s」仅 1 个、最终答案仅出现 1 次、`generate_a2ui` 工具卡仅 1 个、折叠展开后中间文本可见、折叠与答案同属一个气泡（DOM 上溯验证 `same:true`）；30/30 测试、typecheck、build 通过。
+- **自动滚动到底部（2026-08-24）**：
+  - 需求：发送消息 / 进入会话时自动定位到最新一条消息（滚到底部）；
+  - 实现（ChatPage）：`data-testid="chat-scroll"` 滚动容器 + 贴底跟随（`stickToBottomRef`，距底 <120px 视为贴底）；进入会话/新消息/运行状态/输入区高度变化时贴底即滚到底；发送消息强制贴底；`scrollRestoration='manual'` 避免浏览器恢复把滚动带到历史位置；ResizeObserver 在 A2UI/图片等异步内容渲染后继续跟随；运行结束（live→历史 DOM 重建）时依据 `run-persisted` 落库事件 + 终态标记在重建后重新贴底；用户主动上滑（非贴底）时停止跟随、不被拉回；
+  - 实测（真实后端 + 360px 小视口制造真实溢出）：进入会话 gap 49px（输入区留白）、上滑后发送滚到 max、运行中上滑保持顶部不被拉回、结束后重新贴底（st=max）；30/30 测试通过；完整 `pnpm build` 暂被并行会话 WIP（SettingsPage StorageSettings）阻塞，`vite build` 通过。
+- **输入框发送后残留修复（2026-08-24）**：
+  - 现象：用户反馈发送消息后输入框仍留有消息；
+  - 排查：会话页按钮/Enter/mock/首页各路径实测发送后均清空；定位到两个真实缺口：
+    1. **IME 组合态**：中文输入法按 Enter 确认候选词时，旧代码会触发发送并把输入框清空，随后输入法提交把文字重新写回输入框 →「发送后输入框还有消息」。修复：`ChatInput.handleKeyDown` 增加 `!event.nativeEvent.isComposing` 守卫，组合中 Enter 不发送、草稿保留；
+    2. **HITL 暂停态**：`running` 只判 `status==='running'`，暂停时发送按钮可用但 `send()` 内部守卫拦截 → 输入框清空但消息丢失。修复：`running` 纳入 `paused`，暂停期按钮切换为停止、Enter 不发送、草稿保留；
+  - 顺带修复：`HomePage.start()` 发送前补 `setInput('')`（导航后 bfcache/返回不残留，与会话页一致）；
+  - 实测（干净会话 + 真实后端）：IME 组合 Enter 不发送且草稿保留、正常 Enter 发送并清空、运行中 Enter 不发送且草稿保留（按钮为停止）、结束后发送清空、mock HITL 暂停态按钮为停止不可误发；30/30 测试通过。
+- **工具痕迹/操作栏功能修复（2026-08-24）**：
+  - 现象①：简单问题（如「你好」）回答完还显示「调用工具中」，结束后折叠里看不到工具痕迹——根因是 demo 后端 langgraph 的中间件节点（PatchToolCallsMiddleware/CopilotKitMiddleware/model 等）被当作「步骤」展示并计数，且 opStatusActivity 把任何 running step 误判为 toolCalling；
+  - 修复：`MessageBlocks` 过滤内部中间件步骤（Middleware/^model$）与 A2UI 内部工具（generate_a2ui/render_a2ui，surface 本身即输出，不展示调用过程）；`ChatPage.opStatusActivity` 只认真实工具调用（排除 A2UI）；简单问题不再出现折叠，复杂问题的折叠只含可见步骤；
+  - 现象②：消息操作栏「重新生成/删除/删除并重新生成」点击无效——三个根因：a) `storedMessages` 的 record.id 带 `text:` 前缀，`regenerateAssistant` 又拼一次成 `text:text:xxx` 查不到；b) 回找上一条用户消息只判 `kind==='text'`，命中了同 run 里空的助手文本（content 空 → prompt 空 → 静默 return）；c) 最后一条消息的悬浮操作栏被输入区透明渐变层挡住，真实鼠标点击落在 textarea 上；
+  - 修复：`regenerateAssistant` 兼容两种 id 形态并强制 `role==='user'`；`replaceTurn` 归一化 `text:` 前缀；输入区外层 `pointer-events:none`、仅输入容器恢复 auto；
+  - 实测（真实后端 + IndexedDB 校验）：简单问题运行中不再显示「调用工具中」、完成后无折叠；重新生成触发新 run 且旧 run 被替换；删除从 IndexedDB 移除目标消息+过程块；更多菜单真实点击可打开、删除并重新生成替换 run；30/30 测试通过。
+- **助手消息顺序修复（2026-08-24）**：思考/工具过程折叠原先渲染在正文下方/中间（ChatItem 先渲染 Markdown 正文、过程块 children 在后）；调整为先渲染过程块（折叠 + A2UI surface）再渲染正文，对齐 LobeHub「思考+工具在正文上方」；浏览器实测折叠 DOM 索引在正文之前。
+- **「已处理 0 步 · –」空折叠修复（2026-08-24）**：flush 折叠条件原是 `hasWork || nodes.length>=2`，narration/HITL/纯推理等 0 步过程也会套上折叠卡且标题显示「已处理 0 步 · –」；改为仅 `stepCount>0`（真实步骤/工具）才渲染折叠，0 步过程块直接平铺（推理块自带折叠）；实测简单回复无折叠、看板回复正常显示「已处理 1 步 · 9.2s」。
+- **删除并重新生成历史污染修复（2026-08-24）**：删除只清了本地 IndexedDB，后端线程（CopilotKit checkpointer）仍携带被删轮次，新 run 的 MESSAGES_SNAPSHOT 会把已删消息复活（user 消息重复、旧回复混入新 run）；CopilotKit 上下文不可直接修改，采用**已删消息墓碑**方案：`removeTurn` 记录被删轮次的全部消息 key 到 `session.deletedMessageIds`，`persistRunSnapshot` 据此跳过写回，ChatPage/renderRunBlocks/renderStoredBlocks 展示时同步过滤；实测「删除并重新生成」后 IndexedDB 与 UI 均无重复 user、无旧回复复活；47/47 测试通过。
+- **Chat Group 与单聊组件/能力对齐（2026-08-24）**：抽公共模块再复用——`MessageBlocks.buildDisplayUnits`（同 run 助手文本合并单气泡 + narration）与新增 `hooks/useChatScroll`（进入/发送/新消息/结束贴底、上滑不拉回、ResizeObserver、scrollRestoration）由单聊/群聊共用；群聊页接入：同 run 气泡合并、已删消息墓碑过滤（deletedKeys）、OpStatusTray（activity/startTime/stepCount 计时）、HITL 暂停视为忙态（停止按钮）、输入区点击穿透（surface pointer-events）、完整消息操作栏（重新生成/删除并重新生成/编辑/点赞点踩反馈/回填输入框）+ FeedbackModal；浏览器实测（mock 群聊）：消息渲染、过程折叠（正在处理…/步骤）、状态条计时、停止按钮、操作栏齐全；真实后端 demo 无群编排能力（tools=[]）故群运行不产生消息，属后端限制。
+
 第十二轮（2026-08-20，前后端联合端到端测试 + 消息组件渲染修复）：
 
 - **联调拓扑打通**：AgentDock（http://127.0.0.1:3000）→ Copilot Runtime `/api/copilotkit`（single-route）→ FabRoutingAgent（`AGENT_ORCHESTRATION_BASE_URLS_JSON={"F15B":"http://127.0.0.1:8123"}`）→ demo 后端 `/ag-ui`（ag-ui-langgraph 0.0.40 + copilotkit 0.1.94 + DeepAgents 0.7.5）→ DeepSeek v4 flash（Responses API）。
@@ -410,7 +472,7 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **并发 run 防护**（`useAgentDockConversation.ts` + `server/copilot-runtime/fabRoutingAgent.ts`）：
   - hook 层防重入：官方/mock send 在 running/paused 时忽略新发送；
   - runtime 幂等守卫：同一 `threadId:runId` 的 action=run 在途时拒绝（FAB_DUPLICATE_RUN），杜绝重复上游执行；
-  - restore 不再自动 resume：陈旧 running checkpoint 本地转 cancelled 落库（后端无 streamId 游标，resume 会重放造成并发 run）；
+  - restore 不再自动 resume：陈旧 running checkpoint 本地转 cancelled 落库（后端无 eventId 游标，resume 会重放造成并发 run）；
   - `runAgent` 异常写 RUN_ERROR 兜底，不卡 running。
 - **A2UI surface 持久化 + 组件名对齐**（`MessageBlocks.tsx` + `ChatPage.tsx` + `a2ui/catalog.tsx`）：
   - 根因：后端按 a2ui.org v0.9 生成 `Metric/Title/Card/Column/Row`，前端 web_core basic catalog 无 Metric/Title → 页面实际一直渲染 “Unknown component”；
@@ -428,19 +490,19 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   - `FabRoutingAgent` 幂等拒绝改为返回结构化 `RUN_ERROR(FAB_DUPLICATE_RUN)` 事件（而非抛异常断连）。
 - **全面二次批量验证（无头 Chrome，10+ 场景）**：文本完成态（含 settle 等待）、两轮历史顺序/去重、工具调用、A2UI 实时渲染（模型生成时 Metric 组件叶子节点，无 Unknown）、停止生成、快速连发只发 1 run、陈旧 checkpoint 刷新不卡死、mock thinking 自动折叠、mock HITL 批准续跑、全链路工具/文本/surface；`pnpm run test` 30/30、`pnpm run build` 通过。
 - **运行时间发现**：CopilotKit Runtime 自带 `InMemoryAgentRunner` 的 Thread already running 防护（并发同线程 run 在 Runtime 层即被拒）；FabRoutingAgent 幂等守卫为第二层，前端 send 防重入为第一层。
-- **已知残余**：客户端 SSE 偶发 network error（后端已完成但浏览器流被中断，工具类 run 偶发）——已兜底不卡 UI、内容保留，接入真实 Orchestration 后按其 streamId 重连协议观察。
+- **已知残余**：客户端 SSE 偶发 network error（后端已完成但浏览器流被中断，工具类 run 偶发）——已兜底不卡 UI、内容保留，接入真实 Orchestration 后按其 eventId 重连协议观察。
 - **接入指南**：`docs/agentdock/design/15-orchestration-integration-guide.md`（核心链路 mermaid、关键代码、payload/response 约定、14 条坑清单）。
 
-第十五轮（2026-08-20，断线重连 streamId 与真实 HITL 场景补测）：
+第十五轮（2026-08-20，断线重连 eventId 与真实 HITL 场景补测）：
 
-- **后端升级（demo，非 git 仓库）**：新增 `backend/streaming.py` 自定义 AG-UI 端点——逐事件注入 `rawEvent.streamId`、按 runId 内存缓冲、`action=resume + lastStreamId` 精确回放游标后事件（不重新执行 Core）、未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`；`agent.py` 启用 `interrupt_on={"write_file": True}` 真实 HITL。
-- **断线重连实测**：直连后端首轮 69 事件全部带 streamId；resume 第 40 条游标精确回放 29 条、无模型调用；未知 runId 返回 STREAM_EXPIRED。⚠️ 经 CopilotKit single-route envelope 走纯尾回放会被其 SSE 校验判 INCOMPLETE_STREAM（首事件必须 RUN_STARTED），真实接入用 `agent/connect` 或全量回放 + streamId 去重（前端 reducer 已支持去重）。
+- **后端升级（demo，非 git 仓库）**：新增 `backend/streaming.py` 自定义 AG-UI 端点——逐事件注入 `rawEvent.eventId`、按 runId 内存缓冲、`action=resume + lastEventId` 精确回放游标后事件（不重新执行 Core）、未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`；`agent.py` 启用 `interrupt_on={"write_file": True}` 真实 HITL。
+- **断线重连实测**：直连后端首轮 69 事件全部带 eventId；resume 第 40 条游标精确回放 29 条、无模型调用；未知 runId 返回 STREAM_EXPIRED。⚠️ 经 CopilotKit single-route envelope 走纯尾回放会被其 SSE 校验判 INCOMPLETE_STREAM（首事件必须 RUN_STARTED），真实接入用 `agent/connect` 或全量回放 + eventId 去重（前端 reducer 已支持去重）。
 - **真实 HITL 实测**：write_file 触发真实 langgraph interrupt → 页面渲染 HitlBlock → 批准请求携带真实 interruptId + decisions payload 到达后端；纯 deepagents 层 resume 后工具执行成功（ToolMessage: Updated file）。残余：ag_ui-langgraph 0.0.40 的 HTTP resume 映射与 langchain HITL interrupt 返回值约定不兼容（ResumeEntry 列表 vs decisions 字典；demo 已做 id 注入与解包适配，续跑执行仍需公司服务层实现或升级适配器）——即契约 §8.2/§14“真实 HITL fixture 待冻结”项。
 - **前端 HITL 增强**：legacy `CUSTOM on_interrupt` 记录真实 interruptId；`respondToHitl` 无 pendingInterrupts 时走 `runAgent({ resume: [{interruptId, status, payload:{decisions:[{type:approve|reject}]}}] })` 并携带原 forwardedProps（修复 FAB_ENDPOINT_NOT_CONFIGURED）。
 - 文档更新：`docs/agentdock/design/15-orchestration-integration-guide.md` 新增 §6.1 断线重连、§6.2 真实 HITL 实测与坑 15/16。
 
 第十五轮补充（2026-08-20，权威文档同步两块实测结论）：
 
-- `02-agui-a2ui-runtime-contract.md`：§8.2 写入真实 HITL 事件样本（CUSTOM on_interrupt 结构、resume[] 约定、前端行为、ag_ui-langgraph resume 映射限制）；§10 新增 10.5 断线重连实测（streamId 注入/游标回放/STREAM_EXPIRED/runtime SSE 校验限制/前端不自动 resume 策略）；§14 待冻结项勾选更新。
+- `02-agui-a2ui-runtime-contract.md`：§8.2 写入真实 HITL 事件样本（CUSTOM on_interrupt 结构、resume[] 约定、前端行为、ag_ui-langgraph resume 映射限制）；§10 新增 10.5 断线重连实测（eventId 注入/游标回放/STREAM_EXPIRED/runtime SSE 校验限制/前端不自动 resume 策略）；§14 待冻结项勾选更新。
 - `03-integration-and-acceptance.md`：Case 8（断线恢复）与 Case 9（真实 HITL）验收状态与遗留项更新。
-- `11-e2e-joint-test-report.md`：测试矩阵补 11（断线重连 streamId）与 12（真实 HITL）两行。
+- `11-e2e-joint-test-report.md`：测试矩阵补 11（断线重连 eventId）与 12（真实 HITL）两行。

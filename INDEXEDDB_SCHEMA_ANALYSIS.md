@@ -59,12 +59,12 @@ export interface SessionMessageRecord {
   runId?: string;
   sequence: number;         // 同一会话内排序
   sessionId: string;
-  streamId?: string;
+  eventId?: string;
 }
 
 export interface RunCheckpointRecord {
   input: RunAgentInput;
-  latestStreamId?: string;
+  latestEventId?: string;
   runId: string;
   sessionId: string;
   snapshot: RuntimeRunState; // 完整快照
@@ -116,7 +116,7 @@ erDiagram
     string role "仅 text 行"
     string content
     json payload
-    string streamId
+    string eventId
   }
   CHECKPOINTS {
     string runId PK
@@ -126,7 +126,7 @@ erDiagram
     string updatedAt
     json input
     json snapshot "完整 RuntimeRunState"
-    string latestStreamId
+    string latestEventId
   }
 ```
 
@@ -178,7 +178,7 @@ async persistRunSnapshot(sessionId: string, snapshot: RuntimeRunState) {
   for (const message of Object.values(snapshot.messages)) {
     if (!message || !message.id) continue;
     if (message.role !== 'user' && message.role !== 'assistant') continue;
-    push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, streamId: message.streamId ?? snapshot.latestStreamId });
+    push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, eventId: message.eventId ?? snapshot.latestEventId });
   }
   // ... reasoning / toolCalls / steps / activities / surfaces 同样 push
   if (records.length) await db.messages.bulkPut(records);
@@ -225,11 +225,11 @@ async persistRunSnapshot(sessionId: string, snapshot: RuntimeRunState) {
 
 `sequence = Date.now()*1000 + 0..999 自增种子`（`sessionHistoryService.ts:44-45`），同一会话内单调递增；`persistRunSnapshot` 对已存在行保留原 sequence（这是近期修过的坑，见提交 `fb767aa`）。跨会话不存在全局顺序需求，无需全局自增。
 
-### 4.4 `threadId / runId / streamId`：职责清晰
+### 4.4 `threadId / runId / eventId`：职责清晰
 
 - `threadId` 随会话固化，同一会话所有 Run 共用（DeepAgents 上下文线程）；
 - `runId` 每次发送新生成，HITL 续跑沿用同一 run；
-- `streamId` 用于断线游标恢复（`runStore.ts:13` → `getLatestRecoverableRun` → `resume`）。
+- `eventId` 用于断线游标恢复（`runStore.ts:13` → `getLatestRecoverableRun` → `resume`）。
 
 ### 4.5 群组配置 `group: unknown`：无校验
 
@@ -484,7 +484,7 @@ async pruneCheckpoints(sessionId: string) {
 
 async saveRunCheckpoint(sessionId, input, snapshot) {
   const updatedAt = new Date().toISOString();
-  const record: RunCheckpointRecord = { input, latestStreamId: snapshot.latestStreamId, runId: snapshot.runId, sessionId, snapshot, status: snapshot.status, threadId: snapshot.threadId, updatedAt };
+  const record: RunCheckpointRecord = { input, latestEventId: snapshot.latestEventId, runId: snapshot.runId, sessionId, snapshot, status: snapshot.status, threadId: snapshot.threadId, updatedAt };
   await db.checkpoints.put(record);
   await this.pruneCheckpoints(sessionId);
   await this.persistRunSnapshot(sessionId, snapshot);

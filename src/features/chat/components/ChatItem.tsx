@@ -7,6 +7,8 @@ import type { MetaData } from '@lobehub/ui/chat';
 import { type ComponentType, type ReactNode } from 'react';
 import { memo } from 'react';
 
+import { Markdown } from '@/features/chat/components/Markdown';
+
 export interface ChatItemProps {
   actions?: ReactNode;
   avatar?: string | ReactNode;
@@ -75,10 +77,20 @@ const ChatItem = memo<ChatItemProps>(
         onDoubleClick={onDoubleClick}
         onEditingChange={onEditingChange}
         placement={isUser ? 'right' : 'left'}
-        renderMessage={(content) => (
+        renderMessage={(node) => (
           <Flexbox gap={8} style={{ width: '100%' }}>
-            {content}
-            {children}
+            {!isUser && typeof content === 'string' && content ? (
+              <>
+                {/* LobeHub 顺序：思考/工具过程（折叠）在正文上方，正文（Markdown + @提及）在下方。 */}
+                {children}
+                <Markdown content={content} />
+              </>
+            ) : (
+              <>
+                {node}
+                {children}
+              </>
+            )}
           </Flexbox>
         )}
         showAvatar={showAvatar ?? true}

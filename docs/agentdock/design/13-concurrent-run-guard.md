@@ -10,7 +10,7 @@
 ## 2. 根因
 
 1. **客户端重试/重复发送**：CopilotKit `runAgent` 在流中断时可能重发同一 run（相同 runId），形成重复上游执行；UI 的 `running` 门禁存在状态延迟，快速连发可能穿透。
-2. **刷新后 resume 重放**：`restore()` 对 status=running 的陈旧 checkpoint 自动 `agent.connectAgent(action=resume)`。demo 后端没有 Redis 事件日志/streamId 游标，resume 会重放整轮对话并再次触发上游执行——这是并发 run 的主要放大器。
+2. **刷新后 resume 重放**：`restore()` 对 status=running 的陈旧 checkpoint 自动 `agent.connectAgent(action=resume)`。demo 后端没有 Redis 事件日志/eventId 游标，resume 会重放整轮对话并再次触发上游执行——这是并发 run 的主要放大器。
 3. **流中断后 UI 卡死**：`runAgent` 抛错未被处理，run 状态停在 running。
 
 ## 3. 修复
@@ -46,4 +46,4 @@ return upstream.run(input).pipe(finalize(() => inFlightRuns.delete(key)));
 
 ## 5. 坑
 
-> 后端没有流式游标之前，不要把“断线恢复”做成自动 resume——重放比丢消息更糟。方向保留：等 Orchestration 提供 streamId 游标后再接回 `connectAgent`。
+> 后端没有流式游标之前，不要把“断线恢复”做成自动 resume——重放比丢消息更糟。方向保留：等 Orchestration 提供 eventId 游标后再接回 `connectAgent`。

@@ -31,6 +31,8 @@ export interface AgentDockConversationOptions {
 export interface AgentDockConversationResult {
   agent: unknown;
   isReady: boolean;
+  /** 从 IndexedDB 重建 agent 上下文（删除/重新生成后调用，避免已删轮次被后端线程带回）。 */
+  refreshAgentContext: () => Promise<void>;
   respondToHitl: (
     hitlResponse: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>,
   ) => Promise<void>;
@@ -45,9 +47,9 @@ export interface AgentDockConversationResult {
 
 const toStreamedEvent = (event: AgUiEvent) => ({
   event,
-  streamId:
+  eventId:
     event && typeof event === 'object' && 'rawEvent' in event
-      ? ((event as { rawEvent?: { streamId?: string } }).rawEvent?.streamId)
+      ? ((event as { rawEvent?: { eventId?: string } }).rawEvent?.eventId)
       : undefined,
 });
 
@@ -58,6 +60,9 @@ const useMockConversation = (options: AgentDockConversationOptions): AgentDockCo
   const restore = useCallback(async () => {
     await useRunStore.getState().restoreSession(optionsRef.current.sessionId);
   }, []);
+
+  // mock 每次 send 只带新消息并从 IndexedDB 重建会话上下文，删除后无需额外处理。
+  const refreshAgentContext = useCallback(async () => undefined, []);
 
   useEffect(() => {
     void restore();
@@ -99,6 +104,7 @@ const useMockConversation = (options: AgentDockConversationOptions): AgentDockCo
   return {
     agent: undefined,
     isReady: true,
+    refreshAgentContext,
     respondToHitl,
     restore,
     run: useRunStore((state) => state.run),
@@ -197,40 +203,55 @@ const useOfficialConversation = (
     return () => subscription.unsubscribe();
   }, [agent, applyEvent, isReady]);
 
+  // 从 messages 表重建 agent 上下文（删除/重新生成后也必须调用，否则后端线程仍携带已删轮次，
+  // 新 run 的 MESSAGES_SNAPSHOT 会把已删消息复活并污染历史）。
+  const rebuildAgentContext = useCallback(async () => {
+    const sessionId = optionsRef.current.sessionId;
+    const history = await sessionHistoryService.getMessages(sessionId);
+    const restoredMessages = history
+      .filter(
+        (record) =>
+          record.kind === 'text' && (record.role === 'user' || record.role === 'assistant'),
+      )
+      .map((record) => ({
+        content: record.content || '',
+        id: record.id.replace(/^text:/, ''),
+        role: record.role as 'user' | 'assistant',
+      }));
+    agent.setMessages(restoredMessages as Message[]);
+  }, [agent]);
+
+  const refreshAgentContext = useCallback(async () => {
+    await rebuildAgentContext();
+  }, [rebuildAgentContext]);
+
   const restore = useCallback(async () => {
-    const checkpoint = await sessionHistoryService.getLatestRun(optionsRef.current.sessionId);
-    if (!checkpoint) return;
-    inputRef.current = checkpoint.input;
-    // 后端尚无 streamId 游标恢复：陈旧 running 快照（页面在 run 中途关闭/刷新）
-    // 直接转为 cancelled 并落库，避免 restore 自动 resume 重放造成重复/并发 run。
-    const restored = checkpoint.status === 'running'
-      ? {
-          ...checkpoint.snapshot,
-          error: { code: 'CANCELLED', message: 'Run interrupted by reload; stream resume is not supported yet.' },
-          status: 'cancelled' as const,
-        }
-      : checkpoint.snapshot;
-    runRef.current = restored;
-    setHttpRun(restored);
-    if (restored !== checkpoint.snapshot) {
-      await sessionHistoryService.saveRunCheckpoint(
-        optionsRef.current.sessionId,
-        checkpoint.input,
-        restored,
-      );
+    const sessionId = optionsRef.current.sessionId;
+    const checkpoint = await sessionHistoryService.getLatestRun(sessionId);
+    // checkpoints 只保留 running/paused：陈旧 running 快照（页面在 run 中途关闭/刷新）
+    // 直接转为 cancelled 并落库，避免 restore 自动 resume 重放造成重复/并发 run；
+    // 终态无 checkpoint，历史完全由 messages 表渲染。
+    if (checkpoint) {
+      inputRef.current = checkpoint.input;
+      const restored = checkpoint.status === 'running'
+        ? {
+            ...checkpoint.snapshot,
+            error: { code: 'CANCELLED', message: 'Run interrupted by reload; stream resume is not supported yet.' },
+            status: 'cancelled' as const,
+          }
+        : checkpoint.snapshot;
+      runRef.current = restored;
+      setHttpRun(restored);
+      if (restored !== checkpoint.snapshot) {
+        await sessionHistoryService.saveRunCheckpoint(sessionId, checkpoint.input, restored);
+      }
     }
-    // 回填 agent 可见消息，保证下一次 run 携带完整上下文（与 LobeHub 本地历史一致）
-    const restoredMessages = [
-      ...(checkpoint.input.messages || []),
-      ...Object.values(restored.messages || {}),
-    ]
-      .filter((message) => message?.role === 'user' || message?.role === 'assistant')
-      .map((message) => ({ content: message.content, id: message.id, role: message.role }));
-    if (restoredMessages.length) agent.setMessages(restoredMessages as Message[]);
-    // 注：移除 connectAgent 自动恢复。后端没有 Redis 事件日志/streamId 游标，
+    // 无论有无 checkpoint，都从 messages 表重建下一轮上下文（终态不落 checkpoint 后这里成为唯一来源）。
+    await rebuildAgentContext();
+    // 注：移除 connectAgent 自动恢复。后端没有 Redis 事件日志/eventId 游标，
     // resume 会重放整轮对话并产生并发 run；HITL(paused) 通过 respondToHitl 的
     // runAgent(resume[]) 续跑，不需要 connectAgent。
-  }, [agent]);
+  }, [rebuildAgentContext]);
 
   useEffect(() => {
     void restore();
@@ -377,6 +398,7 @@ const useOfficialConversation = (
   return {
     agent,
     isReady,
+    refreshAgentContext,
     respondToHitl,
     restore,
     run: httpRun,

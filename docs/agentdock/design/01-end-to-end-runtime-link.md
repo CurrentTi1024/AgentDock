@@ -24,7 +24,7 @@
                                Core：DeepAgents + CopilotKitMiddleware
                                                   │
                                                   ▼
-                                        Redis Message Hub（streamId 有序事件）
+                                        Redis Message Hub（eventId 有序事件）
 ```
 
 原则：
@@ -61,7 +61,7 @@ type ConversationContext = {
 | `threadId` | AgentDock | 创建会话时 `crypto.randomUUID()` 固化进 `SessionRecord.threadId`；hook 兜底 `thread-${sessionId}` | DeepAgents 上下文线程；同一会话内所有 run 共用 | Dexie `sessions.threadId`；后端保存上下文 |
 | `runId` | AG-UI Client | 每次发送 `crypto.randomUUID()`（mock 在 `createRunInput`，官方在 `send()`） | 一次用户提问/Agent 执行；Orchestration 必须沿用，不得新建 | Dexie `checkpoints.runId`（主键）+ `snapshot.runId`；后端执行记录 |
 | `parentRunId` | AG-UI Client | A2UI Action 新 run 时指向产生 Surface 的 runId（mock 已设；官方 transport 暂不传，见 4.4） | 子执行（A2UI Action 新 run）的父 run | 按需 |
-| `streamId` | Orchestration/Redis | 后端 SSE `id:` 或 `rawEvent.streamId`，前端 `parseSseStream` 提取 | 一个 run 内事件游标；按 streamId 游标恢复（已冻结方向） | 每个 `RuntimeRunState` 独立维护 `latestStreamId + processedStreamIds`；Dexie `checkpoints.latestStreamId` |
+| `eventId` | Orchestration/Redis | 后端 SSE `id:` 或 `rawEvent.eventId`，前端 `parseSseStream` 提取 | 一个 run 内事件游标；按 eventId 游标恢复（已冻结方向） | 每个 `RuntimeRunState` 独立维护 `latestEventId + processedEventIds`；Dexie `checkpoints.latestEventId` |
 | `messageId` | 事件产生方 | 后端事件自带 | 一段文本/reasoning/activity 消息 | IndexedDB 可见历史（`messages.id`） |
 | `toolCallId` | Agent/Core | 后端事件自带 | 一次工具调用 | 可见消息块 |
 | `surfaceId` | A2UI 工具 | 后端/中间件生成 | 一个 A2UI Surface | 可见消息块/快照 |
@@ -78,14 +78,14 @@ AG-UI 规范中 `RunAgentInput.runId` 由 **调用方（Client/Application）提
 - 已存在的会话：从 IndexedDB `SessionRecord.threadId` 读取；hook 内 `thread-${sessionId}` 仅作防御性兜底。
 - 同一 threadId 内多次 run 共享 DeepAgents 上下文；切换 agent/fab 是否复用 threadId 需与后端确认（建议：同一本地会话复用，切换 agent 时新建）。
 
-### 3.5 streamId 的维护与多会话独立性
+### 3.5 eventId 的维护与多会话独立性
 
 **维护位置**：每个 run 的 `RuntimeRunState` 独立持有：
 
-- `latestStreamId`：最近一次事件的游标（SSE `id:` 优先，其次 `rawEvent.streamId`）。
-- `processedStreamIds[]`：已处理游标集合，用于幂等去重（上限 5000，超出后滚动淘汰）。
+- `latestEventId`：最近一次事件的游标（SSE `id:` 优先，其次 `rawEvent.eventId`）。
+- `processedEventIds[]`：已处理游标集合，用于幂等去重（上限 5000，超出后滚动淘汰）。
 
-落盘：`saveRunCheckpoint` 把 `latestStreamId` 写入 `checkpoints`（以 `runId` 为主键、`sessionId` 为索引），消息记录也携带该 run 的 streamId。
+落盘：`saveRunCheckpoint` 把 `latestEventId` 写入 `checkpoints`（以 `runId` 为主键、`sessionId` 为索引），消息记录也携带该 run 的 eventId。
 
 **多会话独立性**：
 
@@ -100,7 +100,7 @@ AG-UI 规范中 `RunAgentInput.runId` 由 **调用方（Client/Application）提
 
 - `createSession({ id: sessionId })`：会话行主键与路由一致；默认入口固定 `session-inbox`，真实会话为 UUID。`ensureSession` 只在内存 `session.id === sessionId` 时复用，路由切换必须按新 id 重新加载。
 - 消息落库 id 带 kind 前缀（`text:` / `reasoning:` / `tool:` / `step:` / `activity:` / `surface:`）；渲染过滤时先去掉前缀再与 `run.messages`（原始 id）比对，避免刷新后历史与实时 run 重复渲染。
-- 文本消息记录自己的 `streamId`（该消息最后一次更新的游标，`TEXT_MESSAGE_*` 事件逐条更新，含 END）；其余消息类型记录 run 当前 `latestStreamId`。
+- 文本消息记录自己的 `eventId`（该消息最后一次更新的游标，`TEXT_MESSAGE_*` 事件逐条更新，含 END）；其余消息类型记录 run 当前 `latestEventId`。
 - 列表刷新：`createSession / updateSession / saveRunCheckpoint` 后派发 `agentdock:sessions-changed`；侧边栏对路由 `pendingSession` 乐观插入，并监听 focus / visibilitychange 兜底刷新。
 - 标题更新：发送首条消息后用消息前 32 字符更新会话标题（默认文案“新对话 / New chat”）。
 
@@ -150,7 +150,7 @@ AG-UI 规范中 `RunAgentInput.runId` 由 **调用方（Client/Application）提
 | 逻辑动作 | `forwardedProps.action` | 关键字段 | 当前状态 |
 |---|---|---|---|
 | 发起执行 | `run` | `sessionId`、`agentId` 或 `group`、`fab`、当前 message | ✅ 官方 `agent/run`（proxy）/ 自研 SSE（direct） |
-| 断线恢复 | `resume` | `fab`、相同 `runId`、`resume.lastStreamId` | ✅ mock/direct `resume(lastStreamId)`；http+proxy `connectAgent` 携带 `lastStreamId`（方向已冻结：按 streamId 游标恢复） |
+| 断线恢复 | `resume` | `fab`、相同 `runId`、`resume.lastEventId` | ✅ mock/direct `resume(lastEventId)`；http+proxy `connectAgent` 携带 `lastEventId`（方向已冻结：按 eventId 游标恢复） |
 | 停止 | `stop` | `fab`、相同 `threadId/runId` | ✅ 官方 `agent/stop`（proxy）/ 本地 abort（direct） |
 | HITL 响应 | `hitlResponse` | `fab`、`requestId`、mode、decision/input 等 | ✅ 标准 `resume[]` + legacy 后备；wire 待冻结 |
 | A2UI Action | `a2uiAction` | `fab`、`surfaceId`、`actionName`、`context`、`sourceComponentId` | ✅ 官方 `a2uiAction.userAction`（renderer bridge）/ 自研后备 |

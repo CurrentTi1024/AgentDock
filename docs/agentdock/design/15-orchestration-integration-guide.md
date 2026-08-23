@@ -11,7 +11,7 @@
 | Browser | CopilotKit Provider + `useAgent`，提交 runId/threadId/fab，渲染 AG-UI 事件 | `src/app/providers.tsx`、`useAgentDockConversation.ts`、`runReducer.ts` |
 | Copilot Runtime | single-route envelope、A2UI 注入、按 fab 路由、SSE 回传 | `server/index.ts` |
 | Orchestration Adapter | `FabRoutingAgent`：按 `AGENT_ORCHESTRATION_BASE_URLS_JSON[fab]` → `{base}/ag-ui` | `server/copilot-runtime/fabRoutingAgent.ts` |
-| Orchestration Service | 校验、沿用 runId、SSE 输出、streamId 游标（真实服务需 Redis Message Hub） | demo：FastAPI `/ag-ui` |
+| Orchestration Service | 校验、沿用 runId、SSE 输出、eventId 游标（真实服务需 Redis Message Hub） | demo：FastAPI `/ag-ui` |
 | Core | DeepAgents + CopilotKitMiddleware，动态 `generate_a2ui`、执行 agent | demo：`backend/agent.py`、`backend/main.py` |
 
 ## 2. 核心链路
@@ -47,7 +47,7 @@ flowchart LR
   A["Agent Registry<br/>市场/授权"]
   R["Copilot Runtime<br/>同前端仓库"]
   F["FabRoutingAgent<br/>按 fab 选上游"]
-  O["Orchestration Service<br/>/ag-ui + Redis Message Hub<br/>streamId 游标"]
+  O["Orchestration Service<br/>/ag-ui + Redis Message Hub<br/>eventId 游标"]
   C["Core / DeepAgents + CopilotKitMiddleware"]
   B -->|"普通 REST /api/*"| P
   B -->|"实时 /api/copilotkit"| P
@@ -153,7 +153,7 @@ await copilotkit.runAgent({
     "agentId": "flight-analysis-agent",
     "fab": "F15B",
     "group": { "members": [], "orchestrationMode": "supervisor" },
-    "resume": { "lastStreamId": "1723870000000-0" },
+    "resume": { "lastEventId": "1723870000000-0" },
     "hitlResponse": { "requestId": "hitl-001", "mode": "toolAuthorization", "decision": "approve" },
     "a2uiAction": { "surfaceId": "surface-001", "sourceComponentId": "approve-button", "actionName": "approve_plan" }
   }
@@ -186,10 +186,10 @@ await copilotkit.runAgent({
 | `RAW` | LangChain 透传追踪 | 前端不阻塞渲染 |
 | `RUN_ERROR` | 失败 | `code/message` |
 
-### 5.3 streamId / 断线恢复
+### 5.3 eventId / 断线恢复
 
-- Service 在 `rawEvent.streamId` 与 SSE `id:` 提供游标（如 `1723870000000-0`）。
-- **真实服务必须按 `lastStreamId` 过滤回放**；在服务支持前，前端不会自动 resume（陈旧 running 快照转 cancelled），避免重放并发。
+- Service 在 `rawEvent.eventId` 与 SSE `id:` 提供游标（如 `1723870000000-0`）。
+- **真实服务必须按 `lastEventId` 过滤回放**；在服务支持前，前端不会自动 resume（陈旧 running 快照转 cancelled），避免重放并发。
 
 ### 5.4 错误码
 
@@ -201,29 +201,29 @@ await copilotkit.runAgent({
 2. `forwardedProps.fab/sessionId/runId/threadId` 全量到达 Service 日志，runId 未被二次生成。
 3. 文本流逐段到达；`TEXT_MESSAGE_END` 后消息状态完成；历史刷新后仍在（依赖 `agentdock:run-persisted` 事件）。
 4. Tool Call / Reasoning / HITL / A2UI 事件形状与 §5.2 一致（HITL wire 需公司后端真实样本冻结）。
-5. 断线重连：Service 按 streamId 只补缺失事件；未支持前前端自动转 cancelled，不重放。
+5. 断线重连：Service 按 eventId 只补缺失事件；未支持前前端自动转 cancelled，不重放。
 6. 并发：同一 runId 重复请求被拒（FAB_DUPLICATE_RUN 或 Thread already running），Core 不重复执行。
 
-## 6.1 断线重连（streamId 游标）实测
+## 6.1 断线重连（eventId 游标）实测
 
 demo 后端已实现 `backend/streaming.py`：
 
-- 每个事件注入 `rawEvent.streamId`（`{epoch_ms}-{seq}`，同一 run 严格递增）；
+- 每个事件注入 `rawEvent.eventId`（`{epoch_ms}-{seq}`，同一 run 严格递增）；
 - 事件按 runId 内存缓冲（上限 100 run，FIFO）；
-- `forwardedProps.action="resume"` + `resume.lastStreamId` 时只回放游标之后事件，**不重新执行 Core**；未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`。
+- `forwardedProps.action="resume"` + `resume.lastEventId` 时只回放游标之后事件，**不重新执行 Core**；未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`。
 
 实测结果（直连后端）：
 
 ```text
-首轮：69 个事件均带 streamId
-resume(lastStreamId=第40条)：精确回放第 41~69 条（29 条），无模型调用
+首轮：69 个事件均带 eventId
+resume(lastEventId=第40条)：精确回放第 41~69 条（29 条），无模型调用
 未知 runId：{"type":"RUN_ERROR","code":"STREAM_EXPIRED"}
 ```
 
 ⚠️ 通过 CopilotKit single-route `agent/run` envelope 走 resume 时，runtime 的 SSE 校验要求流首事件为 `RUN_STARTED` 且以终态结束，纯尾回放会被判 `INCOMPLETE_STREAM`。真实公司接入二选一：
 
 1. 使用官方 `agent/connect`（带 `lastSeenEventId`）语义，由 Orchestration Service 回放完整可校验流；
-2. 或回放从 `RUN_STARTED` 开始的完整事件（相同 streamId），客户端按 streamId 去重（前端 reducer 已支持）。
+2. 或回放从 `RUN_STARTED` 开始的完整事件（相同 eventId），客户端按 eventId 去重（前端 reducer 已支持）。
 
 ## 6.2 真实 HITL 实测（非 mock）
 
@@ -254,7 +254,7 @@ demo 后端启用 `interrupt_on={"write_file": True}`（deepagents 原生 HITL�
 4. **`lc_run--<langgraph run id>` 双 id**：流式 TEXT 事件用 `lc_run--` 作 messageId，快照用规范 UUID；前端以快照为准替换占位，且占位不落库。
 5. **system 上下文不得当消息渲染**：runtime 注入的 “App Context”（A2UI catalog）是 system 消息，`MESSAGES_SNAPSHOT` 会原样带回；前端只投影 user/assistant。
 6. **历史刷新与落库竞态**：终态 `flushRunCheckpoint` 是异步的，页面不能立刻读历史；落库完成后广播 `agentdock:run-persisted` 再刷新。
-7. **没有 streamId 游标前禁止自动 resume**：`connectAgent(action=resume)` 会重放整轮对话并造成并发 run；HITL 续跑走 `runAgent(resume[])`。
+7. **没有 eventId 游标前禁止自动 resume**：`connectAgent(action=resume)` 会重放整轮对话并造成并发 run；HITL 续跑走 `runAgent(resume[])`。
 8. **DeepSeek thinking 与 forced tool_choice 互斥**：`reasoning=high` 时 A2UI secondary 的 forced `render_a2ui` 返回 400，当前用 `OPENAI_REASONING_EFFORT=none` 换取 A2UI；主/副模型分离后可恢复推理。
 9. **DeepSeek reasoning 是加密内容**：ag_ui-langgraph 0.0.40 不产生 `REASONING_MESSAGE_*` 事件，Thinking 组件只能 mock 验证。
 10. **A2UI 多轮上下文 secondary 可能偏离**：同 thread 历史包含大量工具调用时，secondary 可能不按 forced render_a2ui 走；新会话单轮稳定。
@@ -262,5 +262,5 @@ demo 后端启用 `interrupt_on={"write_file": True}`（deepagents 原生 HITL�
 12. **并发 run 有三层防护**：前端 send 防重入 → Runtime `InMemoryAgentRunner`（Thread already running）→ FabRoutingAgent 幂等守卫；三层缺一不可（前端兜底 UX，Runtime 兜底并发）。
 13. **`@lobehub/ui` 根包与 base-ui 导出集合不同**：迁移组件先 `rg` 确认导出；`Switch` 在 base-ui，`ContextMenu` 不存在（用 antd Dropdown）。
 14. **客户端 SSE 偶发 network error**：后端已完成但浏览器流被中断（工具类 run 偶发）；前端已做 runAgent 异常兜底（终态不覆盖、非终态写 RUN_ERROR），内容保留、UI 不卡死。
-15. **resume 与 runtime SSE 校验**：纯尾回放会被 CopilotKit 判 INCOMPLETE_STREAM（首事件必须 RUN_STARTED）；真实接入用 `agent/connect` 或全量回放+streamId 去重。
+15. **resume 与 runtime SSE 校验**：纯尾回放会被 CopilotKit 判 INCOMPLETE_STREAM（首事件必须 RUN_STARTED）；真实接入用 `agent/connect` 或全量回放+eventId 去重。
 16. **真实 HITL 的 wire 差异**：ag_ui-langgraph 0.0.40 用 legacy `CUSTOM on_interrupt`（value 是 HITLRequest JSON 且无 id），且其 HTTP resume 映射与 langchain `interrupt()` 返回值约定不兼容；demo 已做 id 注入/解包适配，续跑执行需公司服务层实现或升级适配器。

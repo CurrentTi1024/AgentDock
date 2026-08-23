@@ -12,7 +12,7 @@ export async function* parseSseStream(stream: ReadableStream<Uint8Array>, signal
         let id: string | undefined; const data: string[] = [];
         for (const line of frame.split('\n')) { if (line.startsWith('id:')) id = line.slice(3).trim(); if (line.startsWith('data:')) data.push(line.slice(5).trimStart()); }
         if (!data.length) continue;
-        const event = JSON.parse(data.join('\n')) as AgUiEvent; const streamId = id || event.rawEvent?.streamId; yield { event, streamId };
+        const event = JSON.parse(data.join('\n')) as AgUiEvent; const eventId = id || event.rawEvent?.eventId; yield { event, eventId };
       }
       if (done) break;
     }

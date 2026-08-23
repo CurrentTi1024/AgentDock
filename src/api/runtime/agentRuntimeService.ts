@@ -13,7 +13,7 @@ export class CopilotHeadlessHttpService implements AgentRuntimeService {
   }
 }
 export class CopilotHeadlessMockService implements AgentRuntimeService {
-  async *stream(input: RunAgentInput, options: RuntimeOptions = {}) { for await (const event of createAgentRuntimeMockEvents(input, options.signal)) yield { event, streamId: event.rawEvent?.streamId }; }
+  async *stream(input: RunAgentInput, options: RuntimeOptions = {}) { for await (const event of createAgentRuntimeMockEvents(input, options.signal)) yield { event, eventId: event.rawEvent?.eventId }; }
 }
 const selectRuntimeService = (): AgentRuntimeService =>
   getChatServiceMode() === 'http' ? new CopilotHeadlessHttpService() : new CopilotHeadlessMockService();

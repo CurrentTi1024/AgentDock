@@ -27,7 +27,7 @@ type RunAgentInput = {
 `src/api/runtime/sse.ts`：
 
 - 支持 `id:` 与多行 `data:`，CRLF/LF 归一化，忽略 `:` 注释（心跳）。
-- `streamId` 优先级：SSE `id:` → `event.rawEvent.streamId`。
+- `eventId` 优先级：SSE `id:` → `event.rawEvent.eventId`。
 - 每个事件必须是完整 JSON，禁止跨 frame 拆分（后端契约要求）。
 
 已知问题：
@@ -67,9 +67,9 @@ type RunAgentInput = {
 
 ## 4. 去重与恢复
 
-- `processedStreamIds` 数组 + `latestStreamId`；同 streamId 幂等。
+- `processedEventIds` 数组 + `latestEventId`；同 eventId 幂等。
 - 每次事件后 `sessionHistoryService.saveRunCheckpoint` 写 IndexedDB（messages + checkpoints）。
-- 刷新恢复：`restoreSession` → 若 `status === 'running'` 且 `latestStreamId` 存在 → `resume`（`action=resume`, `resume.lastStreamId`）。
+- 刷新恢复：`restoreSession` → 若 `status === 'running'` 且 `latestEventId` 存在 → `resume`（`action=resume`, `resume.lastEventId`）。
 
 注意：`ACTIVITY_DELTA` 目前是 `{...prev, ...patch}` 浅合并，RFC 6902 的 remove/replace 语义不完整；`STATE_DELTA` 只处理顶层 key。真实后端若使用嵌套 path，需要增强。
 
@@ -111,7 +111,7 @@ POST {basePath}/transcribe
 
 方案 B（仅本地/Mock 过渡）：自研 client/reducer，“直接 RunAgentInput 全文转发”；后端 `/ag-ui` 必须接受相同 body。生产不采用（OAuth2 Proxy 无按 FAB 路由能力，见 `design/08` §7.0）。
 
-**事件语义、runId 回显、streamId 透传不可改变。**
+**事件语义、runId 回显、eventId 透传不可改变。**
 
 ## 6. 缺口与行动项
 
