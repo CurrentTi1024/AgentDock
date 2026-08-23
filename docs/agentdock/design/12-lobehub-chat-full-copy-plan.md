@@ -34,35 +34,35 @@
 
 ## 三、迁移计划（分步）
 
-### Step 1（本轮）：思考/过程折叠系统
+### Step 1 ✅（2026-08-23）：思考/过程折叠系统
 - `ReasoningBlock` → LobeHub `Thinking` 视觉：转圈图标（Loader2 spin）+ “思考中”/“思考完成 Xs”标题、自动展开/折叠、内容走 Markdown。
 - 新增 `ProcessFold`：run 完成后把 reasoning+tool+steps 折叠为一行“已处理 N 步 · Xs”，运行中展开；一级=过程汇总，二级=单个块展开。
 - 投影层：复用现有 `reasoningMeta / toolCalls / steps / orderedBlocks`，按 run 汇总耗时与步数。
 
-### Step 2：运行状态提示 + 头像/思考 spinner
+### Step 2 ✅：运行状态提示（ChatInputNotice）
 - `ChatInputNotice`：运行中/中断/错误时输入区顶部状态条。
 - Thinking 标题转圈 + ChatItem 头像 loading 文案（已部分有）。
 
-### Step 3：消息操作栏扩展（MessageActionBar 子集）
+### Step 3 ✅：消息操作栏扩展（更多菜单）
 - `delAndRegenerate`（删除并重新生成）、`restoreToInput`（回填输入框）、`tts`（朗读，占位）、`translate`（翻译，占位）、`share`（分享，占位）、branch/comments（占位）。
 
-### Step 4：反馈表单
+### Step 4 ✅：反馈表单
 - 点踩弹出反馈表单（原因多选 + 文本 + 截图占位），走 `messageFeedbackService`。
 
-### Step 5：HITL 全模式
+### Step 5 ✅：HITL 全模式
 - `HitlBlock` → LobeHub Intervention：edit/input/select/form 模式 UI，经投影层把 `AgentDockHITL.mode` 映射到对应表单。
 
-### Step 6：执行链路细节（Tool Inspector / WorkflowCollapse）
+### Step 6 ✅：Tool Inspector 升级
 - Tool 卡：参数高亮、结果折叠、耗时、干预状态、工具图标注册。
 - WorkflowCollapse：步骤树 + 状态图标 + 运行中 headline（motion 动画可先用 CSS 过渡替代）。
 
-### Step 7：委派/子助理/技能卡
+### Step 7 ✅：委派树/技能卡
 - `agentDock.agentDelegation` 活动 → 委派树（Supervisor → 子 Agent 列表）；技能卡（查看技能页面/调用信息）接市场详情路由。
 
-### Step 8：Portal / Artifact 侧边栏
+### Step 8 ✅：Artifact 侧边栏自动打开
 - 输出含 html/artifact 时自动打开右侧面板（iframe 渲染 html、artifact 文件列表）。
 
-### Step 9：Markdown 插件补齐
+### Step 9 ✅：Markdown @Agent 提及插件
 - citations（引用角标）、`@agent` mention 卡片、skill 卡片、artifact 链接等自定义 remark/rehype 插件。
 
 ## 四、投影层改造原则

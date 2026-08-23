@@ -401,6 +401,15 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   - 修复块归属：`storedMessages` 改为按 runId 分组（等价 LobeHub messageId 归属），paused 中间落库不再把前段块排到助手文本之前（刷新丢失/挂错消息）。
   - 修复折叠内容空：flush 把 nodes 副本传给 ProcessFold（原按引用 + length=0 原地清空导致有标题无内容）。
   - 浏览器实测：单一折叠“已处理 2 步 · 0.3s”，展开可见 plan 步骤 + 工具卡；30/30 测试通过。
+- **Step 2 ✅ 输入区顶部运行/中断状态提示**：运行中 Alert（转圈）“正在运行…”，完成自动消失；中断显示“已中断”。
+- **Step 3 ✅ 消息操作栏扩展**：更多菜单（回填输入框/删除并重新生成/朗读/翻译/分享）。
+- **Step 4 ✅ 表单式用户反馈**：点踩弹表单（原因多选 + 补充说明）→ messageFeedbackService。
+- **Step 5 ✅ HITL 全模式**：HitlBlock 支持 editArguments/textInput/singleSelect/multiSelect/form，批准回传对应 payload。
+- **Step 6 ✅ Tool Inspector 升级**：参数 JSON 缩进、结果独立折叠、耗时/状态。
+- **Step 7 ✅ 委派树/技能卡**：agentDelegation 渲染 Supervisor→成员树 + 技能标签 + 查看技能页面/调用信息。
+- **Step 8 ✅ Artifact 侧边栏自动打开**：agentDock.artifact 活动触发右侧面板，html 用 sandbox iframe 渲染。
+- **Step 9 ✅ Markdown @Agent 提及**：@AgentName 转为站内链接（SPA 导航）。
+- 所有步骤均浏览器实测（单 Agent + 群聊）+ 30/30 测试通过；分支 `codex/lobehub-chat-full-copy` 统一提交，最后一起 push。
 
 第十二轮（2026-08-20，前后端联合端到端测试 + 消息组件渲染修复）：
 
