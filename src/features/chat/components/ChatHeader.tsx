@@ -35,7 +35,10 @@ const ChatHeader = memo<ChatHeaderProps>(
                   {fab}
                 </Tag>
                 {status && (
-                  <Tag color={status === 'running' ? 'processing' : status === 'error' ? 'error' : 'success'} size="small">
+                  <Tag
+                    color={status === 'running' ? 'processing' : status === 'error' ? 'error' : status === 'cancelled' ? 'default' : 'success'}
+                    size="small"
+                  >
                     {status}
                   </Tag>
                 )}

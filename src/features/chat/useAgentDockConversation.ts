@@ -307,15 +307,19 @@ const useOfficialConversation = (
   );
 
   const stop = useCallback(async () => {
-    copilotkit.stopAgent({ agent });
-    if (runRef.current?.status === 'running' || runRef.current?.status === 'paused') {
-      applyEvent({
-        code: 'CANCELLED',
-        message: 'Run cancelled by user.',
-        runId: runRef.current.runId,
-        threadId: optionsRef.current.threadId || `thread-${optionsRef.current.sessionId}`,
-        type: 'RUN_ERROR',
-      });
+    try {
+      await copilotkit.stopAgent({ agent });
+    } finally {
+      // stopAgent 网络失败也必须落 CANCELLED 终态，避免 UI 卡在 running。
+      if (runRef.current?.status === 'running' || runRef.current?.status === 'paused') {
+        applyEvent({
+          code: 'CANCELLED',
+          message: 'Run cancelled by user.',
+          runId: runRef.current.runId,
+          threadId: optionsRef.current.threadId || `thread-${optionsRef.current.sessionId}`,
+          type: 'RUN_ERROR',
+        });
+      }
     }
   }, [agent, applyEvent, copilotkit]);
 
