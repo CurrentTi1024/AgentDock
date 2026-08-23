@@ -31,6 +31,8 @@ export interface AgentDockConversationOptions {
 export interface AgentDockConversationResult {
   agent: unknown;
   isReady: boolean;
+  /** 从 IndexedDB 重建 agent 上下文（删除/重新生成后调用，避免已删轮次被后端线程带回）。 */
+  refreshAgentContext: () => Promise<void>;
   respondToHitl: (
     hitlResponse: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>,
   ) => Promise<void>;
@@ -58,6 +60,9 @@ const useMockConversation = (options: AgentDockConversationOptions): AgentDockCo
   const restore = useCallback(async () => {
     await useRunStore.getState().restoreSession(optionsRef.current.sessionId);
   }, []);
+
+  // mock 每次 send 只带新消息并从 IndexedDB 重建会话上下文，删除后无需额外处理。
+  const refreshAgentContext = useCallback(async () => undefined, []);
 
   useEffect(() => {
     void restore();
@@ -99,6 +104,7 @@ const useMockConversation = (options: AgentDockConversationOptions): AgentDockCo
   return {
     agent: undefined,
     isReady: true,
+    refreshAgentContext,
     respondToHitl,
     restore,
     run: useRunStore((state) => state.run),
@@ -197,6 +203,28 @@ const useOfficialConversation = (
     return () => subscription.unsubscribe();
   }, [agent, applyEvent, isReady]);
 
+  // 从 messages 表重建 agent 上下文（删除/重新生成后也必须调用，否则后端线程仍携带已删轮次，
+  // 新 run 的 MESSAGES_SNAPSHOT 会把已删消息复活并污染历史）。
+  const rebuildAgentContext = useCallback(async () => {
+    const sessionId = optionsRef.current.sessionId;
+    const history = await sessionHistoryService.getMessages(sessionId);
+    const restoredMessages = history
+      .filter(
+        (record) =>
+          record.kind === 'text' && (record.role === 'user' || record.role === 'assistant'),
+      )
+      .map((record) => ({
+        content: record.content || '',
+        id: record.id.replace(/^text:/, ''),
+        role: record.role as 'user' | 'assistant',
+      }));
+    agent.setMessages(restoredMessages as Message[]);
+  }, [agent]);
+
+  const refreshAgentContext = useCallback(async () => {
+    await rebuildAgentContext();
+  }, [rebuildAgentContext]);
+
   const restore = useCallback(async () => {
     const sessionId = optionsRef.current.sessionId;
     const checkpoint = await sessionHistoryService.getLatestRun(sessionId);
@@ -219,22 +247,11 @@ const useOfficialConversation = (
       }
     }
     // 无论有无 checkpoint，都从 messages 表重建下一轮上下文（终态不落 checkpoint 后这里成为唯一来源）。
-    const history = await sessionHistoryService.getMessages(sessionId);
-    const restoredMessages = history
-      .filter(
-        (record) =>
-          record.kind === 'text' && (record.role === 'user' || record.role === 'assistant'),
-      )
-      .map((record) => ({
-        content: record.content || '',
-        id: record.id.replace(/^text:/, ''),
-        role: record.role as 'user' | 'assistant',
-      }));
-    if (restoredMessages.length) agent.setMessages(restoredMessages as Message[]);
+    await rebuildAgentContext();
     // 注：移除 connectAgent 自动恢复。后端没有 Redis 事件日志/eventId 游标，
     // resume 会重放整轮对话并产生并发 run；HITL(paused) 通过 respondToHitl 的
     // runAgent(resume[]) 续跑，不需要 connectAgent。
-  }, [agent]);
+  }, [rebuildAgentContext]);
 
   useEffect(() => {
     void restore();
@@ -381,6 +398,7 @@ const useOfficialConversation = (
   return {
     agent,
     isReady,
+    refreshAgentContext,
     respondToHitl,
     restore,
     run: httpRun,

@@ -5,7 +5,8 @@ import { createStaticStyles, cssVar } from 'antd-style';
 import { InputNumber, Modal, Progress } from 'antd';
 import { message } from 'antd';
 import { Bell, Clock3, HardDrive, Info, Monitor, Palette } from 'lucide-react';
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import NavHeader from '@/components/shell/NavHeader';
 import {
@@ -55,7 +56,15 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
 
 const SettingsPage = memo(() => {
   const { t } = useI18n();
-  const [tab, setTab] = useState<SettingsTabKey>('general');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTab] = useState<SettingsTabKey>(() =>
+    searchParams.get('tab') === 'storage' ? 'storage' : 'general',
+  );
+  const switchTab = (next: SettingsTabKey) => {
+    setTab(next);
+    // 支持 ?tab=storage 深链（容量提醒可直达清理页）。
+    setSearchParams(next === 'general' ? {} : { tab: next }, { replace: true });
+  };
 
   return (
     <Flexbox horizontal className={styles.container}>
@@ -65,7 +74,7 @@ const SettingsPage = memo(() => {
             active={tab === item.key}
             icon={item.icon}
             key={item.key}
-            onClick={() => setTab(item.key)}
+            onClick={() => switchTab(item.key)}
             title={t(item.labelKey)}
           />
         ))}
@@ -211,6 +220,11 @@ const HEALTH_LABEL_KEY: Record<StorageUsage['health'], string> = {
   warning: 'settings.storage.health.warning',
   critical: 'settings.storage.health.critical',
 };
+const HEALTH_COLOR: Record<StorageUsage['health'], string> = {
+  ok: '#52c41a',
+  warning: '#faad14',
+  critical: '#ff4d4f',
+};
 
 const StorageSettings = memo(() => {
   const { locale, t } = useI18n();
@@ -283,6 +297,7 @@ const StorageSettings = memo(() => {
   const percent = usage ? Math.round(usage.percent * 100) : 0;
   const previewCandidates = cleanupSelection?.candidates ?? [];
   const activeCriteria = criteria();
+  const cleanupSectionRef = useRef<HTMLDivElement>(null);
   return (
     <Flexbox gap={24} padding={32} style={{ maxWidth: 720 }}>
       <Flexbox gap={5}>
@@ -295,13 +310,16 @@ const StorageSettings = memo(() => {
         <Flexbox gap={16} padding={20}>
           <Flexbox horizontal align="center" justify="space-between">
             <Text weight={500}>{t('settings.storage.title')}</Text>
-            <Text type="secondary">
+            <Text style={{ color: usage ? HEALTH_COLOR[usage.health] : undefined }}>
               {usage
                 ? `${t(HEALTH_LABEL_KEY[usage.health])} · ${formatBytes(usage.usage)} / ${formatBytes(usage.quota)}`
                 : '…'}
             </Text>
           </Flexbox>
-          <Progress percent={percent} status={usage?.health === 'critical' ? 'exception' : undefined} />
+          <Progress
+            percent={percent}
+            strokeColor={usage ? HEALTH_COLOR[usage.health] : undefined}
+          />
           {usage && (
             <Text fontSize={12} type="secondary">
               {t('settings.storage.tables', {
@@ -312,13 +330,26 @@ const StorageSettings = memo(() => {
             </Text>
           )}
           {usage && usage.health !== 'ok' && (
-            <Text type="warning">{t('settings.storage.warningBanner', { percent })}</Text>
+            <Flexbox horizontal align="center" gap={8}>
+              <Text style={{ color: HEALTH_COLOR[usage.health] }}>
+                {t('settings.storage.warningBanner', { percent })}
+              </Text>
+              <Button
+                size="small"
+                onClick={() =>
+                  cleanupSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+              >
+                {t('settings.storage.cleanup.title')}
+              </Button>
+            </Flexbox>
           )}
         </Flexbox>
       </Block>
 
-      <Block gap={0} variant="outlined">
-        <Flexbox gap={12} padding={20}>
+      <div ref={cleanupSectionRef}>
+        <Block gap={0} variant="outlined">
+          <Flexbox gap={12} padding={20}>
           <Text weight={500}>{t('settings.storage.cleanup.title')}</Text>
           <Text fontSize={12} type="secondary">
             {t('settings.storage.cleanup.desc')}
@@ -397,8 +428,9 @@ const StorageSettings = memo(() => {
               {t('settings.storage.cleanup.exportAndDelete')}
             </Button>
           </Flexbox>
-        </Flexbox>
-      </Block>
+          </Flexbox>
+        </Block>
+      </div>
     </Flexbox>
   );
 });
