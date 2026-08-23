@@ -472,6 +472,15 @@ export const WorkflowStepsBlock = ({ steps }: { steps: RuntimeStep[] }) => {
   );
 };
 
+// 一轮 run 内的中间助手文本（最终答案之前的叙述）收进过程折叠，展开可见。
+export const NarrationBlock = ({ text }: { text: string }) => (
+  <div className={styles.block}>
+    <div className={styles.content}>
+      <Markdown content={text} />
+    </div>
+  </div>
+);
+
 const ACTIVITY_TYPE_META: Record<string, { icon: typeof ListTodo; labelKey: string }> = {
   'agentDock.agentDelegation': { icon: Users, labelKey: 'chat.activity.agentDelegation' },
   'agentDock.assistantGroup': { icon: Layers, labelKey: 'chat.activity.assistantGroup' },
@@ -914,11 +923,17 @@ export const renderStoredBlocks = (
     onRejectHitl: (requestId: string) => void;
     onSurfaceAction: (actionName: string, surfaceId: string) => void;
   },
-  options: { showReasoning?: boolean; showSurfaces?: boolean } = {},
+  options: { narration?: string[]; showReasoning?: boolean; showSurfaces?: boolean } = {},
 ): React.ReactNode[] => {
   const nodes: React.ReactNode[] = [];
   const stepRecords: SessionMessageRecord[] = [];
   const process = createProcessCollector(false);
+  if (options.narration?.length) {
+    for (const text of options.narration) {
+      process.state.nodes.push(<NarrationBlock key={`narration-${text.slice(0, 12)}`} text={text} />);
+    }
+    process.state.hasWork = true;
+  }
   const pushStepsIntoProcess = () => {
     if (!stepRecords.length) return;
     const steps: RuntimeStep[] = stepRecords.map((record) => {

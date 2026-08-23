@@ -428,6 +428,11 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   - **Markdown 提及**：官方 Mention 是 info 色内联 chip（0.25em 外边距、0.2/0.4em 内边距、0.875em、colorInfoBg），原实现只是普通加粗链接——已按官方样式改；并修复助手正文未接提及插件的问题（ChatItem 助手正文改走带 remark 插件的 Markdown 管线）；
   - **MessageActions**：用户栏补官方 edit 动作（bar=[regenerate, edit, copy]），图标用官方 `Edit`，18 语言新增 `chat.action.edit`（官方 common.json 文案）；
   - 浏览器实测（真实后端 + mock）：运行中 24×24 chip + 神经网络动画 + 计时、完成折叠「已处理 9 步 · 17.4s」、展开后工具标题 `generate_a2ui (intent:create +1)` 等宽字体、`已深度思考` 文案、提及 chip 计算样式（info 蓝/深蓝底/0.875em/0.25em 圆角）、用户消息操作栏「编辑」按钮全部通过；30/30 测试、typecheck、build 通过。
+- **Step 10 气泡重复修复（2026-08-24）**：
+  - 现象：同一轮 run 模型先输出中间文本（如 "I'll create..."）再调用工具、最后输出正式答案，刷新后渲染成两个助手气泡，且工具/折叠/A2UI 内容在两条气泡里重复；
+  - 根因：`storedMessages` 里同一 runId 的每条助手文本各渲染一个 ChatItem，且每条都挂同一份 blocks（renderStoredBlocks 按 runId 整桶返回），`merged` 只隐藏了头像/标题并没有合并气泡；
+  - 修复：新增 `displayUnits` 分组——同一 runId 的连续助手文本合并为单气泡（内容取最后一条最终答案，中间文本作 narration 收进过程折叠）；blocks 只挂一次；`renderStoredBlocks` 增加 `narration` 选项，在折叠内渲染中间文本；
+  - 实测（真实后端，问题原句「帮我生成一个飞行数据看板，展示最近一次飞行数据」）：折叠「已处理 9 步 · 21.5s」仅 1 个、最终答案仅出现 1 次、`generate_a2ui` 工具卡仅 1 个、折叠展开后中间文本可见、折叠与答案同属一个气泡（DOM 上溯验证 `same:true`）；30/30 测试、typecheck、build 通过。
 
 第十二轮（2026-08-20，前后端联合端到端测试 + 消息组件渲染修复）：
 
