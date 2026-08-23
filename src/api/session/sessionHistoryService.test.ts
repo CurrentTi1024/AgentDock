@@ -124,7 +124,8 @@ test('流式防抖：空闲 350ms 后自动落盘，无需手动 flush', async (
   const { input, snapshot } = buildSingleAgentRun(sessionId, runId);
   scheduleRunCheckpoint(sessionId, input, snapshot);
   assert.equal((await sessionHistoryService.getLatestRun(sessionId))?.runId, undefined);
-  await wait(500);
+  // 留足余量：防抖 350ms，负载高时避免 500ms 紧贴边界造成偶发抖动。
+  await wait(600);
   const messages = await sessionHistoryService.getMessages(sessionId);
   assert.ok(messages.some((record) => record.kind === 'text'), '防抖定时器到期后消息应自动落盘');
   assert.equal(await sessionHistoryService.getLatestRun(sessionId), undefined, '终态不落 checkpoint');

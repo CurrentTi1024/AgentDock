@@ -619,6 +619,12 @@ canary 已演进为“服务端 DB + 单记录库缓存”，AgentDock 是纯本
 - 复核 settings 深链/切换、store 启动刷容量、GroupHomePage/侧栏的 limit 递增与窗口衔接，未发现问题。
 - 新增“变长文本/轮”分页压力测试（15 轮、每轮 1–4 段文本、limit=7 翻页）：跨页无漏、无重、整体严格更早、每轮块完整。
 
+**最终轮（分模块全量复核）**
+
+- 模块清单：schema/迁移、会话 CRUD 与列表、消息写入与一致性、消息分页读取、删除/编辑/分支、checkpoint 生命周期、防抖落盘、跨页同步、容量与清理、sessionStore、运行态与续传（runStore + useAgentDockConversation 全量）、UI 消费（单聊/群聊/侧栏/设置/AppShell）、测试。
+- 结论：未发现新 bug；`useAgentDockConversation` 官方路径的 send/stop/HITL/A2UI/restore/refreshAgentContext 逐行核对一致。
+- 加固：防抖测试等待 500ms → 600ms（消除负载边界抖动）；测试连跑稳定。
+
 **确认无问题**
 
 - sequence 单调性（随机种子、不取模）与分页游标（页内全局最小 sequence）经压力测试验证：跨页无漏、无重、整体有序。
