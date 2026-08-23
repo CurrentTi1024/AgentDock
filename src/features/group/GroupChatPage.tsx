@@ -16,15 +16,21 @@ import {
 } from '@/api/session/sessionHistoryService';
 import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
+import FeedbackModal, { type FeedbackTarget } from '@/features/chat/components/FeedbackModal';
 import { MessageActions } from '@/features/chat/components/MessageActions';
+import type { OpStatusActivity } from '@/features/chat/components/OpStatusTray';
 import NavHeader from '@/components/shell/NavHeader';
 import {
+  buildDisplayUnits,
   HistoryDivider,
   renderRunBlocks,
   renderStoredBlocks,
   type StoredTextMessage,
 } from '@/features/chat/components/MessageBlocks';
 import { useAgentDockConversation } from '@/features/chat/useAgentDockConversation';
+import { useChatScroll } from '@/features/chat/hooks/useChatScroll';
+import { messageFeedbackService } from '@/api/conversation/messageFeedbackService';
+import type { RuntimeStep } from '@/api/runtime/types';
 import { useI18n } from '@/i18n';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -46,6 +52,8 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     inset-block-end: 0;
     padding: 12px 24px 16px;
     background: linear-gradient(transparent, ${token.colorBgContainer} 24%);
+    /* 透明渐变区不拦截点击：最后一条消息的悬浮操作栏可被真实鼠标点击。 */
+    pointer-events: none;
   `,
 }));
 
@@ -83,6 +91,10 @@ const GroupChatPage = () => {
   const loadedTextCountRef = useRef(0);
   const loadingOlderRef = useRef(false);
   const [input, setInput] = useState('');
+  const [runStartedAt, setRunStartedAt] = useState<number>();
+  const [editingId, setEditingId] = useState<string>();
+  const [editDraft, setEditDraft] = useState('');
+  const [feedbackModal, setFeedbackModal] = useState<FeedbackTarget>();
   const [modes, setModes] = useState<Array<{ modeId: string; name: string }>>([]);
   const [mode, setMode] = useState('supervisor');
   const [members, setMembers] = useState(DEFAULT_GROUP_MEMBERS);
@@ -145,7 +157,7 @@ const GroupChatPage = () => {
   );
 
   const fab = session?.fab || 'F15B';
-  const { respondToHitl, restore, run, send, sendA2uiAction, stop } = useAgentDockConversation({
+  const { refreshAgentContext, respondToHitl, restore, run, send, sendA2uiAction, stop } = useAgentDockConversation({
     agentId: 'group',
     fab,
     group: {
@@ -157,16 +169,41 @@ const GroupChatPage = () => {
     threadId: session?.threadId,
   });
 
-  const running = run?.status === 'running';
+  // 运行中与 HITL 暂停都视为忙态：发送按钮切换为停止、Enter 不发送、草稿保留。
+  const running = run?.status === 'running' || run?.status === 'paused';
   // 完成/取消/失败的 run 刷新后按历史渲染（可编辑/操作），只有进行中才走 live 渲染。
   const isActiveRun = run?.status === 'running' || run?.status === 'paused';
-  const answer = Object.values(run?.messages || {})
+  // 已删消息墓碑：删除并重新生成时后端线程仍会带回被删轮次，展示与落库都需跳过。
+  const deletedKeys = useMemo(() => new Set(session?.deletedMessageIds ?? []), [session?.deletedMessageIds]);
+  const liveMessages = Object.values(run?.messages || {}).filter(
+    (message) => !deletedKeys.has(`text:${message.id}`) && !deletedKeys.has(`tool:${message.id}`),
+  );
+  const answer = liveMessages
     .filter((message) => message.role === 'assistant')
     .at(-1)?.content;
-  const currentUserMessage = Object.values(run?.messages || {})
+  const currentUserMessage = liveMessages
     .filter((message) => message.role === 'user')
     .at(-1)?.content;
   const surface = Object.entries(run?.surfaces || {}).at(-1);
+
+  // LobeHub OpStatusTray 的 activity 等价物：只认真实工具调用（排除 A2UI 内部工具）。
+  const opStatusActivity: OpStatusActivity = useMemo(() => {
+    if (!run) return 'generating';
+    const anyToolRunning = Object.values(run.toolCalls || {}).some(
+      (call) =>
+        (call.status === 'running' || call.status === 'called') &&
+        call.apiName !== 'generate_a2ui' &&
+        call.apiName !== 'render_a2ui',
+    );
+    if (anyToolRunning) return 'toolCalling';
+    const anyReasoningStreaming = Object.values(run.reasoningMeta || {}).some(
+      (meta) => meta?.streaming,
+    );
+    if (anyReasoningStreaming) return 'reasoning';
+    return 'generating';
+  }, [run]);
+  const opStepCount = useMemo(() => Object.values(run?.steps || {}).length, [run]);
+  const lastLiveMessageId = Object.keys(run?.messages || {}).at(-1) || '';
 
   useEffect(() => {
     if (!sessionId) {
@@ -214,12 +251,6 @@ const GroupChatPage = () => {
     }
   }, [groupConfig?.orchestrationMode, modes]);
 
-  useEffect(() => {
-    if (run && ['success', 'cancelled', 'error'].includes(run.status)) {
-      void reloadHistoryWindow();
-    }
-  }, [reloadHistoryWindow, run?.status, sessionId]);
-
   const storedMessages = useMemo<StoredTextMessage[]>(() => {
     const liveTextIds = isActiveRun ? new Set(Object.keys(run?.messages || {})) : new Set<string>();
     // 块按 runId 归属（等价 LobeHub 的 messageId 归属），助手文本拿到该 run 的全部块。
@@ -234,14 +265,34 @@ const GroupChatPage = () => {
     for (const record of history) {
       if (record.id.startsWith('lc_run--')) continue;
       const rawTextId = record.id.replace(/^text:/, '');
-      if (record.kind !== 'text' || liveTextIds.has(rawTextId)) continue;
+      if (record.kind !== 'text' || liveTextIds.has(rawTextId) || deletedKeys.has(record.id)) continue;
       const blocks = record.role === 'assistant' && record.runId
         ? (blocksByRun.get(record.runId) ?? [])
         : [];
       result.push({ blocks, record });
     }
     return result;
-  }, [history, isActiveRun, run?.messages]);
+  }, [deletedKeys, history, isActiveRun, run?.messages]);
+
+  // 同一轮 run 的连续助手文本合并为单个气泡（与单聊共用 buildDisplayUnits）。
+  const displayUnits = useMemo(() => buildDisplayUnits(storedMessages), [storedMessages]);
+
+  const { isTerminalRun, scrollRef, stickToBottom } = useChatScroll({
+    answer,
+    composerHeight,
+    contentVersion: displayUnits,
+    historyLength: history.length,
+    runStatus: run?.status,
+  });
+
+  // 终态落库完成后 DOM 会重建（live→历史），此时再滚一次确保停在最新一条。
+  useEffect(() => {
+    if (run && ['success', 'cancelled', 'error'].includes(run.status)) {
+      void reloadHistoryWindow().then(() => {
+        if (isTerminalRun()) stickToBottom();
+      });
+    }
+  }, [isTerminalRun, reloadHistoryWindow, run?.status, sessionId, stickToBottom]);
 
   const blocks = renderRunBlocks(run, {
     onApproveHitl: (requestId, payload) =>
@@ -264,7 +315,7 @@ const GroupChatPage = () => {
         sourceComponentId: 'open',
         surfaceId: surface[0],
       }),
-  }, { showReasoning });
+  }, { deletedKeys, showReasoning });
 
   const hasAnyMessage = storedMessages.length > 0 || (isActiveRun && Boolean(answer || running || run?.status));
 
@@ -291,8 +342,52 @@ const GroupChatPage = () => {
   const sendInputMessage = () => {
     if (!input.trim() || !session) return;
     const prompt = input;
+    stickToBottom();
+    setRunStartedAt(Date.now());
     setInput('');
     void sendMessage(prompt);
+  };
+
+  const deleteMessage = useCallback(
+    (messageId: string) => {
+      void sessionHistoryService.removeMessage(sessionId, messageId).then(() => reloadHistoryWindow());
+    },
+    [reloadHistoryWindow, sessionId],
+  );
+
+  // branch 替换：删除以该用户消息开头的一整轮，再以新 prompt 重跑（与单聊一致）。
+  const replaceTurn = async (userMessageId: string, prompt: string) => {
+    if (!prompt || running) return;
+    await sessionHistoryService.removeTurn(sessionId, userMessageId.replace(/^text:/, ''));
+    await reloadHistoryWindow();
+    await refreshAgentContext();
+    setRunStartedAt(Date.now());
+    stickToBottom();
+    await send(prompt);
+  };
+
+  const regenerateAssistant = (assistantRecordId: string) => {
+    const index = history.findIndex(
+      (record) => record.id === assistantRecordId || record.id === `text:${assistantRecordId}`,
+    );
+    if (index < 0) return;
+    let userRecord: SessionMessageRecord | undefined;
+    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+      if (history[cursor].kind === 'text' && history[cursor].role === 'user') {
+        userRecord = history[cursor];
+        break;
+      }
+    }
+    if (!userRecord) return;
+    void replaceTurn(userRecord.id.replace(/^text:/, ''), userRecord.content || '');
+  };
+
+  const commitEdit = (userMessageId: string, originalContent: string) => {
+    if (editDraft && editDraft !== originalContent) {
+      void replaceTurn(userMessageId, editDraft);
+    }
+    setEditingId(undefined);
+    setEditDraft('');
   };
 
   const commitMembers = (next: typeof members) => {
@@ -417,7 +512,7 @@ const GroupChatPage = () => {
             </Button>
           </DropdownMenu>
         </Flexbox>
-        <Flexbox className={styles.scroll}>
+        <Flexbox className={styles.scroll} data-testid="chat-scroll" ref={scrollRef}>
           <Flexbox
             gap={8}
             style={{
@@ -442,18 +537,13 @@ const GroupChatPage = () => {
                 </Button>
               </Flexbox>
             )}
-            {storedMessages.map(({ blocks: storedBlocks, record }, index) => {
-              const previous = index > 0 ? storedMessages[index - 1].record : undefined;
-              // 仅合并同一轮 run 内的连续同角色消息；不同 run 的独立回复各自显示头像/标题。
-              const merged = Boolean(
-                previous &&
-                  previous.role === record.role &&
-                  previous.runId &&
-                  previous.runId === record.runId,
-              );
+            {displayUnits.map(({ blocks: storedBlocks, narration, record }, index) => {
+              const previous = index > 0 ? displayUnits[index - 1].record : undefined;
               const gap = previous
                 ? new Date(record.createdAt).getTime() - new Date(previous.createdAt).getTime()
                 : 0;
+              const editing = editingId === record.id;
+              const originalContent = record.content || '';
               return (
                 <Fragment key={record.id}>
                   {gap > HISTORY_DIVIDER_MS && <HistoryDivider label={t('chat.history')} />}
@@ -461,21 +551,32 @@ const GroupChatPage = () => {
                     <ChatItem
                       actions={
                         <MessageActions
-                          content={record.content || ''}
+                          content={originalContent}
                           placement="user"
                           onCopy={(content) => void navigator.clipboard.writeText(content || '')}
-                          onDelete={() =>
-                            void sessionHistoryService.removeMessage(sessionId, record.id).then(() =>
-                              reloadHistoryWindow(),
-                            )
-                          }
+                          onDelete={() => deleteMessage(record.id)}
+                          onEdit={() => {
+                            setEditingId(record.id);
+                            setEditDraft(originalContent);
+                          }}
+                          onRegenerate={() => void sendMessage(originalContent)}
+                          onRestoreToInput={(content) => setInput(content)}
                         />
                       }
                       content={record.content}
+                      editing={editing}
                       id={record.id}
                       name={t('chat.you')}
+                      onChange={setEditDraft}
+                      onDoubleClick={() => {
+                        setEditingId(record.id);
+                        setEditDraft(originalContent);
+                      }}
+                      onEditingChange={(next) => {
+                        if (!next) commitEdit(record.id, originalContent);
+                      }}
                       role="user"
-                      showAvatar={!merged}
+                      showAvatar
                       showTitle={false}
                       time={new Date(record.createdAt).getTime()}
                     />
@@ -483,21 +584,37 @@ const GroupChatPage = () => {
                     <ChatItem
                       actions={
                         <MessageActions
-                          content={record.content || ''}
+                          content={originalContent}
                           onCopy={(content) => void navigator.clipboard.writeText(content || '')}
-                          onDelete={() =>
-                            void sessionHistoryService.removeMessage(sessionId, record.id).then(() =>
-                              reloadHistoryWindow(),
-                            )
+                          onDelete={() => deleteMessage(record.id)}
+                          onDeleteAndRegenerate={() => regenerateAssistant(record.id)}
+                          onDislike={() =>
+                            setFeedbackModal({
+                              messageId: record.id,
+                              runId: record.runId || '',
+                              sessionId,
+                              threadId: session?.threadId || '',
+                            })
                           }
+                          onLike={() =>
+                            void messageFeedbackService.submitMessageFeedback({
+                              messageId: record.id,
+                              runId: record.runId || '',
+                              sessionId,
+                              threadId: session?.threadId || '',
+                              feedback: 'like',
+                            })
+                          }
+                          onRegenerate={() => regenerateAssistant(record.id)}
+                          onRestoreToInput={(content) => setInput(content)}
                         />
                       }
                       content={record.content}
                       id={record.id}
                       name={session?.title || t('nav.group')}
                       role="assistant"
-                      showAvatar={!merged}
-                      showTitle={!merged}
+                      showAvatar
+                      showTitle
                       time={new Date(record.createdAt).getTime()}
                     >
                       {renderStoredBlocks(storedBlocks, {
@@ -520,7 +637,7 @@ const GroupChatPage = () => {
                             sourceComponentId: 'open',
                             surfaceId,
                           }),
-                      }, { showReasoning })}
+                      }, { deletedKeys, narration, showReasoning })}
                     </ChatItem>
                   )}
                 </Fragment>
@@ -541,6 +658,7 @@ const GroupChatPage = () => {
                       content={currentUserMessage || input}
                       placement="user"
                       onCopy={(content) => void navigator.clipboard.writeText(content || '')}
+                      onRestoreToInput={(content) => setInput(content)}
                     />
                   }
                   content={currentUserMessage || input}
@@ -555,6 +673,25 @@ const GroupChatPage = () => {
                       <MessageActions
                         content={answer || ''}
                         onCopy={(content) => void navigator.clipboard.writeText(content || '')}
+                        onDislike={() =>
+                          setFeedbackModal({
+                            messageId: lastLiveMessageId,
+                            runId: run?.runId || '',
+                            sessionId,
+                            threadId: session?.threadId || '',
+                          })
+                        }
+                        onLike={() =>
+                          void messageFeedbackService.submitMessageFeedback({
+                            messageId: lastLiveMessageId,
+                            runId: run?.runId || '',
+                            sessionId,
+                            threadId: session?.threadId || '',
+                            feedback: 'like',
+                          })
+                        }
+                        onRegenerate={() => void sendMessage(currentUserMessage || '')}
+                        onRestoreToInput={(content) => setInput(content)}
                       />
                     )
                   }
@@ -572,8 +709,16 @@ const GroupChatPage = () => {
           </Flexbox>
         </Flexbox>
         <Flexbox className={styles.surface} ref={surfaceRef}>
-          <Flexbox style={{ marginInline: 'auto', maxWidth: 840, width: '100%' }}>
+          <Flexbox
+            style={{
+              marginInline: 'auto',
+              maxWidth: 840,
+              pointerEvents: 'auto',
+              width: '100%',
+            }}
+          >
             <ChatInput
+              activity={opStatusActivity}
               agentName={session?.title || t('nav.group')}
               fab={fab}
               mentionEnabled={false}
@@ -586,6 +731,8 @@ const GroupChatPage = () => {
               onSend={sendInputMessage}
               onStop={() => void stop()}
               runStatus={run?.status}
+              startTime={runStartedAt}
+              stepCount={opStepCount}
             />
           </Flexbox>
         </Flexbox>
@@ -684,6 +831,11 @@ const GroupChatPage = () => {
         />
       </Flexbox>
       )}
+      <FeedbackModal
+        onClose={() => setFeedbackModal(undefined)}
+        open={!!feedbackModal}
+        target={feedbackModal}
+      />
     </Flexbox>
   );
 };

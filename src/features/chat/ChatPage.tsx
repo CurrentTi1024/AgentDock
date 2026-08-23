@@ -16,6 +16,7 @@ import { MessageActions } from '@/features/chat/components/MessageActions';
 import type { OpStatusActivity } from '@/features/chat/components/OpStatusTray';
 import Welcome from '@/features/chat/components/Welcome';
 import {
+  buildDisplayUnits,
   HistoryDivider,
   renderStoredBlocks,
   renderRunBlocks,
@@ -31,6 +32,7 @@ import {
   type SessionRecord,
 } from '@/api/session/sessionHistoryService';
 import { useAgentDockConversation } from '@/features/chat/useAgentDockConversation';
+import { useChatScroll } from '@/features/chat/hooks/useChatScroll';
 import { useUiStore } from '@/stores/uiStore';
 import { useI18n } from '@/i18n';
 
@@ -304,31 +306,9 @@ export default function ChatPage() {
     }
   }, [loadInitialHistory, run?.status, sessionId]);
 
-  // 落库完成事件：确定性刷新历史（大 run 落库可能超过 600ms，时间兜底不可靠）。
-  useEffect(() => {
-    const refresh = () => {
-      void reloadHistoryWindow().then(() => {
-        // 终态落库完成后 DOM 会重建（live→历史），此时再滚一次确保停在最新一条。
-        if (terminalRunRef.current) {
-          stickToBottomRef.current = true;
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => scrollToBottom('auto'));
-          });
-        }
-      });
-    };
-    window.addEventListener('agentdock:run-persisted', refresh);
-    return () => window.removeEventListener('agentdock:run-persisted', refresh);
-  }, [reloadHistoryWindow, scrollToBottom, sessionId]);
-
   const sendMessageWith = async (prompt: string) => {
     if (!prompt || running) return;
-    stickToBottomRef.current = true;
-    terminalRunRef.current = false;
-    requestAnimationFrame(() => {
-      const node = scrollRef.current;
-      if (node) node.scrollTo({ top: node.scrollHeight, behavior: 'auto' });
-    });
+    stickToBottom();
     setRunStartedAt(Date.now());
     setArtifactOpen(false);
     const active = session ?? (await ensureSession());
@@ -428,6 +408,18 @@ export default function ChatPage() {
     historyLength: history.length,
     runStatus: run?.status,
   });
+
+  // 落库完成事件：确定性刷新历史（大 run 落库可能超过 600ms，时间兜底不可靠）；
+  // 终态落库完成后 DOM 会重建（live→历史），此时再滚一次确保停在最新一条。
+  useEffect(() => {
+    const refresh = () => {
+      void reloadHistoryWindow().then(() => {
+        if (isTerminalRun()) stickToBottom();
+      });
+    };
+    window.addEventListener('agentdock:run-persisted', refresh);
+    return () => window.removeEventListener('agentdock:run-persisted', refresh);
+  }, [isTerminalRun, reloadHistoryWindow, sessionId, stickToBottom]);
 
   const blocks = renderRunBlocks(run, {
     onApproveHitl: (requestId, payload) =>

@@ -453,6 +453,7 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **助手消息顺序修复（2026-08-24）**：思考/工具过程折叠原先渲染在正文下方/中间（ChatItem 先渲染 Markdown 正文、过程块 children 在后）；调整为先渲染过程块（折叠 + A2UI surface）再渲染正文，对齐 LobeHub「思考+工具在正文上方」；浏览器实测折叠 DOM 索引在正文之前。
 - **「已处理 0 步 · –」空折叠修复（2026-08-24）**：flush 折叠条件原是 `hasWork || nodes.length>=2`，narration/HITL/纯推理等 0 步过程也会套上折叠卡且标题显示「已处理 0 步 · –」；改为仅 `stepCount>0`（真实步骤/工具）才渲染折叠，0 步过程块直接平铺（推理块自带折叠）；实测简单回复无折叠、看板回复正常显示「已处理 1 步 · 9.2s」。
 - **删除并重新生成历史污染修复（2026-08-24）**：删除只清了本地 IndexedDB，后端线程（CopilotKit checkpointer）仍携带被删轮次，新 run 的 MESSAGES_SNAPSHOT 会把已删消息复活（user 消息重复、旧回复混入新 run）；CopilotKit 上下文不可直接修改，采用**已删消息墓碑**方案：`removeTurn` 记录被删轮次的全部消息 key 到 `session.deletedMessageIds`，`persistRunSnapshot` 据此跳过写回，ChatPage/renderRunBlocks/renderStoredBlocks 展示时同步过滤；实测「删除并重新生成」后 IndexedDB 与 UI 均无重复 user、无旧回复复活；47/47 测试通过。
+- **Chat Group 与单聊组件/能力对齐（2026-08-24）**：抽公共模块再复用——`MessageBlocks.buildDisplayUnits`（同 run 助手文本合并单气泡 + narration）与新增 `hooks/useChatScroll`（进入/发送/新消息/结束贴底、上滑不拉回、ResizeObserver、scrollRestoration）由单聊/群聊共用；群聊页接入：同 run 气泡合并、已删消息墓碑过滤（deletedKeys）、OpStatusTray（activity/startTime/stepCount 计时）、HITL 暂停视为忙态（停止按钮）、输入区点击穿透（surface pointer-events）、完整消息操作栏（重新生成/删除并重新生成/编辑/点赞点踩反馈/回填输入框）+ FeedbackModal；浏览器实测（mock 群聊）：消息渲染、过程折叠（正在处理…/步骤）、状态条计时、停止按钮、操作栏齐全；真实后端 demo 无群编排能力（tools=[]）故群运行不产生消息，属后端限制。
 
 第十二轮（2026-08-20，前后端联合端到端测试 + 消息组件渲染修复）：
 
