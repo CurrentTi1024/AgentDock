@@ -24,7 +24,7 @@ import {
 import { messageFeedbackService } from '@/api/conversation/messageFeedbackService';
 import { getChatServiceMode } from '@/api/core/serviceMode';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
-import type { RuntimeStep } from '@/api/runtime/types';
+import type { RunStatus, RuntimeStep } from '@/api/runtime/types';
 import {
   sessionHistoryService,
   type SessionMessageRecord,
@@ -91,6 +91,12 @@ export default function ChatPage() {
   const [editDraft, setEditDraft] = useState('');
   const [composerHeight, setComposerHeight] = useState(0);
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // 贴底跟随：用户主动上滑查看历史时停止自动滚动，重新回到底部附近或发送消息时恢复。
+  const stickToBottomRef = useRef(true);
+  const prevRunStatusRef = useRef<RunStatus | undefined>(undefined);
+  // 终态标记：run-persisted 历史刷新完成后据此再滚一次（确保在 DOM 重建之后）。
+  const terminalRunRef = useRef(false);
   const [feedbackModal, setFeedbackModal] = useState<FeedbackTarget>();
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
   const [mentionsLoading, setMentionsLoading] = useState(false);
@@ -143,6 +149,60 @@ export default function ChatPage() {
     return 'generating';
   }, [run]);
   const opStepCount = useMemo(() => Object.values(run?.steps || {}).length, [run]);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const node = scrollRef.current;
+    if (!node) return;
+    node.scrollTo({ top: node.scrollHeight, behavior });
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    stickToBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 120;
+  }, []);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    node.addEventListener('scroll', handleScroll, { passive: true });
+    return () => node.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
+
+  // 历史/异步内容（A2UI、图片等）渲染完成后高度变化：贴底状态继续跟随，避免停在半空。
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const observer = new ResizeObserver(() => {
+      if (stickToBottomRef.current) scrollToBottom('auto');
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [scrollToBottom]);
+
+  // 禁止浏览器滚动恢复：进入会话一律从最新一条开始（顶部恢复会干扰贴底判断）。
+  useEffect(() => {
+    if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
+  }, [sessionId]);
+
+  // 运行结束（live → 历史重渲染）：强制恢复贴底并滚到最新一条，避免 DOM 重建把滚动重置回顶部。
+  useEffect(() => {
+    const previous = prevRunStatusRef.current;
+    prevRunStatusRef.current = run?.status;
+    if (
+      previous &&
+      (previous === 'running' || previous === 'paused') &&
+      run &&
+      ['success', 'error', 'cancelled'].includes(run.status)
+    ) {
+      terminalRunRef.current = true;
+      stickToBottomRef.current = true;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => scrollToBottom('auto'));
+      });
+    }
+    if (run?.status === 'running' || run?.status === 'paused') terminalRunRef.current = false;
+  }, [run?.status, scrollToBottom]);
 
   // @ 触发时经 Service 拉取可提及 Agent（mock 模式返回 mock 数据），只拉一次并缓存。
   const mentionsLoadedRef = useRef(false);
@@ -246,14 +306,29 @@ export default function ChatPage() {
   // 落库完成事件：确定性刷新历史（大 run 落库可能超过 600ms，时间兜底不可靠）。
   useEffect(() => {
     const refresh = () => {
-      void sessionHistoryService.getMessages(sessionId).then(setHistory);
+      void sessionHistoryService.getMessages(sessionId).then((messages) => {
+        setHistory(messages);
+        // 终态落库完成后 DOM 会重建（live→历史），此时再滚一次确保停在最新一条。
+        if (terminalRunRef.current) {
+          stickToBottomRef.current = true;
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => scrollToBottom('auto'));
+          });
+        }
+      });
     };
     window.addEventListener('agentdock:run-persisted', refresh);
     return () => window.removeEventListener('agentdock:run-persisted', refresh);
-  }, [sessionId]);
+  }, [scrollToBottom, sessionId]);
 
   const sendMessageWith = async (prompt: string) => {
     if (!prompt || running) return;
+    stickToBottomRef.current = true;
+    terminalRunRef.current = false;
+    requestAnimationFrame(() => {
+      const node = scrollRef.current;
+      if (node) node.scrollTo({ top: node.scrollHeight, behavior: 'auto' });
+    });
     setRunStartedAt(Date.now());
     setArtifactOpen(false);
     const active = session ?? (await ensureSession());
@@ -368,6 +443,12 @@ export default function ChatPage() {
     }
     return units;
   }, [storedMessages]);
+
+  // 进入会话 / 新消息 / 运行状态变化 / 输入区高度变化：贴底时自动定位到最新一条。
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    scrollToBottom('auto');
+  }, [displayUnits, history.length, run?.status, answer, composerHeight, scrollToBottom]);
 
   const blocks = renderRunBlocks(run, {
     onApproveHitl: (requestId, payload) =>
@@ -493,7 +574,7 @@ export default function ChatPage() {
           status={run?.status}
           onToggleArtifact={() => setArtifactOpen((open) => !open)}
         />
-        <Flexbox className={styles.scroll}>
+        <Flexbox className={styles.scroll} data-testid="chat-scroll" ref={scrollRef}>
           <Flexbox
             gap={8}
             style={{

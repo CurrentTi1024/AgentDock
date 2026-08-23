@@ -13,7 +13,7 @@
 - A2UI 由官方 catalog + renderer 渲染，action 以 `forwardedProps.a2uiAction.userAction` 回传。
 - Copilot Runtime（`server/index.ts` + `FabRoutingAgent`）按 `fab` 路由到 Orchestration `/ag-ui`。
 - 后端 DeepAgents + CopilotKitMiddleware 输出 AG-UI SSE；前端逐事件投影到对应组件。
-- 端到端保证：流式回显、HITL（标准 resume[] / legacy 双 wire）、断线恢复（按 streamId 游标）、A2UI 增量更新。
+- 端到端保证：流式回显、HITL（标准 resume[] / legacy 双 wire）、断线恢复（按 eventId 游标）、A2UI 增量更新。
 
 ### R2 Chat / Group Chat 全量复刻 LobeHub
 
@@ -74,7 +74,7 @@
 
 1. **HITL wire**：标准 `RUN_FINISHED(outcome=interrupt) + resume[]` 还是 legacy `on_interrupt`（前端双路径已实现，需后端 fixture 冻结一种）。
 2. **A2UI**：动态 schema（Runtime `injectA2UITool: true`）还是固定 schema（`a2ui_operations`）；需要一条真实 `render_a2ui` fixture。
-3. **Orchestration connect 语义**：前端已按 `lastStreamId` 游标恢复实现（方向已冻结），需后端确认支持并按游标过滤；Redis event TTL。
+3. **Orchestration connect 语义**：前端已按 `lastEventId` 游标恢复实现（方向已冻结），需后端确认支持并按游标过滤；Redis event TTL。
 4. **threadId 策略**：同一本地会话切换 agent/fab 时是否新建 threadId（建议新建）。
 5. **市场字段契约**：sortBy / sortOrder 枚举值；skill/mcp 数量字段名与空值规则；`permissioned` 为空时的文案。
 6. **SSO 透传**：Cookie 还是 Authorization，Runtime → Orchestration 的透传方式。
@@ -208,7 +208,7 @@
 
 - `createRunInput`：runId = `crypto.randomUUID()`；消息、threadId、forwardedProps（action/agentId/fab/sessionId/group）齐全。
 - `server/index.ts + fabRoutingAgent.ts`：官方 single-route handler + `AGENT_ORCHESTRATION_BASE_URLS_JSON` → `{fab}/ag-ui`（HttpAgent）。
-- `runReducer`：run/text/reasoning/tool/state/activity/surface 事件消费；streamId 去重；IndexedDB checkpoint + resume。
+- `runReducer`：run/text/reasoning/tool/state/activity/surface 事件消费；eventId 去重；IndexedDB checkpoint + resume。
 - A2UI Action：新 runId + parentRunId，结构正确。
 
 ### 3.3 缺口（P0 汇总）
@@ -433,6 +433,10 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   - 根因：`storedMessages` 里同一 runId 的每条助手文本各渲染一个 ChatItem，且每条都挂同一份 blocks（renderStoredBlocks 按 runId 整桶返回），`merged` 只隐藏了头像/标题并没有合并气泡；
   - 修复：新增 `displayUnits` 分组——同一 runId 的连续助手文本合并为单气泡（内容取最后一条最终答案，中间文本作 narration 收进过程折叠）；blocks 只挂一次；`renderStoredBlocks` 增加 `narration` 选项，在折叠内渲染中间文本；
   - 实测（真实后端，问题原句「帮我生成一个飞行数据看板，展示最近一次飞行数据」）：折叠「已处理 9 步 · 21.5s」仅 1 个、最终答案仅出现 1 次、`generate_a2ui` 工具卡仅 1 个、折叠展开后中间文本可见、折叠与答案同属一个气泡（DOM 上溯验证 `same:true`）；30/30 测试、typecheck、build 通过。
+- **自动滚动到底部（2026-08-24）**：
+  - 需求：发送消息 / 进入会话时自动定位到最新一条消息（滚到底部）；
+  - 实现（ChatPage）：`data-testid="chat-scroll"` 滚动容器 + 贴底跟随（`stickToBottomRef`，距底 <120px 视为贴底）；进入会话/新消息/运行状态/输入区高度变化时贴底即滚到底；发送消息强制贴底；`scrollRestoration='manual'` 避免浏览器恢复把滚动带到历史位置；ResizeObserver 在 A2UI/图片等异步内容渲染后继续跟随；运行结束（live→历史 DOM 重建）时依据 `run-persisted` 落库事件 + 终态标记在重建后重新贴底；用户主动上滑（非贴底）时停止跟随、不被拉回；
+  - 实测（真实后端 + 360px 小视口制造真实溢出）：进入会话 gap 49px（输入区留白）、上滑后发送滚到 max、运行中上滑保持顶部不被拉回、结束后重新贴底（st=max）；30/30 测试通过；完整 `pnpm build` 暂被并行会话 WIP（SettingsPage StorageSettings）阻塞，`vite build` 通过。
 
 第十二轮（2026-08-20，前后端联合端到端测试 + 消息组件渲染修复）：
 
@@ -451,7 +455,7 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **并发 run 防护**（`useAgentDockConversation.ts` + `server/copilot-runtime/fabRoutingAgent.ts`）：
   - hook 层防重入：官方/mock send 在 running/paused 时忽略新发送；
   - runtime 幂等守卫：同一 `threadId:runId` 的 action=run 在途时拒绝（FAB_DUPLICATE_RUN），杜绝重复上游执行；
-  - restore 不再自动 resume：陈旧 running checkpoint 本地转 cancelled 落库（后端无 streamId 游标，resume 会重放造成并发 run）；
+  - restore 不再自动 resume：陈旧 running checkpoint 本地转 cancelled 落库（后端无 eventId 游标，resume 会重放造成并发 run）；
   - `runAgent` 异常写 RUN_ERROR 兜底，不卡 running。
 - **A2UI surface 持久化 + 组件名对齐**（`MessageBlocks.tsx` + `ChatPage.tsx` + `a2ui/catalog.tsx`）：
   - 根因：后端按 a2ui.org v0.9 生成 `Metric/Title/Card/Column/Row`，前端 web_core basic catalog 无 Metric/Title → 页面实际一直渲染 “Unknown component”；
@@ -469,19 +473,19 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   - `FabRoutingAgent` 幂等拒绝改为返回结构化 `RUN_ERROR(FAB_DUPLICATE_RUN)` 事件（而非抛异常断连）。
 - **全面二次批量验证（无头 Chrome，10+ 场景）**：文本完成态（含 settle 等待）、两轮历史顺序/去重、工具调用、A2UI 实时渲染（模型生成时 Metric 组件叶子节点，无 Unknown）、停止生成、快速连发只发 1 run、陈旧 checkpoint 刷新不卡死、mock thinking 自动折叠、mock HITL 批准续跑、全链路工具/文本/surface；`pnpm run test` 30/30、`pnpm run build` 通过。
 - **运行时间发现**：CopilotKit Runtime 自带 `InMemoryAgentRunner` 的 Thread already running 防护（并发同线程 run 在 Runtime 层即被拒）；FabRoutingAgent 幂等守卫为第二层，前端 send 防重入为第一层。
-- **已知残余**：客户端 SSE 偶发 network error（后端已完成但浏览器流被中断，工具类 run 偶发）——已兜底不卡 UI、内容保留，接入真实 Orchestration 后按其 streamId 重连协议观察。
+- **已知残余**：客户端 SSE 偶发 network error（后端已完成但浏览器流被中断，工具类 run 偶发）——已兜底不卡 UI、内容保留，接入真实 Orchestration 后按其 eventId 重连协议观察。
 - **接入指南**：`docs/agentdock/design/15-orchestration-integration-guide.md`（核心链路 mermaid、关键代码、payload/response 约定、14 条坑清单）。
 
-第十五轮（2026-08-20，断线重连 streamId 与真实 HITL 场景补测）：
+第十五轮（2026-08-20，断线重连 eventId 与真实 HITL 场景补测）：
 
-- **后端升级（demo，非 git 仓库）**：新增 `backend/streaming.py` 自定义 AG-UI 端点——逐事件注入 `rawEvent.streamId`、按 runId 内存缓冲、`action=resume + lastStreamId` 精确回放游标后事件（不重新执行 Core）、未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`；`agent.py` 启用 `interrupt_on={"write_file": True}` 真实 HITL。
-- **断线重连实测**：直连后端首轮 69 事件全部带 streamId；resume 第 40 条游标精确回放 29 条、无模型调用；未知 runId 返回 STREAM_EXPIRED。⚠️ 经 CopilotKit single-route envelope 走纯尾回放会被其 SSE 校验判 INCOMPLETE_STREAM（首事件必须 RUN_STARTED），真实接入用 `agent/connect` 或全量回放 + streamId 去重（前端 reducer 已支持去重）。
+- **后端升级（demo，非 git 仓库）**：新增 `backend/streaming.py` 自定义 AG-UI 端点——逐事件注入 `rawEvent.eventId`、按 runId 内存缓冲、`action=resume + lastEventId` 精确回放游标后事件（不重新执行 Core）、未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`；`agent.py` 启用 `interrupt_on={"write_file": True}` 真实 HITL。
+- **断线重连实测**：直连后端首轮 69 事件全部带 eventId；resume 第 40 条游标精确回放 29 条、无模型调用；未知 runId 返回 STREAM_EXPIRED。⚠️ 经 CopilotKit single-route envelope 走纯尾回放会被其 SSE 校验判 INCOMPLETE_STREAM（首事件必须 RUN_STARTED），真实接入用 `agent/connect` 或全量回放 + eventId 去重（前端 reducer 已支持去重）。
 - **真实 HITL 实测**：write_file 触发真实 langgraph interrupt → 页面渲染 HitlBlock → 批准请求携带真实 interruptId + decisions payload 到达后端；纯 deepagents 层 resume 后工具执行成功（ToolMessage: Updated file）。残余：ag_ui-langgraph 0.0.40 的 HTTP resume 映射与 langchain HITL interrupt 返回值约定不兼容（ResumeEntry 列表 vs decisions 字典；demo 已做 id 注入与解包适配，续跑执行仍需公司服务层实现或升级适配器）——即契约 §8.2/§14“真实 HITL fixture 待冻结”项。
 - **前端 HITL 增强**：legacy `CUSTOM on_interrupt` 记录真实 interruptId；`respondToHitl` 无 pendingInterrupts 时走 `runAgent({ resume: [{interruptId, status, payload:{decisions:[{type:approve|reject}]}}] })` 并携带原 forwardedProps（修复 FAB_ENDPOINT_NOT_CONFIGURED）。
 - 文档更新：`docs/agentdock/design/15-orchestration-integration-guide.md` 新增 §6.1 断线重连、§6.2 真实 HITL 实测与坑 15/16。
 
 第十五轮补充（2026-08-20，权威文档同步两块实测结论）：
 
-- `02-agui-a2ui-runtime-contract.md`：§8.2 写入真实 HITL 事件样本（CUSTOM on_interrupt 结构、resume[] 约定、前端行为、ag_ui-langgraph resume 映射限制）；§10 新增 10.5 断线重连实测（streamId 注入/游标回放/STREAM_EXPIRED/runtime SSE 校验限制/前端不自动 resume 策略）；§14 待冻结项勾选更新。
+- `02-agui-a2ui-runtime-contract.md`：§8.2 写入真实 HITL 事件样本（CUSTOM on_interrupt 结构、resume[] 约定、前端行为、ag_ui-langgraph resume 映射限制）；§10 新增 10.5 断线重连实测（eventId 注入/游标回放/STREAM_EXPIRED/runtime SSE 校验限制/前端不自动 resume 策略）；§14 待冻结项勾选更新。
 - `03-integration-and-acceptance.md`：Case 8（断线恢复）与 Case 9（真实 HITL）验收状态与遗留项更新。
-- `11-e2e-joint-test-report.md`：测试矩阵补 11（断线重连 streamId）与 12（真实 HITL）两行。
+- `11-e2e-joint-test-report.md`：测试矩阵补 11（断线重连 eventId）与 12（真实 HITL）两行。
