@@ -34,6 +34,8 @@ export default {
   'chat.steps': 'الخطوات ({completed}/{total})',
   'chat.activity.agentDelegation': 'تفويض الوكيل',
   'chat.activity.task': 'مهمة',
+  "chat.activity.callInfo": "عرض معلومات الاستدعاء",
+  "chat.activity.viewSkill": "عرض صفحة المهارة",
   "chat.activity.assistantGroup": "مجموعة الوكلاء",
   "chat.activity.groupTasks": "مهام المجموعة",
   "chat.activity.supervisor": "المشرف",

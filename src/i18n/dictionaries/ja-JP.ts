@@ -34,6 +34,8 @@ export default {
   'chat.steps': 'ステップ ({completed}/{total})',
   'chat.activity.agentDelegation': 'エージェント委任',
   'chat.activity.task': 'タスク',
+  "chat.activity.callInfo": "呼び出し情報を表示",
+  "chat.activity.viewSkill": "スキルページを表示",
   "chat.activity.assistantGroup": "エージェントグループ",
   "chat.activity.groupTasks": "グループタスク",
   "chat.activity.supervisor": "スーパーバイザー",

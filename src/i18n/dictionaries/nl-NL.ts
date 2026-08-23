@@ -34,6 +34,8 @@ export default {
   'chat.steps': 'Stappen ({completed}/{total})',
   'chat.activity.agentDelegation': 'Agentdelegatie',
   'chat.activity.task': 'Taak',
+  "chat.activity.callInfo": "Aanroepinfo bekijken",
+  "chat.activity.viewSkill": "Skill-pagina bekijken",
   "chat.activity.assistantGroup": "Agentgroep",
   "chat.activity.groupTasks": "Groepstaken",
   "chat.activity.supervisor": "Supervisor",

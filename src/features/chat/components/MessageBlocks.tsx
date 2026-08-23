@@ -4,6 +4,7 @@ import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { Atom, CheckCircle2, ChevronDown, Crown, Layers, ListTodo, Loader2, Play, Users, Wrench, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { Markdown } from '@/features/chat/components/Markdown';
 import { useI18n } from '@/i18n';
@@ -192,6 +193,7 @@ export const ProcessFold = ({
 export const ToolCallBlock = ({ call }: { call: RuntimeToolCall }) => {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [resultOpen, setResultOpen] = useState(false);
   const duration = formatDuration(call.startedAt, call.finishedAt);
   const statusKeys: Record<RuntimeToolCall['status'], 'chat.toolStatus.called' | 'chat.toolStatus.completed' | 'chat.toolStatus.error' | 'chat.toolStatus.running'> = {
     called: 'chat.toolStatus.called',
@@ -206,6 +208,19 @@ export const ToolCallBlock = ({ call }: { call: RuntimeToolCall }) => {
         label: t(statusKey as 'chat.toolStatus.called'),
       }
     : { color: 'default' as const, label: call.status };
+  // 参数格式化：合法 JSON 缩进展示，否则原文。
+  let formattedArgs = call.args;
+  try {
+    formattedArgs = JSON.stringify(JSON.parse(call.args), null, 2);
+  } catch {
+    // keep raw args
+  }
+  const formattedResult =
+    call.result === undefined
+      ? undefined
+      : typeof call.result === 'string'
+        ? call.result
+        : JSON.stringify(call.result, null, 2);
   return (
     <div className={styles.block}>
       <div className={styles.header} onClick={() => setOpen((value) => !value)}>
@@ -225,13 +240,49 @@ export const ToolCallBlock = ({ call }: { call: RuntimeToolCall }) => {
       </div>
       {open && (
         <div className={styles.content}>
-          <Text weight={500}>{t('chat.toolArgs')}</Text>
-          {call.args || t('chat.toolNoArgs')}
-          {call.result !== undefined && (
-            <>
-              <Text weight={500}>{t('chat.toolResult')}</Text>
-              {typeof call.result === 'string' ? call.result : JSON.stringify(call.result, null, 2)}
-            </>
+          <Flexbox gap={4}>
+            <Text weight={500}>{t('chat.toolArgs')}</Text>
+            <pre
+              style={{
+                margin: 0,
+                overflowX: 'auto',
+                background: cssVar.colorFillQuaternary,
+                borderRadius: 8,
+                padding: 8,
+                fontSize: 12,
+              }}
+            >
+              {formattedArgs || t('chat.toolNoArgs')}
+            </pre>
+          </Flexbox>
+          {formattedResult !== undefined && (
+            <Flexbox gap={4}>
+              <div
+                className={styles.header}
+                onClick={() => setResultOpen((value) => !value)}
+                style={{ padding: '6px 8px' }}
+              >
+                <Text weight={500}>{t('chat.toolResult')}</Text>
+                <Tag color="success" size="small">
+                  {t('chat.toolStatus.completed')}
+                </Tag>
+                <Icon icon={ChevronDown} size={12} />
+              </div>
+              {resultOpen && (
+                <pre
+                  style={{
+                    margin: 0,
+                    overflowX: 'auto',
+                    background: cssVar.colorFillQuaternary,
+                    borderRadius: 8,
+                    padding: 8,
+                    fontSize: 12,
+                  }}
+                >
+                  {formattedResult}
+                </pre>
+              )}
+            </Flexbox>
           )}
         </div>
       )}
@@ -284,8 +335,17 @@ const ACTIVITY_TYPE_META: Record<string, { icon: typeof ListTodo; labelKey: stri
 
 export const ActivityBlock = ({ activity }: { activity: { activityType?: string; description?: string; title?: string; [key: string]: unknown } }) => {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const typeMeta = ACTIVITY_TYPE_META[String(activity.activityType || '')];
   const IconComponent = typeMeta?.icon ?? ListTodo;
+  const isDelegation = activity.activityType === 'agentDock.agentDelegation';
+  const members = Array.isArray(activity.members)
+    ? (activity.members as Array<{ agentId?: string; agentFullName?: string; icon?: string; fab?: string }>)
+    : [];
+  const skills = Array.isArray(activity.skills)
+    ? (activity.skills as Array<{ name?: string; id?: string }>)
+    : [];
+  const [callInfoOpen, setCallInfoOpen] = useState(false);
   return (
     <Block gap={10} padding={14} variant="outlined">
       <Flexbox horizontal align="center" gap={9}>
@@ -295,6 +355,67 @@ export const ActivityBlock = ({ activity }: { activity: { activityType?: string;
         </Text>
       </Flexbox>
       {(activity.description || activity.title) && <Text type="secondary">{activity.description || activity.title}</Text>}
+      {isDelegation && members.length > 0 && (
+        <Flexbox gap={4}>
+          <Flexbox horizontal align="center" gap={6}>
+            <Crown size={12} />
+            <Text fontSize={12} weight={500}>
+              {t('chat.activity.supervisor')}
+            </Text>
+          </Flexbox>
+          {members.map((member) => (
+            <Flexbox
+              horizontal
+              align="center"
+              gap={8}
+              key={`${member.agentId}@${member.fab}`}
+              paddingBlock={2}
+              paddingInline={4}
+            >
+              <Text fontSize={13}>{member.icon || '🤖'}</Text>
+              <Text ellipsis fontSize={13} style={{ flex: 1 }}>
+                {member.agentFullName || member.agentId}
+              </Text>
+              {member.fab && <Tag size="small">{member.fab}</Tag>}
+            </Flexbox>
+          ))}
+        </Flexbox>
+      )}
+      {skills.length > 0 && (
+        <Flexbox horizontal gap={6} wrap="wrap">
+          {skills.map((skill) => (
+            <Tag color="blue" key={skill.id || skill.name}>
+              🧩 {skill.name}
+            </Tag>
+          ))}
+        </Flexbox>
+      )}
+      {(isDelegation || skills.length > 0) && (
+        <Flexbox horizontal gap={6}>
+          {skills.length > 0 && (
+            <Button size="small" onClick={() => navigate('/market/skill')}>
+              {t('chat.activity.viewSkill')}
+            </Button>
+          )}
+          <Button size="small" type="text" onClick={() => setCallInfoOpen((value) => !value)}>
+            {t('chat.activity.callInfo')}
+          </Button>
+        </Flexbox>
+      )}
+      {callInfoOpen && (
+        <pre
+          style={{
+            margin: 0,
+            overflowX: 'auto',
+            background: cssVar.colorFillQuaternary,
+            borderRadius: 8,
+            padding: 8,
+            fontSize: 11,
+          }}
+        >
+          {JSON.stringify(activity, null, 2)}
+        </pre>
+      )}
     </Block>
   );
 };

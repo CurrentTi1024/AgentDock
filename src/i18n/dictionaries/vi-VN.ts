@@ -34,6 +34,8 @@ export default {
   'chat.steps': 'Bước ({completed}/{total})',
   'chat.activity.agentDelegation': 'Ủy quyền đại lý',
   'chat.activity.task': 'Nhiệm vụ',
+  "chat.activity.callInfo": "Xem thông tin gọi",
+  "chat.activity.viewSkill": "Xem trang kỹ năng",
   "chat.activity.assistantGroup": "Nhóm agent",
   "chat.activity.groupTasks": "Tác vụ nhóm",
   "chat.activity.supervisor": "Người giám sát",

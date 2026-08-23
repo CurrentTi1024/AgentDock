@@ -32,7 +32,26 @@ export async function* createAgentRuntimeMockEvents(input: RunAgentInput, signal
   if (input.forwardedProps.group) {
     yield event({ type: 'CUSTOM_EVENT', name: 'agentDock.groupTasks', messageId: `group-tasks-${input.runId}`, value: { description: '群组汇总：飞行数据分析 Agent 与报告 Agent 已并行完成。', status: 'completed' } });
   }
-  yield event({ type: 'ACTIVITY_SNAPSHOT', messageId: `activity-${input.runId}`, activityType: input.forwardedProps.group ? 'agentDock.agentDelegation' : 'agentDock.task', content: { status: 'completed', fab } });
+  yield event({
+    type: 'ACTIVITY_SNAPSHOT',
+    messageId: `activity-${input.runId}`,
+    activityType: input.forwardedProps.group ? 'agentDock.agentDelegation' : 'agentDock.task',
+    content: {
+      status: 'completed',
+      fab,
+      ...(input.forwardedProps.group
+        ? {
+            members: input.forwardedProps.group.members.map((member) => ({
+              agentId: member.agentId,
+              agentFullName: member.agentId,
+              fab: member.fab,
+              icon: '🤖',
+            })),
+            skills: [{ id: 'flight-data', name: '飞行数据分析' }],
+          }
+        : {}),
+    },
+  });
   yield event({ type: 'TEXT_MESSAGE_START', messageId: assistantId, role: 'assistant' });
   const text = '今天的飞行测试整体稳定。发现 09:42 振动峰值和 10:17 温度跃升两处短时异常，建议复核原始传感器数据并加入下一次试飞检查清单。';
   for (const token of text.match(/.{1,3}/g) || []) { await delay(24, signal); yield event({ type: 'TEXT_MESSAGE_CONTENT', messageId: assistantId, delta: token }); }

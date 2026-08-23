@@ -34,6 +34,8 @@ export default {
   'chat.steps': 'Passaggi ({completed}/{total})',
   'chat.activity.agentDelegation': 'Delega agente',
   'chat.activity.task': 'Attività',
+  "chat.activity.callInfo": "Vedi info chiamata",
+  "chat.activity.viewSkill": "Vedi pagina skill",
   "chat.activity.assistantGroup": "Gruppo di agenti",
   "chat.activity.groupTasks": "Attività di gruppo",
   "chat.activity.supervisor": "Supervisore",

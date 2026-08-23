@@ -34,6 +34,8 @@ export default {
   'chat.steps': '단계 ({completed}/{total})',
   'chat.activity.agentDelegation': '에이전트 위임',
   'chat.activity.task': '작업',
+  "chat.activity.callInfo": "호출 정보 보기",
+  "chat.activity.viewSkill": "스킬 페이지 보기",
   "chat.activity.assistantGroup": "에이전트 그룹",
   "chat.activity.groupTasks": "그룹 작업",
   "chat.activity.supervisor": "슈퍼바이저",

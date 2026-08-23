@@ -34,6 +34,8 @@ export default {
   'chat.steps': '工作流步骤（{completed}/{total}）',
   'chat.activity.agentDelegation': 'Agent 委派',
   'chat.activity.task': '任务',
+  "chat.activity.callInfo": "查看调用信息",
+  "chat.activity.viewSkill": "查看技能页面",
   "chat.activity.assistantGroup": "Agent 群组",
   "chat.activity.groupTasks": "群组任务",
   "chat.activity.supervisor": "监督者",

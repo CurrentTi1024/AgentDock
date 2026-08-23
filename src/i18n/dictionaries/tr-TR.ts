@@ -34,6 +34,8 @@ export default {
   'chat.steps': 'Adımlar ({completed}/{total})',
   'chat.activity.agentDelegation': 'Ajan delegasyonu',
   'chat.activity.task': 'Görev',
+  "chat.activity.callInfo": "Çağrı bilgilerini gör",
+  "chat.activity.viewSkill": "Yetenek sayfasını gör",
   "chat.activity.assistantGroup": "Ajan grubu",
   "chat.activity.groupTasks": "Grup görevleri",
   "chat.activity.supervisor": "Denetçi",

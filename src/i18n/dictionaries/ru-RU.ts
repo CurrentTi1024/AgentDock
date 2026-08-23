@@ -34,6 +34,8 @@ export default {
   'chat.steps': 'Шаги ({completed}/{total})',
   'chat.activity.agentDelegation': 'Делегирование агента',
   'chat.activity.task': 'Задача',
+  "chat.activity.callInfo": "Просмотр информации о вызове",
+  "chat.activity.viewSkill": "Просмотр страницы навыка",
   "chat.activity.assistantGroup": "Группа агентов",
   "chat.activity.groupTasks": "Групповые задачи",
   "chat.activity.supervisor": "Супервайзер",

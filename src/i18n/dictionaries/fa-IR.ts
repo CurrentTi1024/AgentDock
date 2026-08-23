@@ -34,6 +34,8 @@ export default {
   'chat.steps': 'مراحل ({completed}/{total})',
   'chat.activity.agentDelegation': 'واگذاری عامل',
   'chat.activity.task': 'وظیفه',
+  "chat.activity.callInfo": "مشاهده اطلاعات فراخوانی",
+  "chat.activity.viewSkill": "مشاهده صفحه مهارت",
   "chat.activity.assistantGroup": "گروه عامل‌ها",
   "chat.activity.groupTasks": "وظایف گروهی",
   "chat.activity.supervisor": "ناظر",

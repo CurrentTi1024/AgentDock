@@ -31,6 +31,8 @@ export default {
   'chat.steps': 'Steps ({completed}/{total})',
   'chat.activity.agentDelegation': 'Agent delegation',
   'chat.activity.task': 'Task',
+  "chat.activity.callInfo": "View call info",
+  "chat.activity.viewSkill": "View skill page",
   "chat.activity.assistantGroup": "Agent group",
   "chat.activity.groupTasks": "Group tasks",
   "chat.activity.supervisor": "Supervisor",
