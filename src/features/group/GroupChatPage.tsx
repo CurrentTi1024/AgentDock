@@ -442,7 +442,10 @@ const GroupChatPage = () => {
                     {t('workspace.group.members')}
                   </Tag>
                   {run && (
-                    <Tag color={run.status === 'running' ? 'processing' : run.status === 'error' ? 'error' : 'success'} size="small">
+                    <Tag
+                      color={run.status === 'running' ? 'processing' : run.status === 'error' ? 'error' : run.status === 'cancelled' ? 'default' : 'success'}
+                      size="small"
+                    >
                       {run.status}
                     </Tag>
                   )}
@@ -453,7 +456,10 @@ const GroupChatPage = () => {
           right={
             <Flexbox horizontal align="center" gap={4}>
               {run && (
-                <Tag color={run.status === 'running' ? 'processing' : run.status === 'error' ? 'error' : 'success'} size="small">
+                <Tag
+                  color={run.status === 'running' ? 'processing' : run.status === 'error' ? 'error' : run.status === 'cancelled' ? 'default' : 'success'}
+                  size="small"
+                >
                   {run.status}
                 </Tag>
               )}
