@@ -64,7 +64,7 @@ Browser（LobeHub 风格 UI，headless hooks 驱动）
 ### 方案 B：纯自研（不引入 Copilot Runtime/Provider）
 
 ```text
-Browser（自研 SSE 客户端/@ag-ui/client + runReducer + 独立 A2UI renderer）
+Browser（自研 runStore 客户端/@ag-ui/client + runReducer + 独立 A2UI renderer）
   → /api/ag-ui/{fab}（需按 FAB 动态路由到 {fab}/ag-ui）
   → Orchestration FastAPI /ag-ui
 ```
@@ -130,7 +130,7 @@ AgentDockProjection（纯函数，无副作用）
 
 ### 5.1 结论
 
-**生产环境由 CopilotKit 官方 transport 解析，前端订阅 `agent` 事件；不保留自研 SSE 解析作为生产路径。**
+**生产环境由 CopilotKit 官方 transport 解析，前端订阅 `agent` 事件；不保留自研 runStore 解析作为生产路径。**
 
 理由：官方 transport 与 runtime envelope、HITL、A2UI、connect/stop 是一个闭环；自研解析器会在事件裁剪/去重/恢复上与官方行为产生两套实现，是状态冲突的另一来源。
 
@@ -143,7 +143,7 @@ AgentDockProjection（纯函数，无副作用）
   - `onRunStartedEvent` → 记录 `runId`（官方客户端生成）。
   - `onRunFinishedEvent/onRunErrorEvent` → 终态 + 落盘。
   - `onCustomEvent/onRawEvent` → 诊断日志。
-- `parseSseStream`/`runReducer` 仅保留给 Mock 联调与离线 fixture 测试，并在代码注释与文档中标注“非生产路径”。
+- `runReducer`/`runReducer` 仅保留给 Mock 联调与离线 fixture 测试，并在代码注释与文档中标注“非生产路径”。
 
 ### 5.3 runId / eventId
 
@@ -317,7 +317,7 @@ OAuth2 Proxy 有两种可落地的放置方式：
    - 可选项：托管 Vite dist 静态资源；若公司用 CDN/nginx 托管 SPA，则不需要静态托管，本服务只暴露 `/api/copilotkit`。
    - 不做：`/api/*` 到 Agent Registry 的反向代理（OAuth2 Proxy 负责）。
    - 同服务说明：前端 `runtimeUrl="/api/copilotkit"` 与这个 handler 同源同进程，不存在独立 runtime URL；Runtime 到 Orchestration 的出站方式见 §7.5（方式 A 直连 / 方式 B 经 OAuth2 Proxy 静态 path）。
-2. 前端：Provider + `useAgent`/`useCopilotKit` 替换 `agentRuntimeService.stream`；删除生产路径的 `parseSseStream`/`runReducer` 调用（保留 Mock 用）。
+2. 前端：Provider + `useAgent`/`useCopilotKit` 替换 `agentRuntimeService.stream`；删除生产路径的 `runReducer`/`runReducer` 调用（保留 Mock 用）。
 3. 投影层：`RuntimeRunState` 改由 agent 事件订阅生成；IndexedDB 改由订阅写入。
 4. A2UI：catalog + renderer + interceptor；Mock 数据同步升级为 v0.9 operations。
 5. HITL：与后端冻结 wire 后接入官方 hooks；补 Intervention 各模式 UI。

@@ -8,9 +8,9 @@
 | 模块 | 文件 | 状态 |
 |---|---|---|
 | R1 协议入口 | `server/index.ts`、`server/copilot-runtime/fabRoutingAgent.ts`、`fabProxy.ts`(legacy) | ✅ 已 review，P0 已修 |
-| R2 前端传输 | `src/api/runtime/sse.ts`、`agentRuntimeService.ts`、`runtimeConfig.ts` | ✅ 已 review（自研仅 mock/direct） |
+| R2 前端传输 | `agentRuntimeService.ts`、`runtimeConfig.ts` | ✅ 已 review（自研 runStore 仅 mock；`sse.ts` 已随 direct 移除） |
 | R3 状态机 | `src/api/runtime/types.ts`、`runReducer.ts`、`src/stores/runStore.ts` | ✅ 已 review，P0 已修（orderedBlocks/CHUNK） |
-| R4 官方 headless | `src/features/chat/useAgentDockConversation.ts` | ✅ 已 review，P0 已修（HITL/restore/A2UI shape/direct 回退） |
+| R4 官方 headless | `src/features/chat/useAgentDockConversation.ts` | ✅ 已 review，P0 已修（HITL/restore/A2UI shape） |
 | R5 页面装配 | `src/features/chat/ChatPage.tsx`、`providers.tsx` | ✅ 已 review，P0 已修（发送清空/去重 surface） |
 | R6 信息粒度渲染 | `MessageBlocks.tsx`、`Markdown.tsx`、`ChatItem.tsx`、`a2ui/catalog.tsx` | ✅ 已 review，P0 已修（顺序渲染/占位符） |
 | R7 持久化 | `src/api/session/sessionHistoryService.ts` | ✅ 已 review，P1 项保留 |
@@ -87,12 +87,12 @@ Browser（CopilotKit transport）
 | `fabProxy.ts`（旧自研转发）仍留在仓库 | P2 | 保留作 legacy 参考，标注 deprecated，不再被生产引用 |
 | FAB URL 协议不强制 | - | ✅ 按公司内网规范；代码不校验 http/https |
 
-### 4.2 `sse.ts` / `agentRuntimeService.ts`（R2）
+### 4.2 `agentRuntimeService.ts`（R2）
 
 | 发现 | 级别 | 处理 |
 |---|---|---|
-| 自研 SSE 解析器只保留给 mock / direct；http+proxy 已走官方 transport | - | ✅ 已标注，`CopilotHeadlessHttpService` 为 legacy 入口 |
-| `parseSseStream` 不支持 `data:` 多行合并后的事件字段超长截断（无上限） | P2 | 保留，真实后端联调观察 |
+| 自研 runStore/reducer 只保留给 mock；http+proxy 已走官方 transport | - | ✅ `CopilotHeadlessHttpService`（direct）已删除 |
+| `runReducer` 不支持 `data:` 多行合并后的事件字段超长截断（无上限） | P2 | 保留，真实后端联调观察 |
 | mock `createAgentRuntimeMockEvents` 的 HITL 先于 tool/text，便于演示 | - | 保留 |
 
 ### 4.3 `types.ts` / `runReducer.ts` / `runStore.ts`（R3）
@@ -109,7 +109,7 @@ Browser（CopilotKit transport）
 
 | 发现 | 级别 | 处理 |
 |---|---|---|
-| http+direct 模式误走官方 provider（官方直连需 Enterprise） | P0 | ✅ `useOfficial` 仅 proxy；direct 回退 runStore 自研 SSE |
+| direct 模式误走官方 provider（官方直连需 Enterprise） | P0 | ✅ direct 已移除；`useOfficial` 仅在 http（proxy）生效，mock 走自研 runStore |
 | 标准 HITL（`RUN_FINISHED outcome=interrupt`）未投影为暂停 UI | P0 | ✅ 已投影 `agentDock.hitl` activity + status=paused |
 | legacy `on_interrupt` 未订阅 | P0 | ✅ 已加 `onCustomEvent` 处理 |
 | 刷新恢复后 agent.messages 为空，下一轮丢上下文 | P0 | ✅ `restore` 用 checkpoint 回填 `agent.setMessages` |
@@ -152,7 +152,7 @@ Browser（CopilotKit transport）
 - [x] HITL requestId 回传 + 标准/legacy 双 wire 投影
 - [x] Markdown、STEP、Activity、A2UI catalog
 - [x] IndexedDB 全量历史（打开恢复、清空即空）
-- [x] direct 模式回退自研 SSE，避免误用官方直连
+- [x] direct 模式已移除；mock 走自研 runStore，避免误用官方直连
 
 ### P1（联调前建议完成）
 
@@ -193,4 +193,4 @@ curl -sS -X POST http://127.0.0.1:3000/api/copilotkit \
   -d '{"method":"info","params":{},"body":{}}'
 ```
 
-浏览器侧：`VITE_SERVICE_MODE=http` + `VITE_AGENT_RUNTIME_TRANSPORT=proxy`，Network 检查 `POST /api/copilotkit` 的 SSE 事件序列：`RUN_STARTED → STEP_STARTED → REASONING_* → TOOL_CALL_* → ACTIVITY_SNAPSHOT(a2ui-surface) → TEXT_MESSAGE_* → RUN_FINISHED`。
+浏览器侧：`VITE_SERVICE_MODE=http`（对话 proxy 走 `/api/copilotkit`），Network 检查 `POST /api/copilotkit` 的 SSE 事件序列：`RUN_STARTED → STEP_STARTED → REASONING_* → TOOL_CALL_* → ACTIVITY_SNAPSHOT(a2ui-surface) → TEXT_MESSAGE_* → RUN_FINISHED`。

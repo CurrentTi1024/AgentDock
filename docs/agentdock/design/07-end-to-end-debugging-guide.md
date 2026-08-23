@@ -2,20 +2,17 @@
 
 > 面向对象：前后端联调工程师  
 > 目标：不改业务代码的前提下，快速定位“消息没出来 / 事件没消费 / 回显不对”发生在哪一跳。  
-> 前置说明：生产认证与路由由 OAuth2 Proxy 统一处理（SSO token 注入 + 固定 path 转发），仓库不自建反向代理。生产实时链路使用官方 single-route envelope（`{ method, params, body }`）；direct 联调使用自研 SSE（body 为全文 `RunAgentInput`）。架构决策见 `design/08`，渲染投影见 `design/09`，端到端 review 见 `design/10`。
+> 前置说明：生产认证与路由由 OAuth2 Proxy 统一处理（SSO token 注入 + 固定 path 转发），仓库不自建反向代理。对话实时链路只有 proxy 一种方式：官方 single-route envelope（`{ method, params, body }`），`direct` 直连联调已移除。架构决策见 `design/08`，渲染投影见 `design/09`，端到端 review 见 `design/10`。
 
 ## 1. 环境矩阵
 
-| 场景 | `VITE_SERVICE_MODE` | `VITE_AGENT_RUNTIME_TRANSPORT` | 实时数据来源 |
-|---|---|---|---|
-| 纯前端开发 | `mock` | `proxy` | Mock Service + Mock SSE（自研 reducer） |
-| 接真实 Registry | `http` | `proxy` | 真实 `/api/*`（经 OAuth2 Proxy 路由到 Registry）；对话仍走 Mock SSE |
-| 接真实 Orchestration（direct） | `http` | `direct` | 浏览器直连 `{fab}/ag-ui`（自研 SSE client，body 为全文 `RunAgentInput`，需 CORS/认证且后端接受全文转发） |
-| 生产形态 | `http` | `proxy` | 浏览器 → `/api/copilotkit`（官方 envelope）→ Runtime → `{fab}/ag-ui` |
+| 场景 | `VITE_SERVICE_MODE` | 实时数据来源 |
+|---|---|---|
+| 纯前端开发 | `mock` | Mock Service + Mock runStore（自研 reducer） |
+| 接真实 Registry | `http` | 真实 `/api/*`（经 OAuth2 Proxy 路由到 Registry）；对话走 proxy `/api/copilotkit` |
+| 生产形态 | `http` | 浏览器 → `/api/copilotkit`（官方 envelope）→ Runtime → `{fab}/ag-ui` |
 
-推荐联调顺序：**Mock 全通 → Registry HTTP → Orchestration direct → 生产 proxy**。
-
-> 注意：`useAgentDockConversation` 的官方 CopilotKit 路径只在 `http + proxy` 生效；`http + direct` 自动回退自研 SSE（避免误用需 Enterprise 的官方直连）。
+推荐联调顺序：**Mock 全通 → Registry HTTP → 生产 proxy**。
 
 ## 2. 配置与启动
 
@@ -24,12 +21,7 @@
 ```env
 VITE_SERVICE_MODE=http
 VITE_API_BASE_URL=/api
-# direct 联调时：
-VITE_AGENT_RUNTIME_TRANSPORT=direct
-VITE_AGENT_ORCHESTRATION_ENDPOINTS_JSON={"F15B":"http://127.0.0.1:8123"}
-# 生产时：
-VITE_AGENT_RUNTIME_TRANSPORT=proxy
-VITE_AGENT_ORCHESTRATION_ENDPOINTS_JSON={}
+# 对话实时传输只有 proxy：浏览器 → /api/copilotkit → Runtime 按 fab 路由上游
 ```
 
 ### 2.2 Copilot Runtime（本地进程）
@@ -141,8 +133,8 @@ curl -sSN -X POST http://127.0.0.1:3000/api/copilotkit \
 
 ### 4.1 三层日志
 
-1. **Browser Network**：查看 `POST /api/copilotkit`（生产）或 direct URL（本地）的响应体，确认 SSE `id:` 与 `data:` 完整。
-2. **`useAgentDockConversation.applyEvent`**（http+proxy）或 **`runStore.execute`**（mock/direct）：断点确认每个事件进入投影。
+1. **Browser Network**：查看 `POST /api/copilotkit` 的响应体，确认 SSE `id:` 与 `data:` 完整。
+2. **`useAgentDockConversation.applyEvent`**（http+proxy）或 **`runStore.execute`**（mock）：断点确认每个事件进入投影。
 3. **`reduceRunEvent`**（`src/api/runtime/runReducer.ts`）：断点确认事件进入对应分支（messages/reasoning/toolCalls/steps/surfaces/activities/status）。
 
 ### 4.2 关键断点位置
@@ -151,7 +143,7 @@ curl -sSN -X POST http://127.0.0.1:3000/api/copilotkit \
 |---|---|---|
 | `src/features/chat/useAgentDockConversation.ts` | `applyEvent()` | 官方事件是否被订阅/投影、checkpoint 是否调度 |
 | `src/api/runtime/runReducer.ts` | `switch` 各 case | 事件映射正确性、orderedBlocks 顺序 |
-| `src/stores/runStore.ts` | `execute()` | mock/direct 路径的 SSE 消费、checkpoint、resume |
+| `src/stores/runStore.ts` | `execute()` | mock 路径的 SSE 消费、checkpoint、resume |
 | `server/copilot-runtime/fabRoutingAgent.ts` | `run()` | FAB 路由、上游 URL、HttpAgent 转发 |
 | `server/index.ts` | `nodeHandler` | envelope 是否命中 single-route、`/info` 是否返回 agents |
 | `src/features/chat/components/MessageBlocks.tsx` | `renderRunBlocks` / `renderStoredBlocks` | 各 block 是否生成、顺序是否正确 |
@@ -168,7 +160,7 @@ curl -sSN -X POST http://127.0.0.1:3000/api/copilotkit \
 刷新恢复逻辑：
 
 - http+proxy：`restore()` 读取最新 checkpoint → 回填 `agent.setMessages` → 若 `running/paused` 且有 `latestEventId`，自动 `agent.connectAgent` 携带 `action=resume + resume.lastEventId`（按 eventId 游标恢复，方向已冻结；后端需按游标过滤）。
-- mock/direct：`runStore.restoreSession` → 若 `status === 'running'` 且 `latestEventId` 存在 → `resume(lastEventId)`。
+- mock：`runStore.restoreSession` → 若 `status === 'running'` 且 `latestEventId` 存在 → `resume(lastEventId)`。
 
 ## 5. A2UI 调试
 
@@ -206,7 +198,7 @@ curl -sSN -X POST http://127.0.0.1:3000/api/copilotkit \
 
 ## 7. 回显（事件消费）自检
 
-浏览器 Console 注入（mock/direct 有 runStore；http+proxy 直接看 Network + applyEvent 断点）：
+浏览器 Console 注入（mock 有 runStore；http+proxy 直接看 Network + applyEvent 断点）：
 
 ```js
 const s = window.__AGENTDOCK__?.runStore?.getState?.().run;
@@ -217,7 +209,7 @@ console.table(s?.rawEvents?.map(e => [e.type, e.messageId || e.toolCallId || '',
 
 ## 8. 上线 Checklist
 
-- [ ] `VITE_SERVICE_MODE=http`、`VITE_AGENT_RUNTIME_TRANSPORT=proxy`、`VITE_AGENT_ORCHESTRATION_ENDPOINTS_JSON={}`。
+- [ ] `VITE_SERVICE_MODE=http`（对话 proxy 走 `/api/copilotkit`）。
 - [ ] CD `deployment.yml` 注入 `AGENT_ORCHESTRATION_BASE_URLS_JSON` + `AGENT_REGISTRY_BASE_URL`。
 - [ ] OAuth2 Proxy：`/api/*` → Registry、`/api/copilotkit` → Runtime（不自行实现反向代理）。
 - [ ] `pnpm run server` 启动的 Runtime 暴露 single-route `/api/copilotkit` + `/healthz`。

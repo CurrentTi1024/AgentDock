@@ -175,7 +175,7 @@
 
 - 人工在文本流中断开连接；前端保存 `runId + latestEventId`（IndexedDB checkpoint）。
 - 官方 proxy 路径：恢复走 Runtime `agent/connect`，携带 `action=resume` + `resume.lastEventId`；**按 eventId 游标恢复（方向已冻结）**，后端需只返回游标之后的事件。
-- 自研 mock/direct 路径：`restoreSession` 用相同 runId + `resume.lastEventId` 恢复。
+- 自研 mock 路径：`restoreSession` 用相同 runId + `resume.lastEventId` 恢复。
 - 只补发缺失事件；文本不重复、不缺失。
 
 ### Case 9：HITL

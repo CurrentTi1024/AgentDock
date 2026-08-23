@@ -51,7 +51,7 @@ import { CopilotKit } from '@copilotkit/react-core/v2';
 |---|---|
 | `agentRuntimeService.stream` | `useAgent({ agentId, runtimeAgentId: 'orchestration', threadId })` + `useCopilotKit().runAgent(...)`（仅 http+proxy） |
 | `createRunInput` | 官方 `RunAgentInput`（forwardedProps 保留 AgentDock 字段） |
-| `parseSseStream` | 官方 transport（single-route envelope） |
+| `runReducer` | 官方 transport（single-route envelope） |
 | `runReducer` | 官方 messages/state 模型 + 自定义投影层 |
 | `runStore.execute/resume/stop` | 官方 run/connect/stop + 本地 IndexedDB 投影保存 |
 
@@ -95,7 +95,7 @@ const handler = createCopilotNodeHandler(fetchHandler);
 | `useSingleEndpoint` | single-route：`POST {basePath}`，envelope `{method, params, body}` | ✅ 生产 |
 | 多路由默认 | `GET /info` + `POST /agent/:id/run` 等 | 需要 `$splat`/catch-all 路由支持 |
 
-前后端 mode 不一致是联调最常见故障之一；生产固定 `useSingleEndpoint` + Runtime `single-route`；direct 模式仅本地（自研 SSE）。
+前后端 mode 不一致是联调最常见故障之一；生产固定 `useSingleEndpoint` + Runtime `single-route`；对话实时传输只有 proxy（direct 已移除），mock 走自研 runStore（离线 UI 测试）。
 
 ## 5. 保留自研 reducer 的边界
 

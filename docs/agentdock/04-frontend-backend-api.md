@@ -76,7 +76,7 @@ type MarketListMode = 'all' | 'permissioned';
 - 除 Agent Chat 的实时接口外，所有普通 REST API 都使用各自固定的后端入口，不得因请求中的 FAB 切换 Base URL。
 - Agent Chat 的 Orchestration Service 按 FAB 部署。生产默认使用 **Copilot Runtime proxy**：Browser 始终访问同源 `/api/copilotkit`，Runtime 根据 `forwardedProps.fab` 选择对应 Base URL 并请求 `{baseUrl}/ag-ui`。
 - FAB 映射由 Copilot Runtime/CD 的服务端变量 `AGENT_ORCHESTRATION_BASE_URLS_JSON` 配置。这样保留 Runtime middleware、认证透传、A2UI Catalog、审计、限流和统一错误处理。
-- 可选 `direct` 模式只用于本地或专项联调：Browser 从 `VITE_AGENT_ORCHESTRATION_ENDPOINTS_JSON` 选择 FAB endpoint。此时 Orchestration Service 必须自行提供 CORS、认证和完整 AG-UI/A2UI/HITL 事件。
+- 对话实时传输只有 `proxy` 一种方式（direct 直连联调已移除）：Browser 始终访问同源 `/api/copilotkit`，不直接选择 FAB endpoint。
 - 未配置请求 FAB 的 Orchestration URL 时必须拒绝执行并返回明确错误，不得静默路由到其他 FAB。
 
 CD 环境变量示例：
@@ -1199,10 +1199,9 @@ env:
 ### 9.1 `runAgentThroughCopilotRuntime`
 
 **Browser HTTP（生产默认 proxy）**：`POST /api/copilotkit`，Runtime 再调用 `POST {orchestrationBaseUrl}/ag-ui`  
-**Browser HTTP（可选 direct）**：按 FAB 调用 `POST {orchestrationBaseUrl}/ag-ui`  
 **响应**：Copilot Runtime/AG-UI 流式响应，不使用普通 envelope
 
-生产 proxy 模式由 Runtime 选择 FAB endpoint；direct 联调模式才由 Browser 选择。两种模式都不得修改事件语义或生成第二个 `runId`。
+生产 proxy 模式由 Runtime 选择 FAB endpoint；任何模式都不得修改事件语义或生成第二个 `runId`。
 
 **生产 proxy 请求体是官方 single-route envelope**，标准 `RunAgentInput` 位于 `body`：
 
@@ -1221,8 +1220,6 @@ env:
   }
 }
 ```
-
-**direct 联调模式**：直接 POST `{orchestrationBaseUrl}/ag-ui`，body 为标准 `RunAgentInput`（自研 SSE client，需后端接受全文转发）。
 
 ```json
 {
@@ -1300,8 +1297,8 @@ src/mock-data/{user,agentMarket,skillMarket,mcpMarket,...}.ts
 - Service 模式默认取 `VITE_SERVICE_MODE`；设置页「开发预览环境」可运行时切换 `mock`/`http`（持久化到 `localStorage` 的 `agentdock-service-mode`），两种实现仍返回相同 `data` 类型，不改变本契约。
 - Agent、Skill、MCP 的 HTTP Service 经 OAuth2 Proxy 访问同一个 Agent Registry（同源 `/api/*`），不自行按 FAB 选择地址。
 - 市场页面先通过 `getFabOptions` 获取 FAB 选项与默认 FAB，Agent/Skill/MCP 分类/列表/详情请求必须携带当前 FAB。
-- 生产 proxy 由 `@copilotkit/react-core/v2` transport 直接消费 `/api/copilotkit`（single-route envelope）；`agentRuntimeService`（自研 SSE）仅用于 mock/direct，不套普通业务 API envelope。
-- 生产环境中 `agentRuntimeService` 只提交 `fab`；FAB 到 Orchestration Base URL 的选择由 App Server Runtime 完成。仅本地专项联调允许启用 `direct` transport。
+- 生产 proxy 由 `@copilotkit/react-core/v2` transport 直接消费 `/api/copilotkit`（single-route envelope）；`agentRuntimeService`（mock runStore）仅用于离线 UI 测试，不套普通业务 API envelope。
+- 生产环境中 `agentRuntimeService` 只提交 `fab`；FAB 到 Orchestration Base URL 的选择由 App Server Runtime 完成。
 - IndexedDB 由 `sessionHistoryService` 封装，不模拟成 FastAPI 接口。
 
 ## 11. 本月明确不提供的 API

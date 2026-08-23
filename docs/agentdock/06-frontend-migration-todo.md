@@ -214,7 +214,7 @@ src/
 |---|---|---|
 | M0 基础迁移组件 | 已完成 | NavHeader/SideBarLayout/SideBarHeaderLayout/NavItem/PublishedTime/WideScreenContainer |
 | M1 应用壳与导航 | 已完成 | NavPanelDraggable + DesktopLayoutContainer + HomeSidebar + 本月模式开关 + 侧栏折叠/展开（状态持久化） |
-| M2 对话页 | 已完成 | ChatHeader/ChatItem/ChatInput/MessageBlocks/Welcome；官方 CopilotKit v2 headless（http+proxy）+ 自研 SSE（mock/direct）；IndexedDB v3 全量历史 |
+| M2 对话页 | 已完成 | ChatHeader/ChatItem/ChatInput/MessageBlocks/Welcome；官方 CopilotKit v2 headless（http+proxy）+ 自研 runStore（mock）；IndexedDB v3 全量历史 |
 | M3 市场列表 | 已完成 | 三类市场 FAB 前置（getFabOptions→分类/列表），排序（sortBy 下拉 + 升降序）、antd 分页（右下角）、emoji 分类、LobeHub 列表项（skill/mcp 数量 + FAB 版本右上角 + 时间到时分/ownerName） |
 | M4 详情页 | 已完成 | 三类市场详情 FAB 前置；Agent 展平单版本 Version 页；Skill/MCP 单版本 |
 | M5 Skill 创建页 | 已完成 | 表单/步骤/发布态，接入 createAndPublishSkill mock |

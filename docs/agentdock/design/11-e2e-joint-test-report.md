@@ -21,7 +21,7 @@ Browser (Chrome, http://127.0.0.1:3000)
 
 | 项 | 值 |
 |---|---|
-| 前端构建 | `VITE_CHAT_MODE=http`、`VITE_SERVICE_MODE=mock`、`VITE_AGENT_RUNTIME_TRANSPORT=proxy`（写入 agent-dock/.env） |
+| 前端构建 | `VITE_CHAT_MODE=http`、`VITE_SERVICE_MODE=mock`（写入 agent-dock/.env） |
 | Runtime 服务端 | `AGENT_ORCHESTRATION_BASE_URLS_JSON={"F15B":"http://127.0.0.1:8123"}` |
 | 后端模型 | `OPENAI_MODEL=deepseek-v4-flash`、`OPENAI_BASE_URL=https://api.deepseek.com/`、`OPENAI_USE_RESPONSES_API=true`、`OPENAI_REASONING_EFFORT=none`（A2UI 需要；thinking 模式不接受 forced tool_choice） |
 

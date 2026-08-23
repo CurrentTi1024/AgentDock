@@ -383,7 +383,7 @@ src/features/chat/
 
 ## 9. 已落地代码（2026-08-19）
 
-- `src/features/chat/useAgentDockConversation.ts`：双模式对话 hook（mock 走自研 SSE/reducer，http 走官方 `useAgent` + `useCopilotKit`），事件经 `agent.subscribe` 投影为 `RuntimeRunState`。
+- `src/features/chat/useAgentDockConversation.ts`：双模式对话 hook（mock 走自研 runStore/reducer，http 走官方 `useAgent` + `useCopilotKit`），事件经 `agent.subscribe` 投影为 `RuntimeRunState`。
 - `src/features/chat/a2ui/catalog.tsx`：`createCatalog` 定义 `metricCard / actionButton` + LobeHub 风格渲染器，Provider `a2ui={{ catalog }}` 启用官方 renderer。
 - `src/app/providers.tsx`：`<CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint a2ui={{ catalog }}>`。
 - `src/features/chat/components/Markdown.tsx`、`WorkflowStepsBlock`、`ActivityBlock`：LobeHub 风格渲染补齐。

@@ -61,7 +61,7 @@ type ConversationContext = {
 | `threadId` | AgentDock | 创建会话时 `crypto.randomUUID()` 固化进 `SessionRecord.threadId`；hook 兜底 `thread-${sessionId}` | DeepAgents 上下文线程；同一会话内所有 run 共用 | Dexie `sessions.threadId`；后端保存上下文 |
 | `runId` | AG-UI Client | 每次发送 `crypto.randomUUID()`（mock 在 `createRunInput`，官方在 `send()`） | 一次用户提问/Agent 执行；Orchestration 必须沿用，不得新建 | Dexie `checkpoints.runId`（主键）+ `snapshot.runId`；后端执行记录 |
 | `parentRunId` | AG-UI Client | A2UI Action 新 run 时指向产生 Surface 的 runId（mock 已设；官方 transport 暂不传，见 4.4） | 子执行（A2UI Action 新 run）的父 run | 按需 |
-| `eventId` | Orchestration/Redis | 后端 SSE `id:` 或 `rawEvent.eventId`，前端 `parseSseStream` 提取 | 一个 run 内事件游标；按 eventId 游标恢复（已冻结方向） | 每个 `RuntimeRunState` 独立维护 `latestEventId + processedEventIds`；Dexie `checkpoints.latestEventId` |
+| `eventId` | Orchestration/Redis | 后端 SSE `id:` 或 `rawEvent.eventId`，前端 `runReducer` 提取 | 一个 run 内事件游标；按 eventId 游标恢复（已冻结方向） | 每个 `RuntimeRunState` 独立维护 `latestEventId + processedEventIds`；Dexie `checkpoints.latestEventId` |
 | `messageId` | 事件产生方 | 后端事件自带 | 一段文本/reasoning/activity 消息 | IndexedDB 可见历史（`messages.id`） |
 | `toolCallId` | Agent/Core | 后端事件自带 | 一次工具调用 | 可见消息块 |
 | `surfaceId` | A2UI 工具 | 后端/中间件生成 | 一个 A2UI Surface | 可见消息块/快照 |
@@ -129,12 +129,8 @@ AG-UI 规范中 `RunAgentInput.runId` 由 **调用方（Client/Application）提
 
 ### 4.2 浏览器传输层
 
-`runtimeConfig.resolveAgentRuntimeUrl(fab)`：
-
-| 模式 | 结果 |
-|---|---|
-| `proxy`（默认） | 固定 `/api/copilotkit` |
-| `direct`（本地联调） | `VITE_AGENT_ORCHESTRATION_ENDPOINTS_JSON[fab] + '/ag-ui'`；未配置且非 http 模式时回退 `/mock-orchestration/{fab}/ag-ui` |
+对话实时传输只有 `proxy` 一种方式：Browser 固定走 `/api/copilotkit`，FAB 路由由 Runtime 完成。
+`direct`（自研 SSE 直连上游 `/ag-ui`）已移除；`agentRuntimeService` 仅用于 mock（离线 UI 测试）。
 
 ### 4.3 Runtime（Copilot Runtime Node 服务）转发
 
@@ -149,9 +145,9 @@ AG-UI 规范中 `RunAgentInput.runId` 由 **调用方（Client/Application）提
 
 | 逻辑动作 | `forwardedProps.action` | 关键字段 | 当前状态 |
 |---|---|---|---|
-| 发起执行 | `run` | `sessionId`、`agentId` 或 `group`、`fab`、当前 message | ✅ 官方 `agent/run`（proxy）/ 自研 SSE（direct） |
-| 断线恢复 | `resume` | `fab`、相同 `runId`、`resume.lastEventId` | ✅ mock/direct `resume(lastEventId)`；http+proxy `connectAgent` 携带 `lastEventId`（方向已冻结：按 eventId 游标恢复） |
-| 停止 | `stop` | `fab`、相同 `threadId/runId` | ✅ 官方 `agent/stop`（proxy）/ 本地 abort（direct） |
+| 发起执行 | `run` | `sessionId`、`agentId` 或 `group`、`fab`、当前 message | ✅ 官方 `agent/run`（proxy）/ 自研 runStore（mock） |
+| 断线恢复 | `resume` | `fab`、相同 `runId`、`resume.lastEventId` | ✅ mock `resume(lastEventId)`；http+proxy `connectAgent` 携带 `lastEventId`（方向已冻结：按 eventId 游标恢复） |
+| 停止 | `stop` | `fab`、相同 `threadId/runId` | ✅ 官方 `agent/stop`（proxy）/ 本地 abort（mock） |
 | HITL 响应 | `hitlResponse` | `fab`、`requestId`、mode、decision/input 等 | ✅ 标准 `resume[]` + legacy 后备；wire 待冻结 |
 | A2UI Action | `a2uiAction` | `fab`、`surfaceId`、`actionName`、`context`、`sourceComponentId` | ✅ 官方 `a2uiAction.userAction`（renderer bridge）/ 自研后备 |
 
@@ -162,8 +158,7 @@ AG-UI 规范中 `RunAgentInput.runId` 由 **调用方（Client/Application）提
 ```env
 VITE_SERVICE_MODE=mock|http
 VITE_API_BASE_URL=/api
-VITE_AGENT_RUNTIME_TRANSPORT=proxy
-VITE_AGENT_ORCHESTRATION_ENDPOINTS_JSON={}   # 仅 direct 联调
+# 对话实时传输只有 proxy（/api/copilotkit）；direct 已移除
 ```
 
 ### 5.2 服务端 / CD（`deployment.yml` 示例）
@@ -198,10 +193,10 @@ env:
 | # | 缺口 | 优先级 | 行动项 |
 |---|---|---|---|
 | R1 | ~~无 Copilot Runtime HTTP 挂载~~ | ✅ | `server/index.ts` + `FabRoutingAgent`；`pnpm run server` 启动；OAuth2 Proxy 配置见 `design/08` §7.3 |
-| R2 | ~~自研 transport 与官方 envelope 不一致~~ | ✅ | 官方 single-route envelope 已接入；自研 SSE/reducer 仅 mock/direct |
+| R2 | ~~自研 transport 与官方 envelope 不一致~~ | ✅ | 官方 single-route envelope 已接入；自研 runStore/reducer 仅 mock |
 | R3 | ~~HITL requestId 硬编码~~ | ✅ | activity/interrupt 中读取并回传 |
 | R4 | ~~新会话 threadId 退化~~ | ✅ | `createSession` 固化 `crypto.randomUUID()` |
-| R5 | ~~direct mock 回退死链~~ | ✅ | `useOfficial` 仅 proxy；mock/direct 统一走 `agentRuntimeService`（mock stream / 自研 SSE） |
+| R5 | ~~direct mock 回退死链~~ | ✅ | `useOfficial` 仅 proxy；mock 统一走 `agentRuntimeService`（mock stream / 自研 runStore） |
 | R6 | `stop` 终态确认 | P1(联调) | 官方 `agent/stop` 已接入；上游终止事件形态待后端确认 |
 | R7 | ~~无 /info 发现端点~~ | ✅ | 官方 Runtime `/info` 已验证（agents + a2uiEnabled） |
 
