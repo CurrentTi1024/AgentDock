@@ -828,3 +828,69 @@ test('getMessagesPage：按 run 整轮分页，文本不重叠、顺序正确、
   assert.equal(hasMore, false, '翻到最旧后 hasMore=false');
   assert.equal(textIdsByRun.size, 5, '5 轮全部覆盖');
 });
+
+test('消息分页压力：20 轮混排过程块，翻页无漏无重且整体有序', async () => {
+  await sessionDatabase.delete();
+  await sessionDatabase.open();
+  const sessionId = 'session-page-stress';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'page-stress',
+    type: 'agent',
+  });
+  for (let run = 1; run <= 20; run += 1) {
+    const { input, snapshot } = buildSingleAgentRun(sessionId, `stress-run-${run}`);
+    await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...snapshot, status: 'running' as const });
+  }
+
+  // 全量基线：40 条文本。
+  const all = await sessionHistoryService.getMessages(sessionId);
+  const allTextIds = new Set(all.filter((record) => record.kind === 'text').map((record) => record.id));
+  assert.equal(allTextIds.size, 40);
+  const allSequences = all.map((record) => record.sequence);
+  assert.ok(
+    allSequences.every((value, index) => index === 0 || value > allSequences[index - 1]),
+    '全量读取 sequence 严格递增（同标签页内无回绕）',
+  );
+
+  // limit=7 翻页：无漏、无重、跨页严格更早。
+  const seenTextIds = new Set<string>();
+  let cursor: number | undefined;
+  let hasMore = true;
+  let prevMin = Number.POSITIVE_INFINITY;
+  let pages = 0;
+  while (hasMore && pages < 20) {
+    pages += 1;
+    const page = await sessionHistoryService.getMessagesPage(
+      sessionId,
+      cursor === undefined ? { limit: 7 } : { beforeSequence: cursor, limit: 7 },
+    );
+    assert.ok(page.records.length > 0, 'hasMore 为真时页面不为空');
+    const pageMax = page.records[page.records.length - 1].sequence;
+    assert.ok(pageMax < prevMin, '跨页整体严格更早（新页全部旧于旧页最旧行）');
+    prevMin = page.records[0].sequence;
+    for (const record of page.records) {
+      if (record.kind !== 'text') continue;
+      assert.equal(seenTextIds.has(record.id), false, '文本跨页不重复');
+      seenTextIds.add(record.id);
+    }
+    const pageRunIds = [...new Set(page.records.map((record) => record.runId).filter(Boolean))];
+    for (const runId of pageRunIds) {
+      assert.ok(
+        page.records.some((record) => record.kind === 'tool' && record.runId === runId),
+        `${runId} 整轮完整`,
+      );
+    }
+    hasMore = page.hasMore;
+    cursor = page.nextBeforeSequence;
+  }
+  // 每轮 2 条文本：limit=7 截断在轮中间时会补全整轮（每页 8 条文本），5 页翻尽。
+  assert.equal(pages, 5, '每页按整轮补齐，40 条文本 / 每页 8 条 = 5 页');
+  assert.deepEqual([...seenTextIds].sort(), [...allTextIds].sort(), '翻页覆盖全部文本，无漏');
+  assert.equal(hasMore, false, '翻到最旧后 hasMore=false');
+});

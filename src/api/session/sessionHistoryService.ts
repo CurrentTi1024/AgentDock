@@ -62,8 +62,18 @@ db.on('versionchange', () => {
   void db.close();
 });
 
-let sequenceSeed = 0;
-const nextSequence = () => Date.now() * 1000 + (sequenceSeed = (sequenceSeed + 1) % 1000);
+let sequenceSeed = Math.floor(Math.random() * 1000);
+/**
+ * 会话内单调递增的 sequence（时间戳 ×1000 + 递增种子）：
+ * 种子以随机偏移起步且不取模，保证同一标签页内严格单调（消除同毫秒回绕）；
+ * 跨标签页同毫秒并发写同一会话时碰撞概率从“必然”降到约 1/1000（随机偏移相同才撞）。
+ * 注：同一会话的多标签页并发流式写本身不是产品支持场景（防重入门禁在同一标签页内），
+ * 该随机化只是把“理论上可能撞”压到可忽略。
+ */
+const nextSequence = () => {
+  sequenceSeed = sequenceSeed + 1;
+  return Date.now() * 1000 + sequenceSeed;
+};
 // 按 runId 分槽的待落盘快照：多轮 run 并发/快速连续发送时互不覆盖，
 // 防抖空闲后统一 flush，避免只落最后一段或丢消息。
 let pendingCheckpoints = new Map<string, { input: RunAgentInput; sessionId: string; snapshot: RuntimeRunState }>();
@@ -266,15 +276,6 @@ export const sessionHistoryService = {
       .limit(limit)
       .toArray();
     if (texts.length === 0) return { hasMore: false, nextBeforeSequence: undefined, records: [] };
-    const oldestText = texts[texts.length - 1];
-    // 是否存在比最旧文本更早的文本（索引探测，命中即说明还能继续翻页）。
-    const older = await db.messages
-      .where('[sessionId+sequence]')
-      .between([sessionId, 0], [sessionId, oldestText.sequence], true, false)
-      .reverse()
-      .filter((record) => record.kind === 'text')
-      .limit(1)
-      .toArray();
     // 按 runId 装载整轮（文本 + 过程块），保证每轮完整。
     const runIds = [...new Set(texts.map((record) => record.runId).filter((id): id is string => Boolean(id)))];
     const records: SessionMessageRecord[] = [];
@@ -282,8 +283,25 @@ export const sessionHistoryService = {
       const rows = await db.messages.where('runId').equals(runId).toArray();
       records.push(...rows.filter((record) => record.sessionId === sessionId));
     }
+    // 防御兜底：历史数据中可能存在的无 runId 文本行（渲染仍有效），避免被分页漏掉。
+    for (const text of texts) {
+      if (!text.runId) records.push(text);
+    }
     records.sort((a, b) => a.sequence - b.sequence);
-    return { hasMore: older.length > 0, nextBeforeSequence: oldestText.sequence, records };
+    // 游标必须是“页内全局最小 sequence”（整轮的最旧行），而不是“最旧文本”：
+    // 分页在轮中间截断时（如每轮 2 条文本、每页 7 条），最旧文本所在轮的用户文本/过程块
+    // 早于该文本；若游标取最旧文本，下一页会把该轮剩余行再次纳入，造成跨页重复。
+    const nextBeforeSequence = records[0]?.sequence;
+    const older = nextBeforeSequence === undefined
+      ? []
+      : await db.messages
+          .where('[sessionId+sequence]')
+          .between([sessionId, 0], [sessionId, nextBeforeSequence], true, false)
+          .reverse()
+          .filter((record) => record.kind === 'text')
+          .limit(1)
+          .toArray();
+    return { hasMore: older.length > 0, nextBeforeSequence, records };
   },
   /** 删除后重算 lastMessageAt：取会话内 text 行最大 createdAt，无消息回退 createdAt。 */
   async recomputeLastMessageAt(sessionId: string) {
