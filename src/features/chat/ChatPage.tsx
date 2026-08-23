@@ -11,6 +11,7 @@ import { resolveChatAgentId } from '@/features/chat/agentDetail';
 import ChatHeader from '@/features/chat/components/ChatHeader';
 import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
+import FeedbackModal, { type FeedbackTarget } from '@/features/chat/components/FeedbackModal';
 import { MessageActions } from '@/features/chat/components/MessageActions';
 import Welcome from '@/features/chat/components/Welcome';
 import {
@@ -89,6 +90,7 @@ export default function ChatPage() {
   const [editDraft, setEditDraft] = useState('');
   const [composerHeight, setComposerHeight] = useState(0);
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const [feedbackModal, setFeedbackModal] = useState<FeedbackTarget>();
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
   const [mentionsLoading, setMentionsLoading] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<MentionAgent>();
@@ -495,10 +497,11 @@ export default function ChatPage() {
                           onCopy={copyMessage}
                           onDelete={() => deleteMessage(record.id)}
                           onDislike={() =>
-                            void messageFeedbackService.submitMessageFeedback({
-                              ...feedbackTarget,
-                              feedback: 'dislike',
-                              reasonCode: 'incorrect',
+                            setFeedbackModal({
+                              messageId: record.id,
+                              runId: record.runId || '',
+                              sessionId,
+                              threadId: session?.threadId || '',
                             })
                           }
                           onLike={() =>
@@ -561,10 +564,11 @@ export default function ChatPage() {
                         content={answer || ''}
                         onCopy={copyMessage}
                         onDislike={() =>
-                          void messageFeedbackService.submitMessageFeedback({
-                            ...feedbackTarget,
-                            feedback: 'dislike',
-                            reasonCode: 'incorrect',
+                          setFeedbackModal({
+                            messageId: lastLiveMessageId,
+                            runId: run?.runId || '',
+                            sessionId,
+                            threadId: session?.threadId || '',
                           })
                         }
                         onLike={() =>
@@ -665,6 +669,11 @@ export default function ChatPage() {
           </Flexbox>
         </Flexbox>
       )}
+      <FeedbackModal
+        onClose={() => setFeedbackModal(undefined)}
+        open={!!feedbackModal}
+        target={feedbackModal}
+      />
     </Flexbox>
   );
 }
