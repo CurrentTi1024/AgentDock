@@ -1,11 +1,12 @@
 // Adapted from: src/features/ChatInput/Desktop + SendArea + ControlBar (LobeHub canary)
 // 桌面输入区：圆角容器 + 自动高度输入 + 底部发送/停止 + 外部功能行（左工具、右审批模式）。
-import { ActionIcon, Avatar, Button, Flexbox, Select, Tag, Text, TextArea } from '@lobehub/ui';
+import { ActionIcon, Alert, Avatar, Button, Flexbox, Icon, Select, Tag, Text, TextArea } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { ArrowBigUp, CornerDownLeft, Mic, Paperclip, Send, Square } from 'lucide-react';
+import { ArrowBigUp, CornerDownLeft, Loader2, Mic, Paperclip, Send, Square } from 'lucide-react';
 import { type KeyboardEvent, memo, useMemo, useRef, useState } from 'react';
 
 import { type MentionAgent } from '@/api/market/agentMarketService';
+import type { RunStatus } from '@/api/runtime/types';
 import AgentMentionMenu from '@/features/chat/components/AgentMentionMenu';
 import { useI18n } from '@/i18n';
 
@@ -66,6 +67,7 @@ interface ChatInputProps {
   onStop: () => void;
   onSwitchAgent?: (agent: MentionAgent) => void;
   placeholder?: string;
+  runStatus?: RunStatus;
   running: boolean;
   sendDisabled?: boolean;
   switchAgents?: MentionAgent[];
@@ -88,6 +90,7 @@ const ChatInput = memo<ChatInputProps>(
     onStop,
     onSwitchAgent,
     placeholder,
+    runStatus,
     running,
     sendDisabled = false,
     switchAgents,
@@ -115,6 +118,25 @@ const ChatInput = memo<ChatInputProps>(
 
     return (
       <Flexbox gap={0}>
+        {(runStatus === 'running' || runStatus === 'paused') && (
+          <Alert
+            description={t('chat.notice.runningHint')}
+            icon={<Icon spin icon={Loader2} />}
+            showIcon
+            title={t('chat.notice.running')}
+            type="info"
+            variant="borderless"
+          />
+        )}
+        {runStatus === 'cancelled' && (
+          <Alert
+            description={t('chat.notice.interruptedHint')}
+            showIcon
+            title={t('chat.notice.interrupted')}
+            type="warning"
+            variant="borderless"
+          />
+        )}
         <Flexbox className={styles.composer} gap={4} padding={12} style={{ position: 'relative' }}>
           {mentionOpen && (
             <AgentMentionMenu

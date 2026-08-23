@@ -517,6 +517,7 @@ const GroupChatPage = () => {
               onSelectMention={() => undefined}
               onSend={sendInputMessage}
               onStop={() => void stop()}
+              runStatus={run?.status}
             />
           </Flexbox>
         </Flexbox>

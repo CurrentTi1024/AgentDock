@@ -619,6 +619,7 @@ export default function ChatPage() {
               onSend={() => void sendMessage()}
               onStop={() => void stop()}
               onSwitchAgent={(agent) => switchAgent(agent)}
+              runStatus={run?.status}
               switchAgents={mentions}
             />
           </Flexbox>
