@@ -59,15 +59,21 @@ export class FabRoutingAgent extends AbstractAgent {
       throw new Error(`FAB_ENDPOINT_NOT_CONFIGURED: ${fab}`);
     }
     const path = this.config.path ?? '/ag-ui';
-    const upstream = new HttpAgent({
-      headers: this.config.headers,
-      url: `${baseUrl.replace(/\/+$/, '')}${path}`,
-    });
-    return upstream.run(input).pipe(
-      finalize(() => {
-        if (isRunAction) inFlightRuns.delete(key);
-      }),
-    );
+    try {
+      const upstream = new HttpAgent({
+        headers: this.config.headers,
+        url: `${baseUrl.replace(/\/+$/, '')}${path}`,
+      });
+      return upstream.run(input).pipe(
+        finalize(() => {
+          if (isRunAction) inFlightRuns.delete(key);
+        }),
+      );
+    } catch (error) {
+      // 同步抛错时 finalize 不会执行：必须手动释放幂等守卫，避免该 key 永久卡死。
+      if (isRunAction) inFlightRuns.delete(key);
+      throw error;
+    }
   }
 
   override clone(): FabRoutingAgent {

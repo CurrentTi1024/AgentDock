@@ -325,7 +325,7 @@ export const sessionHistoryService = {
   async removeMessages(sessionId: string, ids: string[]) {
     // 快照 messages 的 key 是裸 rawId；调用方可能传 text: 前缀，需归一化后再匹配 checkpoint。
     const rawIdSet = new Set(ids.map((id) => id.replace(/^text:/, '')));
-    await db.transaction('rw', db.messages, db.checkpoints, async () => {
+    await db.transaction('rw', db.messages, db.checkpoints, db.sessions, async () => {
       const all = await db.messages.where('sessionId').equals(sessionId).sortBy('sequence');
       const idsToRemove = new Set<string>();
       for (const id of ids) {
@@ -339,6 +339,13 @@ export const sessionHistoryService = {
         }
       }
       if (idsToRemove.size) await db.messages.bulkDelete([...idsToRemove]);
+      // 记录墓碑：后端线程仍携带被删消息，新一轮快照会把它带回来，
+      // persistRunSnapshot 依据 deletedMessageIds 跳过，避免普通删除后被复活。
+      if (idsToRemove.size) {
+        const session = await db.sessions.get(sessionId);
+        const merged = [...new Set([...(session?.deletedMessageIds ?? []), ...idsToRemove])];
+        await db.sessions.update(sessionId, { deletedMessageIds: merged });
+      }
       const checkpoints = await db.checkpoints.where('sessionId').equals(sessionId).toArray();
       for (const checkpoint of checkpoints) {
         if (Object.keys(checkpoint.snapshot.messages).some((key) => rawIdSet.has(key))) {
