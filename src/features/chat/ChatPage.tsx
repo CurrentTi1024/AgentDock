@@ -124,7 +124,9 @@ export default function ChatPage() {
     sessionId,
     threadId: session?.threadId,
   });
-  const running = run?.status === 'running';
+  // 运行中与 HITL 暂停都视为忙态：发送按钮切换为停止、Enter 不发送、草稿保留，
+  // 避免暂停期间 send 被内部守卫静默拦截（输入框已清空但消息丢失）。
+  const running = run?.status === 'running' || run?.status === 'paused';
   // 只有进行中的 run（running/paused）才走 live 渲染；完成的 run 刷新后按历史消息渲染，
   // 保证最后一条消息也有编辑/重新生成等操作（LobeHub 无“live 消息”概念）。
   const isActiveRun = run?.status === 'running' || run?.status === 'paused';

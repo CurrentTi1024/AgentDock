@@ -139,7 +139,13 @@ const ChatInput = memo<ChatInputProps>(
   }, [agentName, fab, switchAgents]);
 
     const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key === 'Enter' && !event.shiftKey && !sendDisabled) {
+      // IME 组合中按 Enter 是确认候选词：跳过发送，避免消息已发出后输入法把文字重新写回输入框。
+      if (
+        event.key === 'Enter' &&
+        !event.shiftKey &&
+        !sendDisabled &&
+        !event.nativeEvent.isComposing
+      ) {
         event.preventDefault();
         if (!running) onSend();
       }

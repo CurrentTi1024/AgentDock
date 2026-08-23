@@ -437,6 +437,13 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   - 需求：发送消息 / 进入会话时自动定位到最新一条消息（滚到底部）；
   - 实现（ChatPage）：`data-testid="chat-scroll"` 滚动容器 + 贴底跟随（`stickToBottomRef`，距底 <120px 视为贴底）；进入会话/新消息/运行状态/输入区高度变化时贴底即滚到底；发送消息强制贴底；`scrollRestoration='manual'` 避免浏览器恢复把滚动带到历史位置；ResizeObserver 在 A2UI/图片等异步内容渲染后继续跟随；运行结束（live→历史 DOM 重建）时依据 `run-persisted` 落库事件 + 终态标记在重建后重新贴底；用户主动上滑（非贴底）时停止跟随、不被拉回；
   - 实测（真实后端 + 360px 小视口制造真实溢出）：进入会话 gap 49px（输入区留白）、上滑后发送滚到 max、运行中上滑保持顶部不被拉回、结束后重新贴底（st=max）；30/30 测试通过；完整 `pnpm build` 暂被并行会话 WIP（SettingsPage StorageSettings）阻塞，`vite build` 通过。
+- **输入框发送后残留修复（2026-08-24）**：
+  - 现象：用户反馈发送消息后输入框仍留有消息；
+  - 排查：会话页按钮/Enter/mock/首页各路径实测发送后均清空；定位到两个真实缺口：
+    1. **IME 组合态**：中文输入法按 Enter 确认候选词时，旧代码会触发发送并把输入框清空，随后输入法提交把文字重新写回输入框 →「发送后输入框还有消息」。修复：`ChatInput.handleKeyDown` 增加 `!event.nativeEvent.isComposing` 守卫，组合中 Enter 不发送、草稿保留；
+    2. **HITL 暂停态**：`running` 只判 `status==='running'`，暂停时发送按钮可用但 `send()` 内部守卫拦截 → 输入框清空但消息丢失。修复：`running` 纳入 `paused`，暂停期按钮切换为停止、Enter 不发送、草稿保留；
+  - 顺带修复：`HomePage.start()` 发送前补 `setInput('')`（导航后 bfcache/返回不残留，与会话页一致）；
+  - 实测（干净会话 + 真实后端）：IME 组合 Enter 不发送且草稿保留、正常 Enter 发送并清空、运行中 Enter 不发送且草稿保留（按钮为停止）、结束后发送清空、mock HITL 暂停态按钮为停止不可误发；30/30 测试通过。
 
 第十二轮（2026-08-20，前后端联合端到端测试 + 消息组件渲染修复）：
 
