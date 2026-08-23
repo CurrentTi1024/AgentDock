@@ -922,3 +922,87 @@ test('消息分页压力：20 轮混排过程块，翻页无漏无重且整体�
   assert.deepEqual([...seenTextIds].sort(), [...allTextIds].sort(), '翻页覆盖全部文本，无漏');
   assert.equal(hasMore, false, '翻到最旧后 hasMore=false');
 });
+
+/** 构造每轮 1..4 段 user/assistant 文本的自定义快照（验证分页不依赖均匀轮结构）。 */
+const buildVariableRun = (sessionId: string, runId: string, textPairs: number) => {
+  const state = createRunState(runId, `thread-${sessionId}`);
+  for (let index = 0; index < textPairs; index += 1) {
+    const userId = `vuser-${runId}-${index}`;
+    const assistantId = `vassistant-${runId}-${index}`;
+    state.messages[userId] = { content: `u${index}`, id: userId, role: 'user' };
+    state.messageOrder.push(userId);
+    state.messages[assistantId] = { content: `a${index}`, id: assistantId, role: 'assistant' };
+    state.messageOrder.push(assistantId);
+  }
+  state.toolCalls[`vtool-${runId}`] = { args: '{}', status: 'completed' };
+  const input: RunAgentInput = {
+    context: [],
+    forwardedProps: { action: 'run', agentId: 'flight-analysis', fab: 'F15B', sessionId },
+    messages: [],
+    runId,
+    state: {},
+    threadId: `thread-${sessionId}`,
+    tools: [],
+  };
+  return { input, snapshot: { ...state, status: 'running' as const } };
+};
+
+test('消息分页压力（变长文本/轮）：翻页无漏无重且整体有序', async () => {
+  await sessionDatabase.delete();
+  await sessionDatabase.open();
+  const sessionId = 'session-var-page';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'var-page',
+    type: 'agent',
+  });
+  const textCounts = [2, 3, 1, 4, 2, 2, 3, 1, 4, 2, 3, 2, 1, 4, 3];
+  let expectedTexts = 0;
+  for (let index = 0; index < textCounts.length; index += 1) {
+    const { input, snapshot } = buildVariableRun(sessionId, `vrun-${index}`, textCounts[index]);
+    await sessionHistoryService.saveRunCheckpoint(sessionId, input, snapshot);
+    expectedTexts += textCounts[index] * 2;
+  }
+  const all = await sessionHistoryService.getMessages(sessionId);
+  assert.equal(all.filter((record) => record.kind === 'text').length, expectedTexts);
+
+  const seenTextIds = new Set<string>();
+  let cursor: number | undefined;
+  let hasMore = true;
+  let prevMin = Number.POSITIVE_INFINITY;
+  let pages = 0;
+  while (hasMore && pages < 40) {
+    pages += 1;
+    const page = await sessionHistoryService.getMessagesPage(
+      sessionId,
+      cursor === undefined ? { limit: 7 } : { beforeSequence: cursor, limit: 7 },
+    );
+    assert.ok(page.records.length > 0, 'hasMore 为真时页面不为空');
+    assert.ok(
+      page.records[page.records.length - 1].sequence < prevMin,
+      '跨页整体严格更早',
+    );
+    prevMin = page.records[0].sequence;
+    for (const record of page.records) {
+      if (record.kind !== 'text') continue;
+      assert.equal(seenTextIds.has(record.id), false, '文本跨页不重复');
+      seenTextIds.add(record.id);
+    }
+    const pageRunIds = [...new Set(page.records.map((record) => record.runId).filter(Boolean))];
+    for (const runId of pageRunIds) {
+      assert.ok(
+        page.records.some((record) => record.kind === 'tool' && record.runId === runId),
+        `${runId} 整轮完整`,
+      );
+    }
+    hasMore = page.hasMore;
+    cursor = page.nextBeforeSequence;
+  }
+  assert.equal(seenTextIds.size, expectedTexts, '翻页覆盖全部变长文本，无漏');
+  assert.equal(hasMore, false, '翻到最旧后 hasMore=false');
+});

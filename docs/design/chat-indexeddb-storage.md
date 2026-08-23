@@ -613,6 +613,12 @@ canary 已演进为“服务端 DB + 单记录库缓存”，AgentDock 是纯本
 5. HomeSidebar「加载更多」点击后列表不变（store 窗口增长但展示仍固定 slice(0,20)）→ 展示条数独立递增，与 store 窗口解耦。
 6. `persistRunSnapshot` 的 lastMessageAt 在重叠 flush 下可能回退（后到的 flush 基于旧 rows 覆盖更高值）→ 单调守卫：仅当新值更晚才更新。
 
+**第三轮复核（含并行 useChatScroll 重构）**
+
+- 复核 `useChatScroll`（单聊/群聊共用滚动 hook）与分页/贴底/run-persisted 刷新的接线：加载更早时用户已上滑 → `stickToBottom=false` 不抢滚动；终态落库后按 `isTerminalRun` 补一次贴底。未发现问题。
+- 复核 settings 深链/切换、store 启动刷容量、GroupHomePage/侧栏的 limit 递增与窗口衔接，未发现问题。
+- 新增“变长文本/轮”分页压力测试（15 轮、每轮 1–4 段文本、limit=7 翻页）：跨页无漏、无重、整体严格更早、每轮块完整。
+
 **确认无问题**
 
 - sequence 单调性（随机种子、不取模）与分页游标（页内全局最小 sequence）经压力测试验证：跨页无漏、无重、整体有序。
