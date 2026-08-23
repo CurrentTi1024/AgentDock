@@ -199,8 +199,16 @@ const GroupChatPage = () => {
   }, [history, isActiveRun, run?.messages]);
 
   const blocks = renderRunBlocks(run, {
-    onApproveHitl: (requestId) =>
-      void respondToHitl({ mode: 'toolAuthorization', decision: 'approve', requestId }),
+    onApproveHitl: (requestId, payload) =>
+      void respondToHitl({
+        mode: String(payload?.mode || 'toolAuthorization'),
+        decision: 'approve',
+        requestId,
+        ...(payload?.editedArguments !== undefined ? { editedArguments: payload.editedArguments as Record<string, unknown> } : {}),
+        ...(payload?.input !== undefined ? { input: String(payload.input) } : {}),
+        ...(payload?.selectedValues !== undefined ? { selectedValues: payload.selectedValues as string[] } : {}),
+        ...(payload?.formValues !== undefined ? { formValues: payload.formValues as Record<string, unknown> } : {}),
+      }),
     onRejectHitl: (requestId) =>
       void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
     onSurfaceAction: () =>
@@ -448,8 +456,16 @@ const GroupChatPage = () => {
                       time={new Date(record.createdAt).getTime()}
                     >
                       {renderStoredBlocks(storedBlocks, {
-                        onApproveHitl: (requestId) =>
-                          void respondToHitl({ mode: 'toolAuthorization', decision: 'approve', requestId }),
+                        onApproveHitl: (requestId, payload) =>
+                          void respondToHitl({
+                            mode: String(payload?.mode || 'toolAuthorization'),
+                            decision: 'approve',
+                            requestId,
+                            ...(payload?.editedArguments !== undefined ? { editedArguments: payload.editedArguments as Record<string, unknown> } : {}),
+                            ...(payload?.input !== undefined ? { input: String(payload.input) } : {}),
+                            ...(payload?.selectedValues !== undefined ? { selectedValues: payload.selectedValues as string[] } : {}),
+                            ...(payload?.formValues !== undefined ? { formValues: payload.formValues as Record<string, unknown> } : {}),
+                          }),
                         onRejectHitl: (requestId) =>
                           void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
                         onSurfaceAction: (surfaceId) =>

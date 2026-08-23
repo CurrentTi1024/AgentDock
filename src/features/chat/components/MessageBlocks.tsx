@@ -1,5 +1,5 @@
 // Adapted from: src/features/Conversation/Messages + Tool/AssistantGroup (LobeHub canary)
-import { ActionIcon, Block, Button, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
+import { ActionIcon, Block, Button, Flexbox, Icon, Tag, Text, TextArea } from '@lobehub/ui';
 import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { Atom, CheckCircle2, ChevronDown, Crown, Layers, ListTodo, Loader2, Play, Users, Wrench, XCircle } from 'lucide-react';
@@ -299,22 +299,135 @@ export const ActivityBlock = ({ activity }: { activity: { activityType?: string;
   );
 };
 
+export interface HitlBlockProps {
+  description?: string;
+  fields?: Array<{ key: string; label: string; type?: string }>;
+  mode?: string;
+  onApprove: (requestId: string, payload?: Record<string, unknown>) => void;
+  onReject: (requestId: string) => void;
+  options?: string[];
+  requestArgs?: string;
+  requestId: string;
+}
+
 export const HitlBlock = ({
   description,
+  fields,
+  mode = 'toolAuthorization',
   onApprove,
   onReject,
+  options = [],
+  requestArgs,
   requestId,
-}: {
-  description?: string;
-  onApprove: (requestId: string) => void;
-  onReject: (requestId: string) => void;
-  requestId: string;
-}) => (
-  <HitlBlockInner description={description} onApprove={onApprove} onReject={onReject} requestId={requestId} />
-);
-
-const HitlBlockInner = ({ description, onApprove, onReject, requestId }: { description?: string; onApprove: (requestId: string) => void; onReject: (requestId: string) => void; requestId: string }) => {
+}: HitlBlockProps) => {
   const { t } = useI18n();
+  const [editedArgs, setEditedArgs] = useState(requestArgs || '');
+  const [textInput, setTextInput] = useState('');
+  const [single, setSingle] = useState<string>();
+  const [multi, setMulti] = useState<string[]>([]);
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
+
+  const toggleMulti = (option: string) =>
+    setMulti((current) =>
+      current.includes(option) ? current.filter((item) => item !== option) : [...current, option],
+    );
+
+  const approveWith = (payload?: Record<string, unknown>) => onApprove(requestId, payload);
+
+  const renderControl = () => {
+    switch (mode) {
+      case 'editArguments':
+        return (
+          <TextArea
+            autoSize={{ minRows: 2, maxRows: 6 }}
+            value={editedArgs}
+            onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setEditedArgs(event.target.value)}
+          />
+        );
+      case 'textInput':
+        return (
+          <TextArea
+            autoSize={{ minRows: 1, maxRows: 3 }}
+            value={textInput}
+            onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setTextInput(event.target.value)}
+          />
+        );
+      case 'singleSelect':
+        return (
+          <Flexbox gap={4}>
+            {options.map((option) => (
+              <label key={option} style={{ cursor: 'pointer' }}>
+                <input
+                  checked={single === option}
+                  name={`hitl-${requestId}`}
+                  type="radio"
+                  onChange={() => setSingle(option)}
+                />{' '}
+                <Text fontSize={13}>{option}</Text>
+              </label>
+            ))}
+          </Flexbox>
+        );
+      case 'multiSelect':
+        return (
+          <Flexbox gap={4}>
+            {options.map((option) => (
+              <label key={option} style={{ cursor: 'pointer' }}>
+                <input
+                  checked={multi.includes(option)}
+                  type="checkbox"
+                  onChange={() => toggleMulti(option)}
+                />{' '}
+                <Text fontSize={13}>{option}</Text>
+              </label>
+            ))}
+          </Flexbox>
+        );
+      case 'form':
+        return (
+          <Flexbox gap={8}>
+            {(fields || []).map((field) => (
+              <Flexbox gap={4} key={field.key}>
+                <Text fontSize={12} weight={500}>
+                  {field.label}
+                </Text>
+                <TextArea
+                  autoSize={{ minRows: 1, maxRows: 3 }}
+                  value={formValues[field.key] || ''}
+                  onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                    setFormValues((current) => ({ ...current, [field.key]: event.target.value }))
+                  }
+                />
+              </Flexbox>
+            ))}
+          </Flexbox>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const modePayload = (): Record<string, unknown> | undefined => {
+    switch (mode) {
+      case 'editArguments':
+        try {
+          return { editedArguments: JSON.parse(editedArgs) };
+        } catch {
+          return { editedArguments: editedArgs };
+        }
+      case 'textInput':
+        return { input: textInput };
+      case 'singleSelect':
+        return single ? { input: single } : undefined;
+      case 'multiSelect':
+        return multi.length ? { selectedValues: multi } : undefined;
+      case 'form':
+        return { formValues };
+      default:
+        return undefined;
+    }
+  };
+
   return (
     <Block gap={12} padding={16} variant="outlined">
       <Flexbox horizontal align="center" gap={9}>
@@ -325,8 +438,13 @@ const HitlBlockInner = ({ description, onApprove, onReject, requestId }: { descr
         </Tag>
       </Flexbox>
       <Text type="secondary">{description || t('chat.hitl.fallback')}</Text>
+      {renderControl()}
       <Flexbox horizontal gap={8}>
-        <Button size="small" type="primary" onClick={() => onApprove(requestId)}>
+        <Button
+          size="small"
+          type="primary"
+          onClick={() => approveWith(modePayload())}
+        >
           {t('chat.hitl.approve')}
         </Button>
         <Button size="small" onClick={() => onReject(requestId)}>
@@ -523,7 +641,7 @@ export interface StoredTextMessage {
 export const renderStoredBlocks = (
   blocks: SessionMessageRecord[],
   handlers: {
-    onApproveHitl: (requestId: string) => void;
+    onApproveHitl: (requestId: string, payload?: Record<string, unknown>) => void;
     onRejectHitl: (requestId: string) => void;
     onSurfaceAction: (actionName: string, surfaceId: string) => void;
   },
@@ -601,9 +719,18 @@ export const renderStoredBlocks = (
         process.state.nodes.push(
           <HitlBlock
             description={typeof payload.description === 'string' ? payload.description : undefined}
+            fields={Array.isArray(payload.fields) ? (payload.fields as Array<{ key: string; label: string; type?: string }>) : undefined}
             key={record.id}
-            onApprove={handlers.onApproveHitl}
+            mode={typeof payload.mode === 'string' ? payload.mode : 'toolAuthorization'}
+            onApprove={(requestId, approvePayload) =>
+              handlers.onApproveHitl(requestId, {
+                ...approvePayload,
+                mode: payload.mode || 'toolAuthorization',
+              })
+            }
             onReject={handlers.onRejectHitl}
+            options={Array.isArray(payload.options) ? (payload.options as string[]) : undefined}
+            requestArgs={typeof payload.requestArgs === 'string' ? payload.requestArgs : undefined}
             requestId={requestId}
           />,
         );
@@ -632,7 +759,7 @@ export const renderStoredBlocks = (
 export const renderRunBlocks = (
   run: RuntimeRunState | undefined,
   handlers: {
-    onApproveHitl: (requestId: string) => void;
+    onApproveHitl: (requestId: string, payload?: Record<string, unknown>) => void;
     onRejectHitl: (requestId: string) => void;
     onSurfaceAction: (actionName: string) => void;
   },
@@ -727,15 +854,41 @@ export const renderRunBlocks = (
         }
         if (value.requestId) {
           // HITL 属于过程（LobeHub 干预在 workflow 内部）：进入折叠。
-          process.state.nodes.push(<HitlBlock description={value.description} key={`hitl-${ref.id}`} onApprove={handlers.onApproveHitl} onReject={handlers.onRejectHitl} requestId={value.requestId} />);
+          process.state.nodes.push(
+            <HitlBlock
+              description={value.description}
+              fields={Array.isArray(value.fields) ? (value.fields as Array<{ key: string; label: string; type?: string }>) : undefined}
+              key={`hitl-${ref.id}`}
+              mode={typeof value.mode === 'string' ? value.mode : 'toolAuthorization'}
+              onApprove={(requestId, approvePayload) =>
+                handlers.onApproveHitl(requestId, {
+                  ...approvePayload,
+                  mode: value.mode || 'toolAuthorization',
+                })
+              }
+              onReject={handlers.onRejectHitl}
+              options={Array.isArray(value.options) ? (value.options as string[]) : undefined}
+              requestArgs={typeof value.requestArgs === 'string' ? value.requestArgs : undefined}
+              requestId={value.requestId}
+            />,
+          );
           process.state.hasWork = true;
         } else if (value.activityType === 'agentDock.hitl') {
           process.state.nodes.push(
             <HitlBlock
               description={typeof value.description === 'string' ? value.description : undefined}
+              fields={Array.isArray(value.fields) ? (value.fields as Array<{ key: string; label: string; type?: string }>) : undefined}
               key={`hitl-${ref.id}`}
-              onApprove={handlers.onApproveHitl}
+              mode={typeof value.mode === 'string' ? value.mode : 'toolAuthorization'}
+              onApprove={(requestId, approvePayload) =>
+                handlers.onApproveHitl(requestId, {
+                  ...approvePayload,
+                  mode: value.mode || 'toolAuthorization',
+                })
+              }
               onReject={handlers.onRejectHitl}
+              options={Array.isArray(value.options) ? (value.options as string[]) : undefined}
+              requestArgs={typeof value.requestArgs === 'string' ? value.requestArgs : undefined}
               requestId={String(value.requestId || ref.id)}
             />,
           );
