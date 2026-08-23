@@ -145,6 +145,9 @@ export default function ChatPage() {
 
   /** 变更/终态后刷新：按当前已加载文本数重取“最新 N 条文本窗口”，保留已加载的更早内容。 */
   const reloadHistoryWindow = useCallback(async () => {
+    // 首屏尚未建立窗口时跳过：避免 run-persisted 先于 loadInitialHistory 触发，
+    // 用 1 条文本的小窗口覆盖 50 条首屏。
+    if (loadedTextCountRef.current === 0) return;
     const target = Math.max(loadedTextCountRef.current, 1);
     const page = await sessionHistoryService.getMessagesPage(sessionId, { limit: target });
     setHistory(page.records);
@@ -176,10 +179,15 @@ export default function ChatPage() {
   // 只有进行中的 run（running/paused）才走 live 渲染；完成的 run 刷新后按历史消息渲染，
   // 保证最后一条消息也有编辑/重新生成等操作（LobeHub 无“live 消息”概念）。
   const isActiveRun = run?.status === 'running' || run?.status === 'paused';
-  const answer = Object.values(run?.messages || {})
+  // 已删消息墓碑：删除并重新生成时后端线程仍会带回被删轮次，展示与落库都需跳过。
+  const deletedKeys = useMemo(() => new Set(session?.deletedMessageIds ?? []), [session?.deletedMessageIds]);
+  const liveMessages = Object.values(run?.messages || {}).filter(
+    (message) => !deletedKeys.has(`text:${message.id}`) && !deletedKeys.has(`tool:${message.id}`),
+  );
+  const answer = liveMessages
     .filter((message) => message.role === 'assistant')
     .at(-1)?.content;
-  const currentUserMessage = Object.values(run?.messages || {})
+  const currentUserMessage = liveMessages
     .filter((message) => message.role === 'user')
     .at(-1)?.content;
   const surface = Object.entries(run?.surfaces || {}).at(-1);
@@ -461,14 +469,14 @@ export default function ChatPage() {
     for (const record of history) {
       if (record.id.startsWith('lc_run--')) continue;
       const rawTextId = record.id.replace(/^text:/, '');
-      if (record.kind !== 'text' || liveTextIds.has(rawTextId)) continue;
+      if (record.kind !== 'text' || liveTextIds.has(rawTextId) || deletedKeys.has(record.id)) continue;
       const blocks = record.role === 'assistant' && record.runId
         ? (blocksByRun.get(record.runId) ?? [])
         : [];
       result.push({ blocks, record });
     }
     return result;
-  }, [history, isActiveRun, run?.messages]);
+  }, [deletedKeys, history, isActiveRun, run?.messages]);
 
   // 同一轮 run 的连续助手文本合并为单个气泡（LobeHub 一轮回复 = 一个消息）：
   // 内容取最后一条（最终答案），中间文本作为 narration 收进过程折叠；
@@ -523,7 +531,7 @@ export default function ChatPage() {
         sourceComponentId: 'action-button',
         surfaceId: surface[0],
       }),
-  }, { showReasoning, showSurfaces: true });
+  }, { deletedKeys, showReasoning, showSurfaces: true });
 
   const lastLiveMessageId = Object.keys(run?.messages || {}).at(-1) || '';
   const feedbackTarget = {
@@ -742,7 +750,7 @@ export default function ChatPage() {
                             sourceComponentId: 'action-button',
                             surfaceId,
                           }),
-                      }, { narration, showReasoning, showSurfaces: true })}
+                      }, { deletedKeys, narration, showReasoning, showSurfaces: true })}
                     </ChatItem>
                   )}
                 </Fragment>

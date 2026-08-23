@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { RunAgentInput, RuntimeMessage, RuntimeRunState } from '@/api/runtime/types';
-export interface SessionRecord { agentId?: string; agentName?: string; createdAt: string; fab: string; group?: unknown; id: string; lastMessageAt?: string; pinned: boolean; threadId: string; title: string; type: 'agent' | 'group'; updatedAt: string; version?: string }
+export interface SessionRecord { agentId?: string; agentName?: string; createdAt: string; deletedMessageIds?: string[]; fab: string; group?: unknown; id: string; lastMessageAt?: string; pinned: boolean; threadId: string; title: string; type: 'agent' | 'group'; updatedAt: string; version?: string }
 export type SessionMessageKind = 'activity' | 'reasoning' | 'step' | 'surface' | 'text' | 'tool';
 export interface SessionMessageRecord { content?: string; createdAt: string; id: string; kind: SessionMessageKind; payload?: Record<string, unknown>; role?: RuntimeMessage['role']; runId?: string; sequence: number; sessionId: string; eventId?: string }
 export interface RunCheckpointRecord { input: RunAgentInput; latestEventId?: string; runId: string; sessionId: string; snapshot: RuntimeRunState; status: RuntimeRunState['status']; threadId: string; updatedAt: string }
@@ -323,7 +323,8 @@ export const sessionHistoryService = {
    * 批量删除消息行及其关联过程块；同时删除包含任一消息的 checkpoint，避免刷新后复活。
    */
   async removeMessages(sessionId: string, ids: string[]) {
-    const idSet = new Set(ids);
+    // 快照 messages 的 key 是裸 rawId；调用方可能传 text: 前缀，需归一化后再匹配 checkpoint。
+    const rawIdSet = new Set(ids.map((id) => id.replace(/^text:/, '')));
     await db.transaction('rw', db.messages, db.checkpoints, async () => {
       const all = await db.messages.where('sessionId').equals(sessionId).sortBy('sequence');
       const idsToRemove = new Set<string>();
@@ -340,7 +341,7 @@ export const sessionHistoryService = {
       if (idsToRemove.size) await db.messages.bulkDelete([...idsToRemove]);
       const checkpoints = await db.checkpoints.where('sessionId').equals(sessionId).toArray();
       for (const checkpoint of checkpoints) {
-        if (Object.keys(checkpoint.snapshot.messages).some((key) => idSet.has(key))) {
+        if (Object.keys(checkpoint.snapshot.messages).some((key) => rawIdSet.has(key))) {
           await db.checkpoints.delete(checkpoint.runId);
         }
       }
@@ -353,30 +354,44 @@ export const sessionHistoryService = {
    * 存储顺序是文本在前、过程块在后，不能按「下一条文本即止」切分，必须按 runId 整轮删除。
    */
   async removeTurn(sessionId: string, userMessageId: string) {
-    await db.transaction('rw', db.messages, db.checkpoints, async () => {
+    await db.transaction('rw', db.messages, db.checkpoints, db.sessions, async () => {
       const target = await db.messages.get(`text:${userMessageId}`);
       if (!target?.runId) return;
-      await db.messages.where('sessionId').equals(sessionId).and((record) => record.runId === target.runId).delete();
+      // 记录被删轮次的全部消息 key（text:/tool:/step:/activity:/surface:/reasoning:），
+      // 作为墓碑持久化：后端线程仍携带该轮，新 run 的 MESSAGES_SNAPSHOT 会把它带回来，
+      // persistRunSnapshot 据此跳过，避免「删除并重新生成」把已删消息复活污染历史。
+      const turnRecords = await db.messages
+        .where('sessionId')
+        .equals(sessionId)
+        .filter((record) => record.runId === target.runId)
+        .toArray();
+      await db.messages.bulkDelete(turnRecords.map((record) => record.id));
       await db.checkpoints.where('sessionId').equals(sessionId).and((checkpoint) => checkpoint.runId === target.runId).delete();
+      if (turnRecords.length) {
+        const session = await db.sessions.get(sessionId);
+        const merged = [...new Set([...(session?.deletedMessageIds ?? []), ...turnRecords.map((record) => record.id)])];
+        await db.sessions.update(sessionId, { deletedMessageIds: merged });
+      }
     });
     await this.recomputeLastMessageAt(sessionId);
     notifySessionsChanged();
   },
   /** 编辑消息内容：同步更新消息行与 checkpoint 中的快照。 */
   async updateMessageContent(sessionId: string, id: string, content: string) {
+    const rawId = id.replace(/^text:/, '');
     await db.transaction('rw', db.messages, db.checkpoints, async () => {
-      const target = await db.messages.get(`text:${id}`);
+      const target = await db.messages.get(`text:${rawId}`);
       if (target) {
-        await db.messages.update(`text:${id}`, { content });
+        await db.messages.update(`text:${rawId}`, { content });
       } else {
-        const record = await db.messages.get(id);
-        if (record) await db.messages.update(id, { content });
+        const record = await db.messages.get(rawId);
+        if (record) await db.messages.update(rawId, { content });
       }
       const checkpoints = await db.checkpoints.where('sessionId').equals(sessionId).toArray();
       for (const checkpoint of checkpoints) {
-        const message = checkpoint.snapshot.messages[id];
+        const message = checkpoint.snapshot.messages[rawId];
         if (message) {
-          checkpoint.snapshot.messages[id] = { ...message, content };
+          checkpoint.snapshot.messages[rawId] = { ...message, content };
           await db.checkpoints.put(checkpoint);
         }
       }
@@ -427,9 +442,13 @@ export const sessionHistoryService = {
     // 早前消息重新排序、时间戳覆盖，导致聊天时间线错乱；新消息才分配新序号。
     const existingRows = await db.messages.where('sessionId').equals(sessionId).toArray();
     const existingById = new Map(existingRows.map((record) => [record.id, record]));
+    // 已删消息墓碑：后端线程仍可能带回被删轮次，这里跳过不再写回。
+    const sessionRow = await db.sessions.get(sessionId);
+    const deletedKeys = new Set(sessionRow?.deletedMessageIds ?? []);
     const records: SessionMessageRecord[] = [];
     const push = (kind: SessionMessageKind, id: string, value: Omit<SessionMessageRecord, 'createdAt' | 'id' | 'kind' | 'sequence' | 'sessionId'>) => {
       const key = `${kind}:${id}`;
+      if (deletedKeys.has(key)) return;
       const existing = existingById.get(key);
       records.push({
         ...value,

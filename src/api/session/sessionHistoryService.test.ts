@@ -747,6 +747,34 @@ test('断线续传：checkpoint 存 latestEventId，restore 取用并构造 resu
   assert.equal(resumeInput.threadId, `thread-${sessionId}`, 'threadId 保留');
 });
 
+test('removeMessages：删除消息时按 raw id 联动清理 running checkpoint（text: 前缀兼容）', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-remove-checkpoint-prefix';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'remove-prefix',
+    type: 'agent',
+  });
+  const { input, snapshot } = buildSingleAgentRun(sessionId, 'run-prefix');
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...snapshot, status: 'running' as const });
+  assert.ok(await sessionHistoryService.getLatestRun(sessionId), 'running checkpoint 已落库');
+
+  // ChatPage/GroupChatPage 删除时传 record.id（text: 前缀），快照 key 是裸 rawId。
+  await sessionHistoryService.removeMessages(sessionId, [`text:${input.messages[0].id}`]);
+  assert.equal(
+    await sessionHistoryService.getLatestRun(sessionId),
+    undefined,
+    '含被删消息的 running checkpoint 应被联动删除（防刷新复活）',
+  );
+  const messages = await sessionHistoryService.getMessages(sessionId);
+  assert.equal(messages.some((record) => record.id === `text:${input.messages[0].id}`), false);
+});
+
 test('listSessions 分页：limit/offset 按 updatedAt 倒序，countSessions 返回总数', async () => {
   await sessionDatabase.delete();
   await sessionDatabase.open();

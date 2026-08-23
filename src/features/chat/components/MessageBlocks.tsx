@@ -931,11 +931,15 @@ export const renderStoredBlocks = (
     onRejectHitl: (requestId: string) => void;
     onSurfaceAction: (actionName: string, surfaceId: string) => void;
   },
-  options: { narration?: string[]; showReasoning?: boolean; showSurfaces?: boolean } = {},
+  options: { deletedKeys?: Set<string>; narration?: string[]; showReasoning?: boolean; showSurfaces?: boolean } = {},
 ): React.ReactNode[] => {
   const nodes: React.ReactNode[] = [];
   const stepRecords: SessionMessageRecord[] = [];
   const process = createProcessCollector(false);
+  const visibleBlocks =
+    options.deletedKeys?.size
+      ? blocks.filter((record) => !options.deletedKeys!.has(record.id))
+      : blocks;
   if (options.narration?.length) {
     for (const text of options.narration) {
       process.state.nodes.push(<NarrationBlock key={`narration-${text.slice(0, 12)}`} text={text} />);
@@ -968,7 +972,7 @@ export const renderStoredBlocks = (
     process.flush(nodes);
   };
 
-  for (const record of blocks) {
+  for (const record of visibleBlocks) {
     if (record.kind === 'step') {
       const payload = (record.payload || {}) as Record<string, unknown>;
       if (!isInternalStep(typeof payload.name === 'string' ? payload.name : undefined)) {
@@ -1068,7 +1072,7 @@ export const renderRunBlocks = (
     onRejectHitl: (requestId: string) => void;
     onSurfaceAction: (actionName: string) => void;
   },
-  options: { showReasoning?: boolean; showSurfaces?: boolean } = {},
+  options: { deletedKeys?: Set<string>; showReasoning?: boolean; showSurfaces?: boolean } = {},
 ) => {
   if (!run) return null;
   const blocks: React.ReactNode[] = [];
@@ -1090,7 +1094,10 @@ export const renderRunBlocks = (
     process.flush(blocks);
   };
   const ordered = run.orderedBlocks?.length ? run.orderedBlocks : [];
-  if (ordered.length === 0) {
+  const visibleOrdered = options.deletedKeys?.size
+    ? ordered.filter((ref) => !options.deletedKeys!.has(`${ref.kind}:${ref.id}`))
+    : ordered;
+  if (visibleOrdered.length === 0) {
     // 旧检查点兼容：按 map 分组渲染
     if (options.showReasoning !== false) {
       for (const [id, text] of Object.entries(run.reasoning || {})) {
@@ -1125,7 +1132,7 @@ export const renderRunBlocks = (
       }
     }
   } else {
-    for (const ref of ordered) {
+    for (const ref of visibleOrdered) {
       if (ref.kind === 'reasoning') {
         if (options.showReasoning === false) continue;
         const text = run.reasoning?.[ref.id];

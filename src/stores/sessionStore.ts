@@ -121,6 +121,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 // 模块级订阅：同窗口 CustomEvent + 跨标签页 BroadcastChannel 双通道，
 // 任何会话数据变化都统一刷新列表与容量，页面无需再各自挂监听。
 if (typeof window !== 'undefined') {
+  // 启动即刷一次容量：侧栏设置入口的橙/红角标不依赖首次变更事件。
+  void useSessionStore.getState().refreshStorageUsage();
   subscribeSessionChanges(() => {
     const store = useSessionStore.getState();
     void store.refreshSessions();

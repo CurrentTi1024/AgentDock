@@ -127,6 +127,9 @@ const GroupChatPage = () => {
 
   /** 变更/终态后刷新：按当前已加载文本数重取“最新 N 条文本窗口”，保留已加载的更早内容。 */
   const reloadHistoryWindow = useCallback(async () => {
+    // 首屏尚未建立窗口时跳过：避免 run-persisted 先于 loadInitialHistory 触发，
+    // 用 1 条文本的小窗口覆盖 50 条首屏。
+    if (loadedTextCountRef.current === 0) return;
     const target = Math.max(loadedTextCountRef.current, 1);
     const page = await sessionHistoryService.getMessagesPage(sessionId, { limit: target });
     setHistory(page.records);

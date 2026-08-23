@@ -597,3 +597,23 @@ canary 已演进为“服务端 DB + 单记录库缓存”，AgentDock 是纯本
 | 跨页一致 | CustomEvent + BroadcastChannel 双通道 |
 | 可升级 | version 追加 + upgrade 回填 + blocked/versionchange |
 | 错误自愈 | 启动清扫 + 惰性压缩 + storage-error 引导 |
+
+---
+
+## 附录 B：全量代码复核记录（2026-08-24）
+
+逐行 review 存储层（sessionHistoryService / sessionStorageService / sessionStore / 分页与恢复链路）后的修复与确认：
+
+**修复**
+
+1. `removeMessages` 联动删除 checkpoint 时，调用方传入的 `text:` 前缀 id 与快照中的裸 rawId 不匹配，导致 running/paused checkpoint 未被清理、已删消息可能从快照复活 → 归一化为裸 rawId 再匹配，并补回归测试。
+2. `updateMessageContent` 同款前缀问题（当前无调用方，加固为前缀无关）。
+3. `reloadHistoryWindow` 可能先于首屏 `loadInitialHistory` 触发，用 1 条文本的小窗口覆盖 50 条首屏 → 首屏窗口未建立时跳过刷新。
+4. 侧栏容量角标首帧不显示 → sessionStore 启动即刷一次容量。
+
+**确认无问题**
+
+- sequence 单调性（随机种子、不取模）与分页游标（页内全局最小 sequence）经压力测试验证：跨页无漏、无重、整体有序。
+- 防抖 flush 与页面隐藏兜底的并发安全：Dexie 事务串行 + bulkPut 幂等。
+- 终态不落 checkpoint 后，删除/编辑的一致性由 messages 权威 + 前缀归一化保证。
+- `estimate()` 的 origin 级口径与阈值/配色、导出先导出后删除的原子性。
