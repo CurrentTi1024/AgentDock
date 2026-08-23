@@ -13,6 +13,7 @@ import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
 import FeedbackModal, { type FeedbackTarget } from '@/features/chat/components/FeedbackModal';
 import { MessageActions } from '@/features/chat/components/MessageActions';
+import type { OpStatusActivity } from '@/features/chat/components/OpStatusTray';
 import Welcome from '@/features/chat/components/Welcome';
 import {
   HistoryDivider,
@@ -99,6 +100,7 @@ export default function ChatPage() {
   const [history, setHistory] = useState<SessionMessageRecord[]>([]);
   const [artifactOpen, setArtifactOpen] = useState(false);
   const [artifact, setArtifact] = useState<{ html?: string; title?: string }>();
+  const [runStartedAt, setRunStartedAt] = useState<number>();
 
   const fab = selectedAgent?.fab || session?.fab || agent.split('-').at(-1) || 'F15B';
   const agentId = resolveChatAgentId(selectedAgent?.agentId, session?.agentId);
@@ -127,6 +129,20 @@ export default function ChatPage() {
     .filter((message) => message.role === 'user')
     .at(-1)?.content;
   const surface = Object.entries(run?.surfaces || {}).at(-1);
+
+  // LobeHub OpStatusTray 的 activity 等价物：有工具在跑→调用工具中；有流式推理→思考中；否则生成中。
+  const opStatusActivity: OpStatusActivity = useMemo(() => {
+    if (!run) return 'generating';
+    const anyToolRunning = [...Object.values(run.steps || {}), ...Object.values(run.toolCalls || {})]
+      .some((entry) => 'status' in entry && (entry.status === 'running' || entry.status === 'called'));
+    if (anyToolRunning) return 'toolCalling';
+    const anyReasoningStreaming = Object.values(run.reasoningMeta || {}).some(
+      (meta) => meta?.streaming,
+    );
+    if (anyReasoningStreaming) return 'reasoning';
+    return 'generating';
+  }, [run]);
+  const opStepCount = useMemo(() => Object.values(run?.steps || {}).length, [run]);
 
   // @ 触发时经 Service 拉取可提及 Agent（mock 模式返回 mock 数据），只拉一次并缓存。
   const mentionsLoadedRef = useRef(false);
@@ -238,6 +254,7 @@ export default function ChatPage() {
 
   const sendMessageWith = async (prompt: string) => {
     if (!prompt || running) return;
+    setRunStartedAt(Date.now());
     setArtifactOpen(false);
     const active = session ?? (await ensureSession());
     if (!active) return;
@@ -642,6 +659,7 @@ export default function ChatPage() {
         <Flexbox className={styles.surface} ref={surfaceRef}>
           <Flexbox style={{ marginInline: 'auto', maxWidth: 840, width: '100%' }}>
             <ChatInput
+              activity={opStatusActivity}
               agentName={agent}
               approvalMode={approvalMode}
               fab={fab}
@@ -657,6 +675,8 @@ export default function ChatPage() {
               onStop={() => void stop()}
               onSwitchAgent={(agent) => switchAgent(agent)}
               runStatus={run?.status}
+              startTime={runStartedAt}
+              stepCount={opStepCount}
               switchAgents={mentions}
             />
           </Flexbox>

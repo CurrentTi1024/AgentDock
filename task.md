@@ -415,6 +415,11 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   - 浏览器逐功能复验：首页侧边栏（搜索/chat/Chat Group/任务/文档/记忆/Channel/文件/商场/最近对话/Agents）、Agent 空间（返回首页/切换 Agent/新话题/搜索/话题折叠）、@ 提及菜单、消息操作栏（复制/重新生成/删除/更多/点赞/点踩→反馈表单）、双击用户消息进入编辑态、审批模式手动/自动；
   - 修复：antd v6 Select DOM 为 `.ant-select-content`，`compactSelect` 原只写 `.ant-select-selector` 未生效，切换 Agent/审批下拉高 36px；显式锁高 22px 并补 `.ant-select-content`/`.ant-select-input` 规则，两类下拉均恢复 22px 紧凑样式；
   - 验证：`pnpm run build` 通过，Chrome 实测下拉 22px、其余全量 PASS。
+- **Step 10 补充（2026-08-24，输入框上方状态条对齐 LobeHub OpStatusTray）**：
+  - 用户反馈「正在思考文字颜色/大小不一样」：原实现是 antd Alert（14px 信息色），官方是 12px `colorTextSecondary` + 500 字重 + 主色旋转 glyph + 计时 + 4s 轮播生成短语；
+  - 新增 `OpStatusTray.tsx` 逐项对齐官方：容器（padding 8/14、border 1px fillSecondary、顶部圆角 12、bgElevated）、`ActivityGlyph`（orbit 2s 旋转 + core 1.5s 呼吸）、`shinyText` 渐变扫光、`mm:ss` 计时、步数指标（>1 显示）；
+  - activity 映射：工具调用→调用工具中、流式推理→思考中、其余→生成中轮播文案；短语与 5 个状态文案从官方 `locales/*/opStatusTray.json`、`chat.json` 抽取，18 语言各 +7 key（含 steps）；
+  - 实测：真实后端运行中「调用工具中... 00:01」12px/500/次级色 + 旋转 glyph；mock 轮播「元气满满中... 00:27」、HITL 暂停时状态条保持；30/30 测试、build 通过。
 
 第十二轮（2026-08-20，前后端联合端到端测试 + 消息组件渲染修复）：
 
