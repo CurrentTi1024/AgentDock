@@ -60,9 +60,9 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
   surfaceBody: css`
     margin-block-start: 4px;
     padding: 8px;
-    border: 1px solid ${token.colorBorderSecondary};
+    border-inline-start: 3px solid ${token.colorPrimary};
     border-radius: ${token.borderRadiusLG}px;
-    background: ${token.colorBgContainer};
+    background: ${token.colorFillQuaternary};
   `,
 }));
 

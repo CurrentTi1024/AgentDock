@@ -90,13 +90,14 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     border: 1px solid ${token.colorBorder};
     border-radius: ${token.borderRadiusSM}px;
   `,
-  // A2UI Surface 属于消息正文（不是过程/思考），用独立卡片样式与折叠视觉分离。
+  // A2UI Surface 属于消息正文（不是过程/思考）：用 LobeHub 插件块样式（左侧主色条、
+  // 无整卡背景）与过程折叠卡片彻底区分，避免被误认为 thinking 的一部分。
   surfaceBody: css`
     margin-block-start: 4px;
     padding: 8px;
-    border: 1px solid ${token.colorBorderSecondary};
+    border-inline-start: 3px solid ${token.colorPrimary};
     border-radius: ${token.borderRadiusLG}px;
-    background: ${token.colorBgContainer};
+    background: ${token.colorFillQuaternary};
   `,
   toolTitle: css`
     overflow: hidden;
