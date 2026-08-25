@@ -114,6 +114,34 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     user-select: none;
     width: fit-content;
   `,
+  // LobeHub ProcessingState.progress：3px 渐变进度条 + 扫光动画。
+  workflowProgress: css`
+    position: relative;
+    overflow: hidden;
+    height: 3px;
+    margin-block: 2px;
+    border-radius: 2px;
+    background: ${token.colorFillSecondary};
+  `,
+  workflowProgressShimmer: css`
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, ${token.colorPrimaryBgHover}, transparent);
+    animation: message-blocks-progress-shimmer 2s infinite;
+
+    @keyframes message-blocks-progress-shimmer {
+      0% {
+        transform: translateX(-100%);
+      }
+
+      100% {
+        transform: translateX(100%);
+      }
+    }
+  `,
   toolTitle: css`
     overflow: hidden;
     display: -webkit-box;
@@ -161,6 +189,27 @@ const formatProcessDuration = (startedAt?: number, finishedAt?: number) => {
   const seconds = formatDuration(startedAt, finishedAt);
   return seconds !== undefined ? `${seconds}s` : undefined;
 };
+
+/** LobeHub Accordion 展开箭头：展开朝下，收起旋转 -90°（朝右），带 0.2s 过渡。 */
+const CollapseArrow = ({ open, size = 14 }: { open: boolean; size?: number }) => (
+  <Icon
+    color={cssVar.colorTextTertiary}
+    icon={ChevronDown}
+    size={size}
+    style={{
+      flex: 'none',
+      transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
+      transition: 'transform 0.2s',
+    }}
+  />
+);
+
+/** 运行中 3px 渐变进度条 + 扫光动画（对齐 LobeHub ProcessingState.progress）。 */
+const WorkflowProgressBar = () => (
+  <div className={styles.workflowProgress}>
+    <div className={styles.workflowProgressShimmer} />
+  </div>
+);
 
 /** 收集一轮 run 的过程块（思考/工具/步骤），完成后折叠为 ProcessFold 汇总行。 */
 const createProcessCollector = (streaming: boolean) => {
@@ -246,7 +295,7 @@ export const ReasoningBlock = ({ id, meta, text }: { id: string; meta?: RuntimeR
             </Text>
           )}
         </Flexbox>
-        <Icon icon={ChevronDown} size={14} />
+        <CollapseArrow open={open} />
       </div>
       {open && (
         <div className={styles.contentScroll}>
@@ -282,15 +331,7 @@ export const ProcessFold = ({
         onClick={() => setOpen((value) => !value)}
         title={durationText ? t('chat.process.duration', { duration: durationText }) : undefined}
       >
-        <Icon
-          color={cssVar.colorTextTertiary}
-          icon={ChevronDown}
-          size={14}
-          style={{
-            transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
-            transition: 'transform 0.2s',
-          }}
-        />
+        <CollapseArrow open={open} />
         <Text style={{ fontSize: 12 }} type="secondary">
           {streaming
             ? t('chat.process.streaming')
@@ -423,7 +464,7 @@ export const ToolCallBlock = ({ call }: { call: RuntimeToolCall }) => {
           )}
         </div>
         <ToolExecutionTime running={running} startedAt={call.startedAt} />
-        <Icon icon={ChevronDown} size={14} />
+        <CollapseArrow open={open} />
       </div>
       {open && (
         <div className={styles.content}>
@@ -453,7 +494,7 @@ export const ToolCallBlock = ({ call }: { call: RuntimeToolCall }) => {
                 <Tag color="success" size="small">
                   {t('chat.toolStatus.completed')}
                 </Tag>
-                <Icon icon={ChevronDown} size={12} />
+                <CollapseArrow open={resultOpen} size={12} />
               </div>
               {resultOpen && (
                 <pre
@@ -477,34 +518,128 @@ export const ToolCallBlock = ({ call }: { call: RuntimeToolCall }) => {
   );
 };
 
+// LobeHub WorkflowCollapse / ProcessingState 迁移：
+// - 运行中自动展开 + 3px shimmer 进度条 + 当前耗时；
+// - 完成后自动收起，头部右侧箭头随状态旋转（展开朝下 / 收起朝右）；
+// - 展开列表每行：状态图标（运行=神经网络动画 / 完成=Check / 失败=X）+ 名称 + 耗时 + 状态标签；
+// - 完成后页脚：分隔线 + 步数/耗时汇总。
 export const WorkflowStepsBlock = ({ steps }: { steps: RuntimeStep[] }) => {
   const { t } = useI18n();
-  const [open, setOpen] = useState(true);
+  const streaming = steps.some((step) => step.status === 'running');
   const completed = steps.filter((step) => step.status === 'completed').length;
+  const [open, setOpen] = useState(streaming);
+  // 运行中自动展开，完成后自动收起；用户可点击重新展开。
+  useEffect(() => {
+    setOpen(streaming);
+  }, [streaming]);
+  const startedAt = steps.reduce(
+    (min, step) => (step.startedAt && (!min || step.startedAt < min) ? step.startedAt : min),
+    undefined as number | undefined,
+  );
+  const finishedAt = steps.reduce(
+    (max, step) => (step.finishedAt && (!max || step.finishedAt > max) ? step.finishedAt : max),
+    undefined as number | undefined,
+  );
+  const durationText = formatProcessDuration(startedAt, finishedAt);
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!streaming || !startedAt) return;
+    const update = () => setElapsed(Math.max(0, Date.now() - startedAt));
+    update();
+    const id = window.setInterval(update, 1000);
+    return () => window.clearInterval(id);
+  }, [streaming, startedAt]);
   return (
     <div className={styles.block}>
       <div className={styles.header} onClick={() => setOpen((value) => !value)}>
-        <Icon color={cssVar.colorTextDescription} icon={ListTodo} size={15} />
-        <Text fontSize={12} weight={500} style={{ flex: 1 }}>
+        {streaming ? (
+          <NeuralNetworkLoading size={16} />
+        ) : (
+          <Icon
+            color={
+              steps.some((step) => step.status === 'error')
+                ? cssVar.colorError
+                : cssVar.colorSuccess
+            }
+            icon={steps.some((step) => step.status === 'error') ? X : CheckCircle2}
+            size={15}
+          />
+        )}
+        <Text fontSize={12} weight={500} style={{ flex: 1, minWidth: 0 }}>
           {t('chat.steps', { completed, total: steps.length })}
         </Text>
-        <Icon icon={ChevronDown} size={14} />
+        {streaming ? (
+          <Text fontSize={12} type="secondary">
+            {t('chat.process.streaming')} · {formatElapsedTime(elapsed)}
+          </Text>
+        ) : durationText ? (
+          <Text fontSize={12} type="secondary">
+            {t('chat.process.duration', { duration: durationText })}
+          </Text>
+        ) : null}
+        <CollapseArrow open={open} />
       </div>
+      {streaming && <WorkflowProgressBar />}
       {open && (
-        <Flexbox gap={2} padding={10} style={{ borderBlockStart: `1px solid ${cssVar.colorBorderSecondary}` }}>
-          {steps.map((step) => (
-            <Flexbox horizontal align="center" gap={8} key={step.id} paddingBlock={4}>
-              <Icon
-                color={step.status === 'completed' ? cssVar.colorSuccess : step.status === 'error' ? cssVar.colorError : cssVar.colorPrimary}
-                icon={step.status === 'completed' ? CheckCircle2 : Play}
-                size={14}
-              />
-              <Text fontSize={12} style={{ flex: 1 }}>{step.name || step.id}</Text>
-              <Tag color={step.status === 'error' ? 'error' : step.status === 'running' ? 'processing' : 'success'} size="small">
-                {step.status === 'running' ? t('chat.toolStatus.running') : step.status === 'error' ? t('chat.error.title') : t('chat.toolStatus.completed')}
-              </Tag>
+        <Flexbox
+          gap={2}
+          padding={10}
+          style={{ borderBlockStart: `1px solid ${cssVar.colorBorderSecondary}` }}
+        >
+          {steps.map((step) => {
+            const running = step.status === 'running';
+            const failed = step.status === 'error';
+            const stepDuration = formatProcessDuration(step.startedAt, step.finishedAt);
+            return (
+              <Flexbox horizontal align="center" gap={8} key={step.id} paddingBlock={4}>
+                {running ? (
+                  <NeuralNetworkLoading size={14} />
+                ) : (
+                  <Icon
+                    color={failed ? cssVar.colorError : cssVar.colorSuccess}
+                    icon={failed ? X : Check}
+                    size={14}
+                  />
+                )}
+                <Text fontSize={12} ellipsis style={{ flex: 1 }}>
+                  {step.name || step.id}
+                </Text>
+                {stepDuration && (
+                  <Text fontSize={12} type="secondary">
+                    {stepDuration}
+                  </Text>
+                )}
+                <Tag
+                  color={failed ? 'error' : running ? 'processing' : 'success'}
+                  size="small"
+                >
+                  {running
+                    ? t('chat.toolStatus.running')
+                    : failed
+                      ? t('chat.error.title')
+                      : t('chat.toolStatus.completed')}
+                </Tag>
+              </Flexbox>
+            );
+          })}
+          {!streaming && steps.length > 0 && (
+            <Flexbox
+              horizontal
+              align="center"
+              justify="space-between"
+              paddingBlock={6}
+              style={{ borderBlockStart: `1px solid ${cssVar.colorBorderSecondary}` }}
+            >
+              <Text fontSize={12} type="secondary">
+                {t('chat.steps', { completed, total: steps.length })}
+              </Text>
+              {durationText && (
+                <Text fontSize={12} type="secondary">
+                  {t('chat.process.duration', { duration: durationText })}
+                </Text>
+              )}
             </Flexbox>
-          ))}
+          )}
         </Flexbox>
       )}
     </div>
