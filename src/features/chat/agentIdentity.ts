@@ -41,6 +41,35 @@ export const resolveAgentIcon = (
     ? mentions.find((mention) => mention.agentId === agentId && mention.fab === fab)?.icon
     : undefined;
 
+export interface AgentMatchInput {
+  agentId?: string;
+  agentName?: string;
+  fab?: string;
+}
+
+/**
+ * 从候选列表匹配当前 Agent：优先 agentId+fab（与侧边栏/聊天头部同一解析键），
+ * 名称格式不一致时回退 name+fab，保证切换后三个 icon 始终指向同一 Agent。
+ */
+export const matchMentionAgent = (
+  mentions: MentionAgent[],
+  target: AgentMatchInput,
+): MentionAgent | undefined => {
+  if (!mentions.length) return undefined;
+  if (target.agentId && target.fab) {
+    const byId = mentions.find(
+      (mention) => mention.agentId === target.agentId && mention.fab === target.fab,
+    );
+    if (byId) return byId;
+  }
+  if (target.agentName && target.fab) {
+    return mentions.find(
+      (mention) => mention.agentFullName === target.agentName && mention.fab === target.fab,
+    );
+  }
+  return undefined;
+};
+
 /** 构造 Agent 会话 URL：一律携带 agentId+fab，保证侧边栏/输入框/话题过滤一致。 */
 export const buildAgentSessionPath = (
   sessionId: string,
