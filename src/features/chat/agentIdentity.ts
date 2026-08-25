@@ -31,6 +31,18 @@ export interface AgentIdentitySources {
 export const parseAgentChatSessionId = (pathname: string): string | undefined =>
   pathname.match(/^\/chat\/([^/?#]+)/)?.[1];
 
+/** 构造 Agent 会话 URL：一律携带 agentId+fab，保证侧边栏/输入框/话题过滤一致。 */
+export const buildAgentSessionPath = (
+  sessionId: string,
+  agentId?: string,
+  fab?: string,
+): string => {
+  if (agentId && fab) {
+    return `/chat/${sessionId}?agent=${encodeURIComponent(agentId)}&fab=${encodeURIComponent(fab)}`;
+  }
+  return `/chat/${sessionId}`;
+};
+
 /**
  * Agent 会话侧边栏身份解析，优先级：
  * 1. pendingSession：切换 Agent 后新会话尚未落库时立即生效，
@@ -97,4 +109,37 @@ export const resolveSessionAgent = (
     );
   }
   return mentions[0];
+};
+
+export type ChatRouteQueryAction =
+  | { type: 'keep' }
+  | { type: 'strip' }
+  | { type: 'set'; agent: string; fab: string };
+
+/**
+ * 会话 URL 的 agentId+fab 路由守卫与归一化：
+ * - URL 已带参数：仅当 agentId+fab 在当前用户可用的 mentionAgents 列表中才保留，
+ *   否则返回 strip（移除参数，防止手改 URL 访问无权限 Agent）；
+ * - URL 未带参数且会话可解析：返回 set（补上会话的 agentId+fab，保证侧边栏/
+ *   话题过滤/输入框默认选中三者一致）；会话 Agent 已无权限时不动 URL。
+ * mentions 为空（候选尚未加载）时无法判断，返回 keep 由调用方在加载完成后重试。
+ */
+export const resolveChatRouteQuery = (
+  mentions: MentionAgent[],
+  params: { agent: string | null; fab: string | null },
+  session?: Pick<SessionRecord, 'agentId' | 'fab'> | null,
+): ChatRouteQueryAction => {
+  if (!mentions.length) return { type: 'keep' };
+  const { agent, fab } = params;
+  if (agent && fab) {
+    const allowed = mentions.some((item) => item.agentId === agent && item.fab === fab);
+    return allowed ? { type: 'keep' } : { type: 'strip' };
+  }
+  if (session?.agentId && session.fab) {
+    const allowed = mentions.some(
+      (item) => item.agentId === session.agentId && item.fab === session.fab,
+    );
+    if (allowed) return { type: 'set', agent: session.agentId, fab: session.fab };
+  }
+  return { type: 'keep' };
 };

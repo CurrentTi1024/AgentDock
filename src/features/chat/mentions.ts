@@ -64,6 +64,29 @@ export const tokenizeMentions = (value: string, candidates: MentionAgent[]): Men
 };
 
 /**
+ * 光标紧贴一个完整 @提及 时整块删除（对齐 LobeHub chip 删除语义）。
+ * 返回删除后的文本与新的光标位置；光标不在完整 token 之后时返回 null（走默认逐字删除）。
+ */
+export const removeMentionBeforeCaret = (
+  value: string,
+  caret: number,
+  candidates: MentionAgent[],
+): { caret: number; nextValue: string } | null => {
+  const before = value.slice(0, caret);
+  const at = before.lastIndexOf('@');
+  if (at < 0) return null;
+  const token = before.slice(at + 1);
+  if (!token) return null;
+  const matched = candidates.find(
+    (agent) =>
+      agent.agentFullName.toLowerCase() === token.toLowerCase() ||
+      agent.agentId.toLowerCase() === token.toLowerCase(),
+  );
+  if (!matched) return null;
+  return { caret: at, nextValue: `${value.slice(0, at)}${value.slice(caret)}` };
+};
+
+/**
  * 从消息文本解析全部 @Agent 提及，映射到候选 Agent 并去重。
  * 文本保留 @Name（LLM 可见），结构化结果用于 forwardedProps.mentionAgents。
  */

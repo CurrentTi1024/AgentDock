@@ -9,7 +9,12 @@ import { type MentionAgent } from '@/api/market/agentMarketService';
 import type { RunStatus } from '@/api/runtime/types';
 import AgentMentionMenu from '@/features/chat/components/AgentMentionMenu';
 import OpStatusTray, { type OpStatusActivity } from '@/features/chat/components/OpStatusTray';
-import { extractMentionToken, replaceMentionToken, tokenizeMentions } from '@/features/chat/mentions';
+import {
+  extractMentionToken,
+  removeMentionBeforeCaret,
+  replaceMentionToken,
+  tokenizeMentions,
+} from '@/features/chat/mentions';
 import { useI18n } from '@/i18n';
 
 export type ApprovalMode = 'auto' | 'manual';
@@ -246,6 +251,22 @@ const ChatInput = memo<ChatInputProps>(
           event.preventDefault();
           closeMention();
           return;
+        }
+      }
+      // 光标紧贴完整 @提及 时整块删除（LobeHub chip 删除语义），否则退回逐字删除。
+      if (event.key === 'Backspace' && !event.nativeEvent.isComposing) {
+        const target = event.currentTarget;
+        const start = target.selectionStart ?? 0;
+        const end = target.selectionEnd ?? 0;
+        if (start === end) {
+          const removed = removeMentionBeforeCaret(value, start, mentions);
+          if (removed) {
+            event.preventDefault();
+            onChange(removed.nextValue);
+            requestAnimationFrame(() => {
+              target.setSelectionRange(removed.caret, removed.caret);
+            });
+          }
         }
       }
       // IME 组合中按 Enter 是确认候选词：跳过发送，避免消息已发出后输入法把文字重新写回输入框。

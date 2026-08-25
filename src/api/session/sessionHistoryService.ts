@@ -63,16 +63,22 @@ db.on('versionchange', () => {
 });
 
 let sequenceSeed = Math.floor(Math.random() * 1000);
+let lastSequence = 0;
 /**
  * 会话内单调递增的 sequence（时间戳 ×1000 + 递增种子）：
  * 种子以随机偏移起步且不取模，保证同一标签页内严格单调（消除同毫秒回绕）；
+ * lastSequence 兜底：即使系统时钟回拨（NTP 校时），新行也强制大于已分配的最大 sequence，
+ * 从结构上保证“后落库的消息一定排在前面消息之后”（错误消息因此恒为该轮最后一条）。
  * 跨标签页同毫秒并发写同一会话时碰撞概率从“必然”降到约 1/1000（随机偏移相同才撞）。
  * 注：同一会话的多标签页并发流式写本身不是产品支持场景（防重入门禁在同一标签页内），
  * 该随机化只是把“理论上可能撞”压到可忽略。
  */
 const nextSequence = () => {
   sequenceSeed = sequenceSeed + 1;
-  return Date.now() * 1000 + sequenceSeed;
+  const candidate = Date.now() * 1000 + sequenceSeed;
+  const sequence = candidate > lastSequence ? candidate : lastSequence + 1;
+  lastSequence = sequence;
+  return sequence;
 };
 // 按 runId 分槽的待落盘快照：多轮 run 并发/快速连续发送时互不覆盖，
 // 防抖空闲后统一 flush，避免只落最后一段或丢消息。

@@ -972,6 +972,47 @@ test('连续三轮错误持久化：落库 Q1A1Q2A2Q3A3，无吞无重', async (
   );
 });
 
+test('sequence 单调：系统时钟回拨后，新消息仍排在旧消息之后', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-clock-regress';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'clock-regress',
+    type: 'agent',
+  });
+  const { input: input1, snapshot: snap1 } = buildSingleAgentRun(sessionId, 'clock-run-1');
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input1, { ...snap1, status: 'running' as const });
+
+  // 模拟时钟回拨 1 秒后再落下一轮（nextSequence 依赖 Date.now()，lastSequence 兜底必须生效）。
+  const originalNow = Date.now;
+  const regressed = originalNow() - 1000;
+  Date.now = () => regressed;
+  try {
+    const { input: input2, snapshot: snap2 } = buildSingleAgentRun(sessionId, 'clock-run-2');
+    await sessionHistoryService.saveRunCheckpoint(sessionId, input2, { ...snap2, status: 'running' as const });
+  } finally {
+    Date.now = originalNow;
+  }
+
+  const messages = await sessionHistoryService.getMessages(sessionId);
+  const texts = messages.filter((record) => record.kind === 'text');
+  const sequences = texts.map((record) => record.sequence);
+  assert.ok(
+    sequences.every((value, index) => index === 0 || value > sequences[index - 1]),
+    '时钟回拨后 sequence 仍严格递增',
+  );
+  const ids = texts.map((record) => record.id);
+  assert.ok(
+    ids.indexOf('text:user-clock-run-2') > ids.indexOf('text:assistant-clock-run-1'),
+    '回拨后第二轮仍排在第一轮之后',
+  );
+});
+
 test('listSessions 分页：limit/offset 按 updatedAt 倒序，countSessions 返回总数', async () => {
   await sessionDatabase.delete();
   await sessionDatabase.open();

@@ -8,6 +8,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import NavItem from '@/components/shell/NavItem';
 import SidebarSection from '@/components/shell/SidebarSection';
 import { sessionHistoryService, type SessionRecord } from '@/api/session/sessionHistoryService';
+import { buildAgentSessionPath } from '@/features/chat/agentIdentity';
 import { useI18n } from '@/i18n';
 
 const TOPIC_PAGE_SIZE = 30;
@@ -84,7 +85,9 @@ const AgentSidebarBody = memo<AgentSidebarBodyProps>(
                     iconSize={15}
                     key={session.id}
                     title={session.title}
-                    onClick={() => navigate(`/chat/${session.id}`)}
+                    onClick={() =>
+                      navigate(buildAgentSessionPath(session.id, session.agentId, session.fab))
+                    }
                   />
                 ))}
                 {hasMoreTopics && (

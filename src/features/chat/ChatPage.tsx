@@ -8,7 +8,7 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { resolveChatAgentId } from '@/features/chat/agentDetail';
-import { resolveSessionAgent } from '@/features/chat/agentIdentity';
+import { resolveChatRouteQuery, resolveSessionAgent } from '@/features/chat/agentIdentity';
 import ChatHeader from '@/features/chat/components/ChatHeader';
 import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
@@ -294,6 +294,29 @@ export default function ChatPage() {
       }
     }
   }, [mentions, searchParams, session, sessionId]);
+
+  // 路由守卫 + URL 归一化：进入会话 URL 始终携带 agentId+fab（侧边栏/话题过滤/
+  // 输入框默认选中三者一致）；URL 参数不在当前用户可用（mentionAgents）列表时移除，
+  // 防止手改 URL 访问无权限 Agent，随后回退到会话记录/默认 Agent 解析。
+  useEffect(() => {
+    if (!mentions.length) return;
+    const action = resolveChatRouteQuery(
+      mentions,
+      { agent: searchParams.get('agent'), fab: searchParams.get('fab') },
+      session?.id === sessionId ? session : undefined,
+    );
+    if (action.type === 'keep') return;
+    const params = new URLSearchParams(searchParams);
+    if (action.type === 'strip') {
+      params.delete('agent');
+      params.delete('fab');
+    } else {
+      params.set('agent', action.agent);
+      params.set('fab', action.fab);
+    }
+    const query = params.toString();
+    navigate(`${location.pathname}${query ? `?${query}` : ''}`, { replace: true });
+  }, [location.pathname, mentions, navigate, searchParams, session, sessionId]);
 
   // 输入框左下角默认选中当前 Agent：URL 未显式指定时按会话记录解析
   // （精确匹配 agentId+fab，绝不误绑列表第一项）；新会话无 agentName 时回填会话与头部显示。
