@@ -227,7 +227,102 @@ const ChatInput = memo<ChatInputProps>(
             variant="borderless"
           />
         )}
-        <Flexbox className={styles.composer} gap={4} padding={12} style={{ position: 'relative' }}>
+        {/* 联想菜单必须放在 overflow:hidden 的 composer 之外，否则会被整体裁掉。 */}
+        <Flexbox style={{ position: 'relative' }}>
+          <Flexbox className={styles.composer} gap={4} padding={12}>
+            <TextArea
+              autoSize={{ minRows: 2, maxRows: 8 }}
+              data-testid="chat-input"
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder ?? t('chat.placeholder')}
+              value={value}
+              variant="borderless"
+              onChange={(event) => {
+                const next = event.target.value;
+                onChange(next);
+                if (timerRef.current) clearTimeout(timerRef.current);
+                if (mentionEnabled) {
+                  const token = extractMentionToken(next);
+                  if (token !== null) {
+                    setMentionQuery(token);
+                    setActiveIndex(0);
+                    setMentionOpen(true);
+                    // 输入时只做一次懒加载（页面缓存 mentions 列表），延迟触发避免连打抖动。
+                    timerRef.current = setTimeout(onMentionTrigger, 80);
+                  } else {
+                    setMentionOpen(false);
+                  }
+                } else {
+                  setMentionOpen(false);
+                }
+              }}
+            />
+            <Flexbox horizontal align="center" justify="space-between">
+              <Flexbox horizontal gap={2} style={{ minHeight: 24 }}>
+                {switchAgents && onSwitchAgent && (
+                  <Select
+                    className={styles.compactSelect}
+                    options={switchAgents.map((agent) => ({
+                      label: `${agent.icon} ${agent.agentFullName}`,
+                      value: `${agent.agentId}@${agent.fab}`,
+                    }))}
+                    placeholder={t('agentSidebar.switchAgent')}
+                    popupClassName={styles.compactDropdown}
+                    size="small"
+                    value={switchValue}
+                    variant="borderless"
+                    style={{ maxWidth: 148, minWidth: 92 }}
+                    onChange={(value) => {
+                      const agent = switchAgents.find(
+                        (item) => `${item.agentId}@${item.fab}` === value,
+                      );
+                      if (agent) onSwitchAgent(agent);
+                    }}
+                  />
+                )}
+                <ActionIcon aria-label={t('chat.attach')} disabled icon={Paperclip} title={t('chat.attach')} />
+                <ActionIcon aria-label={t('chat.voice')} disabled icon={Mic} title={t('chat.voice')} />
+              </Flexbox>
+              <Flexbox horizontal align="center" gap={12}>
+                {!running && (
+                  <Flexbox
+                    horizontal
+                    gap={4}
+                    style={{ color: cssVar.colorTextDescription, fontSize: 12 }}
+                  >
+                    <CornerDownLeft size={13} />
+                    {t('chat.input.sendHint')}
+                    <span>/</span>
+                    <ArrowBigUp size={13} />
+                    <CornerDownLeft size={13} />
+                    {t('chat.input.warpHint')}
+                  </Flexbox>
+                )}
+                {running ? (
+                  <Button
+                    data-testid="chat-stop"
+                    icon={Square}
+                    onClick={onStop}
+                    size="small"
+                    type="primary"
+                  >
+                    {t('chat.stop')}
+                  </Button>
+                ) : (
+                  <Button
+                    data-testid="chat-send"
+                    disabled={sendDisabled}
+                    icon={Send}
+                    onClick={onSend}
+                    size="small"
+                    type="primary"
+                  >
+                    {t('chat.send')}
+                  </Button>
+                )}
+              </Flexbox>
+            </Flexbox>
+          </Flexbox>
           {mentionOpen && (
             <AgentMentionMenu
               activeIndex={activeIndex}
@@ -237,98 +332,6 @@ const ChatInput = memo<ChatInputProps>(
               onSelect={selectMention}
             />
           )}
-          <TextArea
-            autoSize={{ minRows: 2, maxRows: 8 }}
-            data-testid="chat-input"
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder ?? t('chat.placeholder')}
-            value={value}
-            variant="borderless"
-            onChange={(event) => {
-              const next = event.target.value;
-              onChange(next);
-              if (timerRef.current) clearTimeout(timerRef.current);
-              if (mentionEnabled) {
-                const token = extractMentionToken(next);
-                if (token !== null) {
-                  setMentionQuery(token);
-                  setActiveIndex(0);
-                  setMentionOpen(true);
-                  // 输入时只做一次懒加载（页面缓存 mentions 列表），延迟触发避免连打抖动。
-                  timerRef.current = setTimeout(onMentionTrigger, 80);
-                } else {
-                  setMentionOpen(false);
-                }
-              } else {
-                setMentionOpen(false);
-              }
-            }}
-          />
-          <Flexbox horizontal align="center" justify="space-between">
-            <Flexbox horizontal gap={2} style={{ minHeight: 24 }}>
-              {switchAgents && onSwitchAgent && (
-                <Select
-                  className={styles.compactSelect}
-                  options={switchAgents.map((agent) => ({
-                    label: `${agent.icon} ${agent.agentFullName}`,
-                    value: `${agent.agentId}@${agent.fab}`,
-                  }))}
-                  placeholder={t('agentSidebar.switchAgent')}
-                  popupClassName={styles.compactDropdown}
-                  size="small"
-                  value={switchValue}
-                  variant="borderless"
-                  style={{ maxWidth: 148, minWidth: 92 }}
-                  onChange={(value) => {
-                    const agent = switchAgents.find(
-                      (item) => `${item.agentId}@${item.fab}` === value,
-                    );
-                    if (agent) onSwitchAgent(agent);
-                  }}
-                />
-              )}
-              <ActionIcon aria-label={t('chat.attach')} disabled icon={Paperclip} title={t('chat.attach')} />
-              <ActionIcon aria-label={t('chat.voice')} disabled icon={Mic} title={t('chat.voice')} />
-            </Flexbox>
-            <Flexbox horizontal align="center" gap={12}>
-              {!running && (
-                <Flexbox
-                  horizontal
-                  gap={4}
-                  style={{ color: cssVar.colorTextDescription, fontSize: 12 }}
-                >
-                  <CornerDownLeft size={13} />
-                  {t('chat.input.sendHint')}
-                  <span>/</span>
-                  <ArrowBigUp size={13} />
-                  <CornerDownLeft size={13} />
-                  {t('chat.input.warpHint')}
-                </Flexbox>
-              )}
-              {running ? (
-                <Button
-                  data-testid="chat-stop"
-                  icon={Square}
-                  onClick={onStop}
-                  size="small"
-                  type="primary"
-                >
-                  {t('chat.stop')}
-                </Button>
-              ) : (
-                <Button
-                  data-testid="chat-send"
-                  disabled={sendDisabled}
-                  icon={Send}
-                  onClick={onSend}
-                  size="small"
-                  type="primary"
-                >
-                  {t('chat.send')}
-                </Button>
-              )}
-            </Flexbox>
-          </Flexbox>
         </Flexbox>
         <Flexbox
           className={styles.footer}
