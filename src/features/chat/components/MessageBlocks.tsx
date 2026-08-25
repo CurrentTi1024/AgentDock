@@ -932,7 +932,9 @@ const HttpStoredA2uiSurface = ({
   );
   const rendered = renderActivityMessage(message);
   if (rendered) return <>{rendered}</>;
-  return <A2uiSurfaceBlock payload={payload} />;
+  // http 实时路径官方渲染器暂不可用（如流式中 ops 未完整）时返回 null：
+  // 隐藏原始 JSON 回退卡，避免流式期出现“A2UI Surface”丑陋卡，完成后由历史路径渲染。
+  return null;
 };
 
 export interface StoredTextMessage {
