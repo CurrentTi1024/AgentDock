@@ -2,7 +2,7 @@
 import { ActionIcon, Block, Button, Flexbox, Icon, Tag, Text, TextArea } from '@lobehub/ui';
 import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Atom, Check, CheckCircle2, ChevronDown, ChevronRight, Crown, Layers, ListTodo, Loader2, Play, Users, Wrench, X, XCircle } from 'lucide-react';
+import { Atom, Check, CheckCircle2, ChevronDown, ChevronRight, Crown, Layers, ListTodo, Loader2, Play, Users, Wrench, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -758,31 +758,41 @@ export const A2uiSurfaceBlock = ({
   payload: Record<string, unknown>;
 }) => {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
+  // A2UI Surface 属于消息正文，回退渲染也必须与 thinking/工具卡视觉分离：
+  // 使用 surfaceBody（左侧主色条 + 无整卡边框）而不是 thinking 的 block 卡。
   return (
-    <div className={styles.block}>
-      <div className={styles.header} onClick={() => setOpen((value) => !value)}>
+    <div className={styles.surfaceBody}>
+      <Flexbox horizontal align="center" gap={8} style={{ marginBlockEnd: 8 }}>
         <Icon color={cssVar.colorInfo} icon={CheckCircle2} size={15} />
-        <Text fontSize={12} weight={500} style={{ flex: 1 }}>
+        <Text fontSize={12} type="secondary" style={{ flex: 1 }}>
           {t('chat.a2uiSurface')}
         </Text>
         <Tag color="info" size="small">
           {String(payload.surfaceId || 'surface')}
         </Tag>
-        <Icon icon={ChevronDown} size={14} />
-      </div>
-      {open && (
-        <div className={styles.content}>
-          <Flexbox gap={8} style={{ paddingBlockEnd: 8 }}>
-            {onAction && (
-              <Button icon={Play} size="small" type="primary" onClick={onAction}>
-                {t('chat.a2ui.action')}
-              </Button>
-            )}
-          </Flexbox>
-          {JSON.stringify(payload, null, 2)}
-        </div>
+      </Flexbox>
+      {onAction && (
+        <Flexbox gap={8} style={{ marginBlockEnd: 8 }}>
+          <Button icon={Play} size="small" type="primary" onClick={onAction}>
+            {t('chat.a2ui.action')}
+          </Button>
+        </Flexbox>
       )}
+      <pre
+        style={{
+          color: cssVar.colorTextDescription,
+          fontFamily: cssVar.fontFamilyCode,
+          fontSize: 12,
+          lineHeight: 1.6,
+          margin: 0,
+          maxHeight: 320,
+          overflow: 'auto',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-all',
+        }}
+      >
+        {JSON.stringify(payload, null, 2)}
+      </pre>
     </div>
   );
 };
@@ -908,24 +918,6 @@ const HttpStoredA2uiSurface = ({
   const rendered = renderActivityMessage(message);
   if (rendered) return <>{rendered}</>;
   return <A2uiSurfaceBlock payload={payload} />;
-};
-
-export const ErrorBlock = ({ code, message }: { code?: string; message: string }) => (
-  <ErrorBlockInner code={code} message={message} />
-);
-
-const ErrorBlockInner = ({ code, message }: { code?: string; message: string }) => {
-  const { t } = useI18n();
-  return (
-  <Block gap={10} padding={16} variant="outlined">
-    <Flexbox horizontal align="center" gap={9}>
-      <Icon color={cssVar.colorError} icon={XCircle} />
-      <Text weight={500}>{t('chat.error.title')}</Text>
-      {code && <Tag color="error" size="small">{code}</Tag>}
-    </Flexbox>
-    <Text type="secondary">{message}</Text>
-  </Block>
-  );
 };
 
 export interface StoredTextMessage {
@@ -1261,11 +1253,16 @@ export const renderRunBlocks = (
         flushSteps();
         if (options.showSurfaces === false) continue;
         const payload = run.surfaces?.[ref.id];
-        if (typeof payload === 'object' && payload !== null) blocks.push(<A2uiStoredSurface key={`surface-${ref.id}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId: ref.id }} />);
+        if (typeof payload === 'object' && payload !== null) blocks.push(
+          <div className={styles.surfaceBody} data-testid="a2ui-surface-body" key={`surface-${ref.id}`}>
+            <A2uiStoredSurface onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId: ref.id }} />
+          </div>,
+        );
       }
     }
     flushSteps();
   }
-  if (run.error) blocks.push(<ErrorBlock code={run.error.code} key="error" message={run.error.message} />);
+  // RUN_ERROR 的错误文本已由 reducer 作为 assistant 消息内容（最后一个 chunk）渲染，
+  // 不再额外推 ErrorBlock，避免同一错误在气泡正文与过程区重复显示。
   return blocks;
 };

@@ -85,7 +85,7 @@ export default {
   "chat.process.streaming": "처리 중…",
   'chat.reasoning': '추론',
   'chat.reasoningDone': "심층 사고 완료",
-  'chat.send': "심층 사고 완료",
+  'chat.send': "보내기",
   'chat.stop': '생성 중지',
   'chat.suggestion.analyze': '오늘의 비행 데이터 분석',
   'chat.suggestion.compare': '두 시험 비행 비교',

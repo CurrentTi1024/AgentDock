@@ -85,7 +85,7 @@ export default {
   "chat.process.streaming": "Verwerken…",
   'chat.reasoning': 'Redenering',
   'chat.reasoningDone': "Diep nagedacht",
-  'chat.send': "Diep nagedacht",
+  'chat.send': "Verzenden",
   'chat.stop': 'Genereren stoppen',
   'chat.suggestion.analyze': 'Vluchtgegevens van vandaag analyseren',
   'chat.suggestion.compare': 'Twee testvluchten vergelijken',

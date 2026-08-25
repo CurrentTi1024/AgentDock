@@ -127,6 +127,23 @@ test('tracks reasoning streaming state and duration across REASONING events', ()
   assert.deepEqual(state.orderedBlocks, [{ id: 'reasoning-5', kind: 'reasoning' }]);
 });
 
+test('RUN_FINISHED / RUN_ERROR 兜底收尾所有 reasoning（thinking 完成后必定折叠）', () => {
+  let state = createRunState('run-5b', 'thread-5b');
+  state = reduceRunEvent(state, { eventId: '1', event: { type: 'REASONING_MESSAGE_START', messageId: 'reasoning-5b' } });
+  assert.equal(state.reasoningMeta['reasoning-5b'].streaming, true);
+  // 后端未发 REASONING_MESSAGE_END 直接结束：终态必须兜底置 false
+  state = reduceRunEvent(state, { eventId: '2', event: { type: 'RUN_FINISHED', threadId: 'thread-5b', runId: 'run-5b' } });
+  assert.equal(state.status, 'success');
+  assert.equal(state.reasoningMeta['reasoning-5b'].streaming, false);
+  assert.ok(state.reasoningMeta['reasoning-5b'].finishedAt);
+  // RUN_ERROR 同样兜底
+  state = createRunState('run-5c', 'thread-5c');
+  state = reduceRunEvent(state, { eventId: '1', event: { type: 'REASONING_MESSAGE_START', messageId: 'reasoning-5c' } });
+  state = reduceRunEvent(state, { eventId: '2', event: { type: 'RUN_ERROR', threadId: 'thread-5c', runId: 'run-5c', code: 'CANCELLED', message: 'cancelled' } });
+  assert.equal(state.status, 'cancelled');
+  assert.equal(state.reasoningMeta['reasoning-5c'].streaming, false);
+});
+
 test('records tool call timing, apiName and result message id', () => {
   let state = createRunState('run-6', 'thread-6');
   state = reduceRunEvent(state, { eventId: '1', event: { type: 'TOOL_CALL_START', toolCallId: 'tool-6', toolCallName: 'flightData.queryMetrics', apiName: 'flightData.queryMetrics' } });
@@ -202,4 +219,104 @@ test('ACTIVITY_SNAPSHOT stores activityType alongside content for live rendering
   assert.equal(state.activities['task-10'].activityType, 'agentDock.task');
   assert.equal(state.activities['task-10'].status, 'completed');
   assert.deepEqual(state.orderedBlocks, [{ id: 'task-10', kind: 'activity' }]);
+});
+
+test('RUN_ERROR：真实错误生成 assistant 错误回复（最后一个 chunk）并置 error 元信息', () => {
+  let state = createRunState('run-error-1', 'thread-error-1');
+  state = reduceRunEvent(state, {
+    eventId: '1',
+    event: { type: 'TEXT_MESSAGE_START', messageId: 'assistant-partial', role: 'assistant' },
+  });
+  state = reduceRunEvent(state, {
+    eventId: '2',
+    event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'assistant-partial', delta: '分析中' },
+  });
+  state = reduceRunEvent(state, {
+    eventId: '3',
+    event: {
+      code: 'FAB_UPSTREAM_ERROR',
+      message: 'upstream exploded',
+      runId: 'run-error-1',
+      threadId: 'thread-error-1',
+      type: 'RUN_ERROR',
+    },
+  });
+  assert.equal(state.status, 'error');
+  assert.deepEqual(state.error, { code: 'FAB_UPSTREAM_ERROR', message: 'upstream exploded' });
+  // 已有部分回复时，错误文本追加为该 assistant 消息的最后一个 chunk。
+  assert.equal(state.messages['assistant-partial'].content, '分析中\n\nupstream exploded');
+  assert.equal(state.messageOrder.at(-1), 'assistant-partial');
+});
+
+test('RUN_ERROR：无部分回复时新建 error-<runId> assistant 消息（可持久化为历史）', () => {
+  let state = createRunState('run-error-2', 'thread-error-2');
+  state = reduceRunEvent(state, {
+    eventId: '1',
+    event: {
+      code: 'NETWORK_ERROR',
+      message: 'connection lost',
+      runId: 'run-error-2',
+      threadId: 'thread-error-2',
+      type: 'RUN_ERROR',
+    },
+  });
+  assert.equal(state.status, 'error');
+  assert.equal(state.messages['error-run-error-2'].content, 'connection lost');
+  assert.equal(state.messages['error-run-error-2'].role, 'assistant');
+  assert.equal(state.messageOrder.at(-1), 'error-run-error-2');
+});
+
+test('RUN_ERROR CANCELLED（用户主动取消）：不伪造 assistant 回复', () => {
+  const state = reduceRunEvent(createRunState('run-error-3', 'thread-error-3'), {
+    eventId: '1',
+    event: {
+      code: 'CANCELLED',
+      message: 'Run cancelled by user.',
+      runId: 'run-error-3',
+      threadId: 'thread-error-3',
+      type: 'RUN_ERROR',
+    },
+  });
+  assert.equal(state.status, 'cancelled');
+  assert.equal(Object.keys(state.messages).length, 0, '取消不生成 assistant 消息');
+});
+
+test('多轮错误：第二轮 MESSAGES_SNAPSHOT 带入上一轮错误回复时，不串轮、顺序 Q1A1Q2A2', () => {
+  // 第一轮：Q1 + 错误 A1（error-run-err-1）
+  let run1 = createRunState('run-err-1', 'thread-multi-err');
+  run1 = reduceRunEvent(run1, { eventId: '1', event: { type: 'RUN_STARTED', threadId: run1.threadId, runId: run1.runId } });
+  run1 = reduceRunEvent(run1, { eventId: '2', event: { type: 'TEXT_MESSAGE_START', messageId: 'q1', role: 'user' } });
+  run1 = reduceRunEvent(run1, {
+    eventId: '3',
+    event: { code: 'BACKEND_ERROR', message: 'err1', runId: run1.runId, threadId: run1.threadId, type: 'RUN_ERROR' },
+  });
+  assert.equal(run1.messages['error-run-err-1'].content, 'err1');
+  assert.deepEqual(run1.messageOrder, ['q1', 'error-run-err-1']);
+
+  // 第二轮：MESSAGES_SNAPSHOT 携带 [Q1, A1(err1), Q2]，随后本轮 RUN_ERROR
+  let run2 = createRunState('run-err-2', 'thread-multi-err');
+  run2 = reduceRunEvent(run2, { eventId: '10', event: { type: 'RUN_STARTED', threadId: run2.threadId, runId: run2.runId } });
+  run2 = reduceRunEvent(run2, {
+    eventId: '11',
+    event: {
+      type: 'MESSAGES_SNAPSHOT',
+      messages: [
+        { id: 'q1', role: 'user', content: 'Q1' },
+        { id: 'error-run-err-1', role: 'assistant', content: 'err1' },
+        { id: 'q2', role: 'user', content: 'Q2' },
+      ],
+    },
+  });
+  run2 = reduceRunEvent(run2, {
+    eventId: '12',
+    event: { code: 'BACKEND_ERROR', message: 'err2', runId: run2.runId, threadId: run2.threadId, type: 'RUN_ERROR' },
+  });
+  assert.deepEqual(
+    run2.messageOrder,
+    ['q1', 'error-run-err-1', 'q2', 'error-run-err-2'],
+    '顺序必须 Q1 A1 Q2 A2',
+  );
+  assert.equal(run2.messages['error-run-err-1'].content, 'err1', '第一轮错误内容不被第二轮污染');
+  assert.equal(run2.messages['error-run-err-2'].content, 'err2');
+  assert.equal(run2.messages['error-run-err-2'].runId, 'run-err-2');
 });

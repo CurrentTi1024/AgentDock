@@ -278,3 +278,72 @@ useEffect(() => {
 输入框 top          = 155
 notBlocked = true（最后一条完整显示在输入框上方）
 ```
+
+## 十一、追加：A2UI Surface 视觉上仍在 thinking 框 + 完成后 thinking 未折叠 + 发送按钮文案错误
+
+> 日期：2026-08-26
+> 现象来源：真实 http 会话运行 A2UI（国庆旅游攻略）后，截图显示 A2UI 内容出现在
+> 带标题的卡片里（与 thinking/工具卡同款视觉），且 run 结束后思考内容没有全部收起；
+> 同时发送按钮文案在所有语言下都被误显示为“已深度思考/Deeply Thought”。
+
+### 现象
+
+1. A2UI surface 回退渲染使用 `A2uiSurfaceBlock`，它复用了 thinking/工具卡同款
+   `styles.block`（整卡边框 + header 行 + ChevronDown），视觉上像“思考框”；
+   历史里同一 surface 还会出现两个“A2UI Surface”标题卡。
+2. run 完成后 thinking（ReasoningBlock / ProcessFold）偶尔不折叠：后端漏发
+   `REASONING_MESSAGE_END` 时 `reasoningMeta.streaming` 一直是 true，`ReasoningBlock`
+   的 `open` 状态跟随 `streaming` 保持展开。
+3. 发送按钮文案：18 个语言文件的 `chat.send` 键被误填成 `chat.reasoningDone`
+   的值（“已深度思考 / Deeply Thought”），导致发送按钮永远显示思考完成文案。
+
+### 根因
+
+#### 根因 1：A2UI 回退渲染与 thinking 共用视觉组件
+
+`MessageBlocks.tsx` 里 `A2uiSurfaceBlock` 直接使用 `styles.block` + `styles.header`，
+与 `ReasoningBlock`/`ToolCallBlock` 同款边框卡；当官方 renderer 不可用
+（mock 模式、payload 缺 `a2ui_operations`、schema 校验失败）时，A2UI 内容
+就以“thinking 卡”的样子出现在正文里。另外 live 渲染路径（`renderRunBlocks`
+ordered 分支）推送 surface 时漏包 `surfaceBody`（左侧主色条插件块），
+与历史路径不一致，进一步强化“混在思考块里”的观感。
+
+#### 根因 2：终态没有兜底收尾 reasoning
+
+`runReducer` 的 `RUN_FINISHED / RUN_ERROR` 只改 `status`，没有把仍在
+`streaming: true` 的 `reasoningMeta` 收尾；`ReasoningBlock` 的
+`useEffect([streaming])` 依赖 `meta.streaming`，后端一旦漏发
+`REASONING_MESSAGE_END / REASONING_END`（中断、超时、异常终止），
+thinking 在 run 结束后永远展开。刷新恢复中断 run 时（`restore` 把 running
+checkpoint 转 cancelled）同样没有收尾 reasoning。
+
+#### 根因 3：i18n 键值复制错误
+
+早期把“已深度思考”的文案直接写到了 `chat.send` 键上（18 个语言文件），
+发送按钮从此永远显示思考完成文案，而不是“发送”。
+
+### 修复方法
+
+1. **A2UI 正文插件块视觉**（`MessageBlocks.tsx`）：
+   - `A2uiSurfaceBlock` 改为 `styles.surfaceBody`（左侧 3px 主色条、无整卡边框、
+     flat header + `<pre>` 内容），与 thinking/工具卡彻底区分；
+   - `renderRunBlocks` ordered 分支的 surface 与历史路径一致，统一包
+     `<div className={styles.surfaceBody} data-testid="a2ui-surface-body">`。
+2. **终态兜底收尾 reasoning**（`runReducer.ts`）：
+   - 新增导出函数 `finalizeReasoningMeta(state)`：把全部 `reasoningMeta`
+     的 `streaming` 置 false、`finishedAt` 兜底；
+   - `RUN_FINISHED`、`RUN_ERROR` 分支返回前调用；
+   - `useAgentDockConversation.restore()` 把 running checkpoint 转 cancelled
+     时同样调用，刷新后中断 run 的 thinking 也必定折叠。
+3. **i18n 修正**（18 个语言文件）：`chat.send` 恢复为“发送 / Send / Enviar /
+   Gönder …”，`chat.reasoningDone` 保持“已深度思考”。
+
+### 验证（浏览器实测）
+
+- mock 端到端：批准 HITL 后跑完一轮，终态 `reasonExpanded=false`、
+  “已处理 2 步 · 2.9s”折叠为一行、surface 在折叠卡外（`surfaceWraps=1`）；
+- http 真实 run（用户会话，国庆旅游攻略 A2UI）：完成后
+  `surfaceWraps=2`（两个 surface 均为左侧 3px 插件块，无“A2UI Surface”回退卡）、
+  `expandedReasoning=[]`（thinking 全部收起）、`已处理 1 步 · 23.9s` 折叠一行、
+  surface 在折叠卡之后、正文在最后；刷新后不再误显“已中断”。
+- 发送按钮文案回归“发送”。

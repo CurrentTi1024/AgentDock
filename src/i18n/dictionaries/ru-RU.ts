@@ -85,7 +85,7 @@ export default {
   "chat.process.streaming": "Обработка…",
   'chat.reasoning': 'Рассуждение',
   'chat.reasoningDone': "Обдумано",
-  'chat.send': "Обдумано",
+  'chat.send': "Отправить",
   'chat.stop': 'Остановить генерацию',
   'chat.suggestion.analyze': 'Проанализировать сегодняшние данные полёта',
   'chat.suggestion.compare': 'Сравнить два лётных испытания',

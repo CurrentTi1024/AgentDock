@@ -35,6 +35,8 @@
 - Chat Group 侧栏头部增加返回首页（Home）图标；创建群组弹窗优化：Agent 名称搜索、成员列表滚动（max-height 280px）、选中计数（已选 x/y）、空态与选中/悬停视觉。
 - Chat Group 侧栏移除顶部“对话”菜单项（返回首页图标已覆盖该入口）。
 - 修复群聊发送后输入框未清空：`GroupChatPage` 发送输入框内容时先 `setInput('')`（示例消息路径不受影响）。
+- 输入框迁移 LobeHub `@` 联想：Home/单聊/群聊输入框统一支持 `@Agent` 联想（后缀过滤、方向键/Enter/Tab 选中、Escape 关闭、多 @ 保留），发送时解析为 `forwardedProps.mentionAgents[{agentId, fab, agentName?, version?}]`；`@` 选择不再切换会话 Agent（切换走左下角下拉）。Server `fabProxy/FabRoutingAgent` 原样透传 input，无需改动。
+- 修复 `@` 菜单不可见：联想菜单原本渲染在 `overflow: hidden` 的输入框容器内，被整体裁剪；已移到容器外的相对定位包裹层，菜单悬浮于输入框上方可见。
 
 > 2026-08-20 更新：R3 前三项已完成并通过 Chrome headless + CDP 验证
 > （sortBy 下拉 + 升降序切换、Agent 卡片 skill/mcp 数量标签、

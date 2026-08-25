@@ -2,13 +2,39 @@ import { create } from 'zustand';
 import { agentRuntimeService, createRuntimeAction } from '@/api/runtime/agentRuntimeService';
 import { createRunState, reduceRunEvent } from '@/api/runtime/runReducer';
 import type { RunAgentInput, RuntimeRunState } from '@/api/runtime/types';
-import { flushRunCheckpoint, scheduleRunCheckpoint, sessionHistoryService } from '@/api/session/sessionHistoryService';
+import {
+  cancelPendingCheckpoint,
+  flushRunCheckpoint,
+  scheduleRunCheckpoint,
+  sessionHistoryService,
+} from '@/api/session/sessionHistoryService';
 interface RunStore { activeInput?: RunAgentInput; controller?: AbortController; run?: RuntimeRunState; execute(input: RunAgentInput): Promise<void>; restoreSession(sessionId: string): Promise<void>; resume(): Promise<void>; stop(): Promise<void>; respondToHitl(payload: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>): Promise<void>; sendA2uiAction(payload: NonNullable<RunAgentInput['forwardedProps']['a2uiAction']>): Promise<void> }
 export const useRunStore = create<RunStore>((set, get) => ({
   async execute(input) {
     get().controller?.abort(); const controller = new AbortController(); const existing = get().run; const nextRun = existing?.runId === input.runId ? { ...existing, status: 'running' as const } : createRunState(input.runId, input.threadId); for (const message of input.messages) { nextRun.messages[message.id] = message; if (!nextRun.messageOrder.includes(message.id)) nextRun.messageOrder.push(message.id); } set({ activeInput: input, controller, run: nextRun });
     try { for await (const streamed of agentRuntimeService.stream(input, { signal: controller.signal })) { const current = get().run!; const run = reduceRunEvent(current, streamed); set({ run }); scheduleRunCheckpoint(input.forwardedProps.sessionId, input, run); } await flushRunCheckpoint(); }
-    catch (error) { if ((error as DOMException).name !== 'AbortError') { const failed = get().run ? { ...get().run!, status: 'error' as const, error: { message: error instanceof Error ? error.message : String(error) } } : undefined; set({ run: failed }); if (failed) await sessionHistoryService.saveRunCheckpoint(input.forwardedProps.sessionId, input, failed); } }
+    catch (error) {
+      if ((error as DOMException).name !== 'AbortError') {
+        const current = get().run;
+        if (current) {
+          // 与协议事件同一条路径：RUN_ERROR 经 reducer 生成 assistant 错误回复（最后一个 chunk），
+          // 界面可见且随快照持久化到历史；不再只是改状态。
+          const failed = reduceRunEvent(current, {
+            event: {
+              code: 'NETWORK_ERROR',
+              message: error instanceof Error ? error.message : String(error),
+              runId: current.runId,
+              threadId: current.threadId,
+              type: 'RUN_ERROR',
+            },
+          });
+          set({ run: failed });
+          // 丢弃该 run 尚未落盘的陈旧 running 快照，避免终态报错后防抖 flush 又写回 running checkpoint。
+          cancelPendingCheckpoint(current.runId);
+          await sessionHistoryService.saveRunCheckpoint(input.forwardedProps.sessionId, input, failed);
+        }
+      }
+    }
   },
   async restoreSession(sessionId) { const checkpoint = await sessionHistoryService.getLatestRun(sessionId); if (!checkpoint) { set({ activeInput: undefined, run: undefined }); return; } set({ activeInput: checkpoint.input, run: checkpoint.snapshot }); if (checkpoint.status === 'running' && checkpoint.latestEventId) await get().resume(); },
   async resume() { const { activeInput, run } = get(); if (!activeInput || !run?.latestEventId) return; await get().execute(createRuntimeAction(activeInput, 'resume', { resume: { lastEventId: run.latestEventId } })); },

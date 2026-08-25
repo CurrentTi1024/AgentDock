@@ -8,6 +8,7 @@ import Dexie from 'dexie';
 import { createRunState, reduceRunEvent } from '../runtime/runReducer.ts';
 import type { RunAgentInput, RuntimeRunState } from '../runtime/types.ts';
 import {
+  cancelPendingCheckpoint,
   flushRunCheckpoint,
   sessionDatabase,
   scheduleRunCheckpoint,
@@ -774,6 +775,142 @@ test('removeMessages：删除消息时按 raw id 联动清理 running checkpoint
   );
   const messages = await sessionHistoryService.getMessages(sessionId);
   assert.equal(messages.some((record) => record.id === `text:${input.messages[0].id}`), false);
+});
+
+test('RUN_ERROR 经 reducer 生成 assistant 错误回复并持久化为历史', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-run-error-persist';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'run-error-persist',
+    type: 'agent',
+  });
+  const { input } = buildSingleAgentRun(sessionId, 'run-error-persist');
+  // 模拟 runtime 捕获上游错误后注入 RUN_ERROR（无正常回复）。
+  let state = createRunState('run-error-persist', `thread-${sessionId}`);
+  state = reduceRunEvent(state, {
+    eventId: '1',
+    event: { type: 'RUN_STARTED', threadId: state.threadId, runId: state.runId },
+  });
+  state = reduceRunEvent(state, {
+    eventId: '2',
+    event: {
+      code: 'FAB_UPSTREAM_ERROR',
+      message: 'upstream exploded',
+      runId: state.runId,
+      threadId: state.threadId,
+      type: 'RUN_ERROR',
+    },
+  });
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input, state);
+
+  const messages = await sessionHistoryService.getMessages(sessionId);
+  const errorRow = messages.find((record) => record.id === 'text:error-run-error-persist');
+  assert.ok(errorRow, '错误回复作为消息行落库');
+  assert.equal(errorRow?.role, 'assistant');
+  assert.equal(errorRow?.content, 'upstream exploded');
+  // 幂等：同一终态错误重复落盘只保留一行，不重复持久化。
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input, state);
+  const again = await sessionHistoryService.getMessages(sessionId);
+  assert.equal(
+    again.filter((record) => record.id === 'text:error-run-error-persist').length,
+    1,
+    '错误回复重复落盘不产生重复行',
+  );
+  assert.equal(await sessionHistoryService.getLatestRun(sessionId), undefined, '终态不落 checkpoint');
+});
+
+test('cancelPendingCheckpoint：错误兜底后丢弃未落盘快照，flush 不写回陈旧 running checkpoint', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-cancel-pending';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'cancel-pending',
+    type: 'agent',
+  });
+  const { input, snapshot } = buildSingleAgentRun(sessionId, 'run-cancel-pending');
+  scheduleRunCheckpoint(sessionId, input, { ...snapshot, status: 'running' as const });
+  cancelPendingCheckpoint('run-cancel-pending');
+  await flushRunCheckpoint();
+  assert.equal(
+    await sessionHistoryService.getLatestRun(sessionId),
+    undefined,
+    '取消后 flush 不再写入陈旧 running checkpoint',
+  );
+});
+
+test('多轮错误持久化：第二轮带 MESSAGES_SNAPSHOT 时落库顺序 Q1A1Q2A2 且不串轮', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-multi-error-order';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'multi-error-order',
+    type: 'agent',
+  });
+  const baseInput: RunAgentInput = {
+    context: [],
+    forwardedProps: { action: 'run', agentId: 'flight-analysis', fab: 'F15B', sessionId },
+    messages: [],
+    runId: '',
+    state: {},
+    threadId: `thread-${sessionId}`,
+    tools: [],
+  };
+  // 第一轮：Q1 + 错误 A1
+  let run1 = createRunState('me-run-1', `thread-${sessionId}`);
+  run1 = reduceRunEvent(run1, { eventId: '1', event: { type: 'RUN_STARTED', threadId: run1.threadId, runId: run1.runId } });
+  run1 = reduceRunEvent(run1, { eventId: '2', event: { type: 'TEXT_MESSAGE_START', messageId: 'q1', role: 'user' } });
+  run1 = reduceRunEvent(run1, {
+    eventId: '3',
+    event: { code: 'BACKEND_ERROR', message: 'err1', runId: run1.runId, threadId: run1.threadId, type: 'RUN_ERROR' },
+  });
+  await sessionHistoryService.saveRunCheckpoint(sessionId, { ...baseInput, runId: 'me-run-1' }, run1);
+
+  // 第二轮：快照携带 [Q1, A1(err1), Q2]，随后本轮 RUN_ERROR
+  let run2 = createRunState('me-run-2', `thread-${sessionId}`);
+  run2 = reduceRunEvent(run2, { eventId: '10', event: { type: 'RUN_STARTED', threadId: run2.threadId, runId: run2.runId } });
+  run2 = reduceRunEvent(run2, {
+    eventId: '11',
+    event: {
+      type: 'MESSAGES_SNAPSHOT',
+      messages: [
+        { id: 'q1', role: 'user', content: 'Q1' },
+        { id: 'error-me-run-1', role: 'assistant', content: 'err1' },
+        { id: 'q2', role: 'user', content: 'Q2' },
+      ],
+    },
+  });
+  run2 = reduceRunEvent(run2, {
+    eventId: '12',
+    event: { code: 'BACKEND_ERROR', message: 'err2', runId: run2.runId, threadId: run2.threadId, type: 'RUN_ERROR' },
+  });
+  await sessionHistoryService.saveRunCheckpoint(sessionId, { ...baseInput, runId: 'me-run-2' }, run2);
+
+  const messages = await sessionHistoryService.getMessages(sessionId);
+  const texts = messages.filter((record) => record.kind === 'text');
+  assert.deepEqual(
+    texts.map((record) => record.id),
+    ['text:q1', 'text:error-me-run-1', 'text:q2', 'text:error-me-run-2'],
+    '落库顺序必须 Q1 A1 Q2 A2',
+  );
+  assert.equal(texts[1].content, 'err1', 'A1 内容不被第二轮污染');
+  assert.equal(texts[3].content, 'err2');
+  assert.equal(texts[3].role, 'assistant');
 });
 
 test('listSessions 分页：limit/offset 按 updatedAt 倒序，countSessions 返回总数', async () => {

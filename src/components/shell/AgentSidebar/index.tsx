@@ -1,12 +1,20 @@
 // Adapted from: src/features/AgentSidebar (LobeHub canary)
 // Agent 会话页侧边栏：Header（Agent 名 + 切换）+ Body（新话题/搜索/话题折叠）。
+// 切换 Agent 采用「先跳转 + 路由携带 pendingSession + 后台落库」，身份解析
+// 必须同时覆盖 pendingSession / 已落库 session / URL ?agent=&fab= 三个来源，
+// 否则切换瞬间头部闪回旧 Agent（或显示「对话」），话题列表也按错 agentId+fab 过滤。
 import { Flexbox } from '@lobehub/ui';
-import { memo, useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
-import { sessionHistoryService } from '@/api/session/sessionHistoryService';
+import {
+  sessionHistoryService,
+  subscribeSessionChanges,
+  type SessionRecord,
+} from '@/api/session/sessionHistoryService';
 import SideBarLayout from '@/components/shell/SideBarLayout';
+import { resolveAgentSidebarIdentity } from '@/features/chat/agentIdentity';
 import { useI18n } from '@/i18n';
 
 import Body from './Body';
@@ -14,21 +22,44 @@ import Header from './Header';
 
 const AgentSidebar = memo(() => {
   const { id } = useParams();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { t } = useI18n();
-  const [agentName, setAgentName] = useState(t('nav.chat'));
-  const [agentId, setAgentId] = useState('flight-analysis');
-  const [fab, setFab] = useState('F15B');
+  const [session, setSession] = useState<SessionRecord>();
   const [agents, setAgents] = useState<MentionAgent[]>([]);
 
+  // 导航携带的待落库会话：切换 Agent 后新会话尚未写入 IndexedDB，
+  // 不能只依赖 getSession(id)（异步竞态下会闪回旧 Agent / 默认「对话」）。
+  const pendingSession = useMemo(() => {
+    const pending = (location.state as { pendingSession?: SessionRecord } | null)?.pendingSession;
+    return pending && id && pending.id === id ? pending : undefined;
+  }, [id, location.state]);
+
+  const identity = useMemo(
+    () =>
+      resolveAgentSidebarIdentity(agents, {
+        pendingSession,
+        queryAgent: searchParams.get('agent'),
+        queryFab: searchParams.get('fab'),
+        session,
+      }),
+    [agents, pendingSession, searchParams, session],
+  );
+  const agentName = identity?.agentName ?? t('nav.chat');
+  const agentId = identity?.agentId ?? 'flight-analysis';
+  const fab = identity?.fab ?? 'F15B';
+  const icon = identity?.icon;
+
+  // 已落库 session 是权威身份：进入会话时读取；切换 Agent 的 createSession 是异步的，
+  // 订阅 sessions-changed 在落库完成后重读，让头部/话题列表跟随最新记录。
   useEffect(() => {
     if (!id) return;
-    void sessionHistoryService.getSession(id).then((session) => {
-      if (!session) return;
-      setAgentName(session.agentName || session.title);
-      setAgentId(session.agentId || 'flight-analysis');
-      setFab(session.fab);
-    });
+    const load = () => {
+      void sessionHistoryService.getSession(id).then((row) => setSession(row ?? undefined));
+    };
+    load();
+    return subscribeSessionChanges(load);
   }, [id]);
 
   useEffect(() => {
@@ -103,6 +134,7 @@ const AgentSidebar = memo(() => {
             agentName={agentName}
             agents={agents}
             fab={fab}
+            icon={icon}
             onSwitchAgent={openAgentChat}
           />
         }

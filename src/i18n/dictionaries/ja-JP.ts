@@ -85,7 +85,7 @@ export default {
   "chat.process.streaming": "処理中…",
   'chat.reasoning': '推論',
   'chat.reasoningDone': "深く考えました",
-  'chat.send': "深く考えました",
+  'chat.send': "送信",
   'chat.stop': '生成を停止',
   'chat.suggestion.analyze': '今日の飛行データを分析',
   'chat.suggestion.compare': '2つの試験飛行を比較',

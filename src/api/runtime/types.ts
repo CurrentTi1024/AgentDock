@@ -1,12 +1,19 @@
 export type RunAction = 'a2uiAction' | 'hitlResponse' | 'resume' | 'run' | 'stop';
-export interface RuntimeMessage { content: string; id: string; role: 'assistant' | 'system' | 'tool' | 'user'; eventId?: string }
+export interface RuntimeMessage { content: string; id: string; role: 'assistant' | 'system' | 'tool' | 'user'; eventId?: string; runId?: string }
 /** LobeHub 任务/编排类消息角色（来自 MESSAGES_SNAPSHOT 自定义 role 或自定义 activity）。 */
 export type LobeTaskRole = 'assistantGroup' | 'groupTasks' | 'supervisor' | 'task' | 'tasks';
 export const LOBE_TASK_ROLES: readonly LobeTaskRole[] = ['assistantGroup', 'groupTasks', 'supervisor', 'task', 'tasks'];
 export interface AgentGroupInput { config?: Record<string, unknown>; members: Array<{ agentId: string; fab: string; version?: string }>; orchestrationMode: string }
+/** 用户在本轮消息中 @ 提及的 Agent（对齐 LobeHub mentionedAgents：后端据此启用 callAgent 委派）。 */
+export interface MentionAgentRef {
+  agentId: string;
+  fab: string;
+  agentName?: string;
+  version?: string;
+}
 export interface RunAgentInput {
   context: unknown[]; messages: RuntimeMessage[]; parentRunId?: string; runId: string; state: unknown; threadId: string; tools: unknown[];
-  forwardedProps: { action: RunAction; agentId?: string; fab: string; sessionId: string; group?: AgentGroupInput; resume?: { lastEventId: string }; hitlResponse?: { requestId: string; mode: string; decision?: 'approve' | 'reject'; editedArguments?: Record<string, unknown>; input?: string; selectedValues?: string[]; formValues?: Record<string, unknown> }; a2uiAction?: { actionName: string; context?: Record<string, unknown>; sourceComponentId?: string; surfaceId: string } };
+  forwardedProps: { action: RunAction; agentId?: string; fab: string; sessionId: string; group?: AgentGroupInput; mentionAgents?: MentionAgentRef[]; resume?: { lastEventId: string }; hitlResponse?: { requestId: string; mode: string; decision?: 'approve' | 'reject'; editedArguments?: Record<string, unknown>; input?: string; selectedValues?: string[]; formValues?: Record<string, unknown> }; a2uiAction?: { actionName: string; context?: Record<string, unknown>; sourceComponentId?: string; surfaceId: string } };
 }
 export interface AgUiEvent { type: string; rawEvent?: { runId?: string; eventId?: string }; [key: string]: unknown }
 export interface StreamedEvent { event: AgUiEvent; eventId?: string }

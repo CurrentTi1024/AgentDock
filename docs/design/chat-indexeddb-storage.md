@@ -342,6 +342,19 @@ eventId 必须**字符串可排序**（序号定宽补零，如 `{epoch_ms}-{seq
 - 前端“同会话并发 run 门禁”：上一轮未结束（running/paused）时忽略新发送。
 - 重放安全：`processedEventIds` 精确去重 + 后端按游标只补缺失事件。
 
+### 8.6 错误兜底：RUN_ERROR → assistant 回复（不挂 runtime、不丢历史）
+
+无论错误来自**上游 Orchestration**还是 **Runtime 内部 run**，统一按“结构化 RUN_ERROR → 界面可见的 assistant 回复 → 持久化到历史”处理：
+
+1. **Runtime 侧主动捕获**（`FabRoutingAgent`）：缺 FAB 配置、上游请求失败/流中断、内部 run 报错，一律合成 `RUN_ERROR` AG-UI 事件（code + message）而不是抛异常/断流——前端不再收到 network error，也不会让 runtime 挂掉；重复 run 守卫同样返回结构化 RUN_ERROR。
+2. **reducer 生成 assistant 回复**：`RUN_ERROR`（真实错误，非 CANCELLED）把错误文本作为该轮 assistant 的**最后一个 chunk**——已有部分回复则追加在末尾，没有则新建 `error-<runId>` 消息；同时置 `status/error` 元信息。用户主动取消（CANCELLED）不伪造回复。
+3. **持久化**：该错误消息是普通 assistant 文本，随 `persistRunSnapshot` 落库，刷新后作为该轮 assistant 的回答存在于历史；可随 `removeTurn` 整轮删除。
+4. **兜底路径统一**：`runStore.execute`（mock/direct）catch 不再只改状态，改为经 reducer 注入 RUN_ERROR；官方路径 `runAgent` catch 本就 applyEvent RUN_ERROR，两条路径行为一致。
+5. **防重复与顺序**：
+   - 持久化幂等：错误消息是普通 assistant 文本，bulkPut 按 `kind:rawId` upsert，重复落盘只覆盖不新增；`cancelPendingCheckpoint(runId)` 在错误兜底后丢弃该 run 未落盘的陈旧 running 快照，避免终态报错后防抖 flush 又写回 running checkpoint。
+   - 显示不重复：错误文本作为 assistant 气泡正文渲染，不再额外推 ErrorBlock（同一错误不出现两处）。
+   - 顺序不乱（含多轮错误）：`RuntimeMessage.runId` 标记消息所属 run；RUN_ERROR 只追加到**本轮** assistant（runId 匹配），MESSAGES_SNAPSHOT 带入的上一轮错误回复不会被污染。第二轮再报错时顺序保持 Q1 A1 Q2 A2，错误消息为该轮 messageOrder 最后一项、sequence 最大。
+
 ---
 
 ## 9. 分页与懒加载机制
@@ -624,6 +637,13 @@ canary 已演进为“服务端 DB + 单记录库缓存”，AgentDock 是纯本
 - 模块清单：schema/迁移、会话 CRUD 与列表、消息写入与一致性、消息分页读取、删除/编辑/分支、checkpoint 生命周期、防抖落盘、跨页同步、容量与清理、sessionStore、运行态与续传（runStore + useAgentDockConversation 全量）、UI 消费（单聊/群聊/侧栏/设置/AppShell）、测试。
 - 结论：未发现新 bug；`useAgentDockConversation` 官方路径的 send/stop/HITL/A2UI/restore/refreshAgentContext 逐行核对一致。
 - 加固：防抖测试等待 500ms → 600ms（消除负载边界抖动）；测试连跑稳定。
+
+**清理与防重复复核（RUN_ERROR 收尾）**
+
+- 移除 Mock 关键词错误注入（`!error` 等）与对应测试文件、UI 测试指南文档——错误场景由代码级测试覆盖，不再依赖界面关键字。
+- 移除 `renderRunBlocks` 中的 ErrorBlock 冗余展示：错误文本已作为 assistant 气泡正文渲染，同一错误不出现两处。
+- 新增 `cancelPendingCheckpoint(runId)`：错误兜底后丢弃该 run 未落盘的陈旧 running 快照，防抖 flush 不再写回 running checkpoint。
+- 持久化幂等验证：同一终态错误重复落盘仅保留一行；错误消息 sequence 最大、位于该轮末尾，顺序不乱。
 
 **确认无问题**
 

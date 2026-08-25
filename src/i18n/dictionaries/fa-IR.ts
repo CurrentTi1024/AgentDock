@@ -85,7 +85,7 @@ export default {
   "chat.process.streaming": "در حال پردازش…",
   'chat.reasoning': 'استدلال',
   'chat.reasoningDone': "تفکر عمیق انجام شد",
-  'chat.send': "تفکر عمیق انجام شد",
+  'chat.send': "ارسال",
   'chat.stop': 'توقف تولید',
   'chat.suggestion.analyze': 'تحلیل داده‌های پرواز امروز',
   'chat.suggestion.compare': 'مقایسه دو پرواز آزمایشی',

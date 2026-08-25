@@ -9,6 +9,7 @@ import { type MentionAgent } from '@/api/market/agentMarketService';
 import type { RunStatus } from '@/api/runtime/types';
 import AgentMentionMenu from '@/features/chat/components/AgentMentionMenu';
 import OpStatusTray, { type OpStatusActivity } from '@/features/chat/components/OpStatusTray';
+import { extractMentionToken, replaceMentionToken } from '@/features/chat/mentions';
 import { useI18n } from '@/i18n';
 
 export type ApprovalMode = 'auto' | 'manual';
@@ -127,7 +128,38 @@ const ChatInput = memo<ChatInputProps>(
   }) => {
     const { t } = useI18n();
     const [mentionOpen, setMentionOpen] = useState(false);
+    const [mentionQuery, setMentionQuery] = useState('');
+    const [activeIndex, setActiveIndex] = useState(0);
     const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+    // 联想列表：按 @ 后输入的后缀过滤（名称/FAB/描述）。
+    const filteredMentions = useMemo(() => {
+      const query = mentionQuery.trim().toLowerCase();
+      if (!query) return mentions;
+      return mentions.filter((mention) =>
+        `${mention.agentFullName} ${mention.fab} ${mention.description}`
+          .toLowerCase()
+          .includes(query),
+      );
+    }, [mentionQuery, mentions]);
+
+    const openMention = (query: string) => {
+      setMentionQuery(query);
+      setActiveIndex(0);
+      setMentionOpen(true);
+      onMentionTrigger();
+    };
+
+    const closeMention = () => {
+      setMentionOpen(false);
+    };
+
+    // 选中后把末尾 @query 替换为 @AgentFullName + 空格，正文与其它 @ 保留。
+    const selectMention = (mention: MentionAgent) => {
+      setMentionOpen(false);
+      onChange(replaceMentionToken(value, mention.agentFullName));
+      onSelectMention(mention);
+    };
 
   // 切换 Agent 下拉：选中态显示当前 Agent（头像+名称），无边框紧凑样式。
   const switchValue = useMemo(() => {
@@ -139,6 +171,31 @@ const ChatInput = memo<ChatInputProps>(
   }, [agentName, fab, switchAgents]);
 
     const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      // @ 联想菜单打开时：方向键移动、Enter/Tab 选中、Escape 关闭。
+      if (mentionOpen && filteredMentions.length > 0) {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          setActiveIndex((index) => (index + 1) % filteredMentions.length);
+          return;
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          setActiveIndex(
+            (index) => (index - 1 + filteredMentions.length) % filteredMentions.length,
+          );
+          return;
+        }
+        if ((event.key === 'Enter' || event.key === 'Tab') && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          selectMention(filteredMentions[activeIndex] ?? filteredMentions[0]);
+          return;
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          closeMention();
+          return;
+        }
+      }
       // IME 组合中按 Enter 是确认候选词：跳过发送，避免消息已发出后输入法把文字重新写回输入框。
       if (
         event.key === 'Enter' &&
@@ -170,102 +227,111 @@ const ChatInput = memo<ChatInputProps>(
             variant="borderless"
           />
         )}
-        <Flexbox className={styles.composer} gap={4} padding={12} style={{ position: 'relative' }}>
-          {mentionOpen && (
-            <AgentMentionMenu
-              loading={mentionsLoading}
-              mentions={mentions}
-              onSelect={(mention) => {
-                setMentionOpen(false);
-                onSelectMention(mention);
+        {/* 联想菜单必须放在 overflow:hidden 的 composer 之外，否则会被整体裁掉。 */}
+        <Flexbox style={{ position: 'relative' }}>
+          <Flexbox className={styles.composer} gap={4} padding={12}>
+            <TextArea
+              autoSize={{ minRows: 2, maxRows: 8 }}
+              data-testid="chat-input"
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder ?? t('chat.placeholder')}
+              value={value}
+              variant="borderless"
+              onChange={(event) => {
+                const next = event.target.value;
+                onChange(next);
+                if (timerRef.current) clearTimeout(timerRef.current);
+                if (mentionEnabled) {
+                  const token = extractMentionToken(next);
+                  if (token !== null) {
+                    setMentionQuery(token);
+                    setActiveIndex(0);
+                    setMentionOpen(true);
+                    // 输入时只做一次懒加载（页面缓存 mentions 列表），延迟触发避免连打抖动。
+                    timerRef.current = setTimeout(onMentionTrigger, 80);
+                  } else {
+                    setMentionOpen(false);
+                  }
+                } else {
+                  setMentionOpen(false);
+                }
               }}
             />
-          )}
-          <TextArea
-            autoSize={{ minRows: 2, maxRows: 8 }}
-            data-testid="chat-input"
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder ?? t('chat.placeholder')}
-            value={value}
-            variant="borderless"
-            onChange={(event) => {
-              const next = event.target.value;
-              onChange(next);
-              setMentionOpen(mentionEnabled && next.startsWith('@'));
-              if (timerRef.current) clearTimeout(timerRef.current);
-              if (mentionEnabled && next.startsWith('@')) {
-                timerRef.current = setTimeout(() => {
-                  setMentionOpen(true);
-                  onMentionTrigger();
-                }, 80);
-              }
-            }}
-          />
-          <Flexbox horizontal align="center" justify="space-between">
-            <Flexbox horizontal gap={2} style={{ minHeight: 24 }}>
-              {switchAgents && onSwitchAgent && (
-                <Select
-                  className={styles.compactSelect}
-                  options={switchAgents.map((agent) => ({
-                    label: `${agent.icon} ${agent.agentFullName}`,
-                    value: `${agent.agentId}@${agent.fab}`,
-                  }))}
-                  placeholder={t('agentSidebar.switchAgent')}
-                  popupClassName={styles.compactDropdown}
-                  size="small"
-                  value={switchValue}
-                  variant="borderless"
-                  style={{ maxWidth: 148, minWidth: 92 }}
-                  onChange={(value) => {
-                    const agent = switchAgents.find(
-                      (item) => `${item.agentId}@${item.fab}` === value,
-                    );
-                    if (agent) onSwitchAgent(agent);
-                  }}
-                />
-              )}
-              <ActionIcon aria-label={t('chat.attach')} disabled icon={Paperclip} title={t('chat.attach')} />
-              <ActionIcon aria-label={t('chat.voice')} disabled icon={Mic} title={t('chat.voice')} />
-            </Flexbox>
-            <Flexbox horizontal align="center" gap={12}>
-              {!running && (
-                <Flexbox
-                  horizontal
-                  gap={4}
-                  style={{ color: cssVar.colorTextDescription, fontSize: 12 }}
-                >
-                  <CornerDownLeft size={13} />
-                  {t('chat.input.sendHint')}
-                  <span>/</span>
-                  <ArrowBigUp size={13} />
-                  <CornerDownLeft size={13} />
-                  {t('chat.input.warpHint')}
-                </Flexbox>
-              )}
-              {running ? (
-                <Button
-                  data-testid="chat-stop"
-                  icon={Square}
-                  onClick={onStop}
-                  size="small"
-                  type="primary"
-                >
-                  {t('chat.stop')}
-                </Button>
-              ) : (
-                <Button
-                  data-testid="chat-send"
-                  disabled={sendDisabled}
-                  icon={Send}
-                  onClick={onSend}
-                  size="small"
-                  type="primary"
-                >
-                  {t('chat.send')}
-                </Button>
-              )}
+            <Flexbox horizontal align="center" justify="space-between">
+              <Flexbox horizontal gap={2} style={{ minHeight: 24 }}>
+                {switchAgents && onSwitchAgent && (
+                  <Select
+                    className={styles.compactSelect}
+                    options={switchAgents.map((agent) => ({
+                      label: `${agent.icon} ${agent.agentFullName}`,
+                      value: `${agent.agentId}@${agent.fab}`,
+                    }))}
+                    placeholder={t('agentSidebar.switchAgent')}
+                    popupClassName={styles.compactDropdown}
+                    size="small"
+                    value={switchValue}
+                    variant="borderless"
+                    style={{ maxWidth: 148, minWidth: 92 }}
+                    onChange={(value) => {
+                      const agent = switchAgents.find(
+                        (item) => `${item.agentId}@${item.fab}` === value,
+                      );
+                      if (agent) onSwitchAgent(agent);
+                    }}
+                  />
+                )}
+                <ActionIcon aria-label={t('chat.attach')} disabled icon={Paperclip} title={t('chat.attach')} />
+                <ActionIcon aria-label={t('chat.voice')} disabled icon={Mic} title={t('chat.voice')} />
+              </Flexbox>
+              <Flexbox horizontal align="center" gap={12}>
+                {!running && (
+                  <Flexbox
+                    horizontal
+                    gap={4}
+                    style={{ color: cssVar.colorTextDescription, fontSize: 12 }}
+                  >
+                    <CornerDownLeft size={13} />
+                    {t('chat.input.sendHint')}
+                    <span>/</span>
+                    <ArrowBigUp size={13} />
+                    <CornerDownLeft size={13} />
+                    {t('chat.input.warpHint')}
+                  </Flexbox>
+                )}
+                {running ? (
+                  <Button
+                    data-testid="chat-stop"
+                    icon={Square}
+                    onClick={onStop}
+                    size="small"
+                    type="primary"
+                  >
+                    {t('chat.stop')}
+                  </Button>
+                ) : (
+                  <Button
+                    data-testid="chat-send"
+                    disabled={sendDisabled}
+                    icon={Send}
+                    onClick={onSend}
+                    size="small"
+                    type="primary"
+                  >
+                    {t('chat.send')}
+                  </Button>
+                )}
+              </Flexbox>
             </Flexbox>
           </Flexbox>
+          {mentionOpen && (
+            <AgentMentionMenu
+              activeIndex={activeIndex}
+              loading={mentionsLoading}
+              mentions={filteredMentions}
+              onActiveChange={setActiveIndex}
+              onSelect={selectMention}
+            />
+          )}
         </Flexbox>
         <Flexbox
           className={styles.footer}

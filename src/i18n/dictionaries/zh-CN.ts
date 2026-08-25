@@ -85,7 +85,7 @@ export default {
   "chat.process.streaming": "正在处理…",
   'chat.reasoning': '推理过程',
   'chat.reasoningDone': "已深度思考",
-  'chat.send': "已深度思考",
+  'chat.send': "发送",
   'chat.stop': '停止生成',
   'chat.suggestion.analyze': '分析今日飞行数据',
   'chat.suggestion.compare': '比较两次试飞结果',

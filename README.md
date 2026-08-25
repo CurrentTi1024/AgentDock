@@ -6,7 +6,7 @@ AgentDock 是公司内部使用的 Agent 前端工作台：复用 LobeHub 打磨
 
 ## 当前功能
 
-- 单 Agent 对话：流式文本、Reasoning、Tool Call、HITL 暂停/继续、A2UI Surface、停止与错误展示。
+- 单 Agent 对话：流式文本、Reasoning、Tool Call、HITL 暂停/继续、A2UI Surface、停止与错误展示；输入框支持 LobeHub 风格 `@Agent` 联想（过滤 + 键盘选中 + 多提及），发送时把 `mentionAgents` 写入 `forwardedProps` 供后端启用委派。
 - 会话历史：IndexedDB（Dexie）本地保存会话、可见消息和 Run 检查点，刷新可回看、HITL 可恢复。
 - 市场：Agent / Skill / MCP 三类市场，**FAB 前置**（`getFabOptions` → 分类/列表/详情），支持 `all / permissioned` 两种模式；列表提供排序（sortBy 下拉 + 升降序切换），Agent 卡片展示 skill/mcp 数量，分页（antd Pagination）位于列表右下角。
 - Skill 创建与立即发布（Mock）。

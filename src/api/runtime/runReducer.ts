@@ -33,17 +33,59 @@ const applyStateDelta = (state: unknown, delta: unknown) => {
   }
   return next;
 };
+/** 终态兜底：无论后端是否发送 REASONING_END，都收尾所有推理块的 streaming 状态，
+ *  保证 run 完成后 thinking 必定折叠（ReasoningBlock 的 open 跟随 streaming）。 */
+export const finalizeReasoningMeta = (state: RuntimeRunState): RuntimeRunState => {
+  const next = structuredClone(state);
+  for (const meta of Object.values(next.reasoningMeta)) {
+    meta.streaming = false;
+    meta.finishedAt ??= Date.now();
+  }
+  return next;
+};
 export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent): RuntimeRunState {
   if (input.eventId && previous.processedEventIds.includes(input.eventId)) return previous;
   const next = structuredClone(previous); const event = input.event; const id = String(event.messageId || ''); const toolId = String(event.toolCallId || ''); next.rawEvents.push(event); if (next.rawEvents.length > 1000) next.rawEvents.shift();
   if (input.eventId) { next.latestEventId = input.eventId; next.processedEventIds.push(input.eventId); if (next.processedEventIds.length > 5000) next.processedEventIds.shift(); }
   switch (event.type) {
     case 'RUN_STARTED': next.status = 'running'; break;
-    case 'RUN_FINISHED': next.status = 'success'; break;
-    case 'RUN_ERROR': next.status = event.code === 'CANCELLED' ? 'cancelled' : 'error'; next.error = { code: String(event.code || ''), message: String(event.message || 'Run failed') }; break;
-    case 'TEXT_MESSAGE_START': if (!id) break; next.messages[id] = { id, role: String(event.role || 'assistant') as RuntimeMessage['role'], content: '', eventId: input.eventId }; appendMessageId(next, id); break;
-    case 'TEXT_MESSAGE_CONTENT': if (!id) break; next.messages[id] ||= { id, role: 'assistant', content: '' }; appendMessageId(next, id); next.messages[id].content += String(event.delta || ''); if (input.eventId) next.messages[id].eventId = input.eventId; break;
-    case 'TEXT_MESSAGE_CHUNK': if (!id) break; next.messages[id] ||= { id, role: 'assistant', content: '' }; appendMessageId(next, id); next.messages[id].content += String(event.delta || event.content || ''); if (input.eventId) next.messages[id].eventId = input.eventId; break;
+    case 'RUN_FINISHED': {
+      next.status = 'success';
+      return finalizeReasoningMeta(next);
+    }
+    case 'RUN_ERROR': {
+      next.status = event.code === 'CANCELLED' ? 'cancelled' : 'error';
+      next.error = { code: String(event.code || ''), message: String(event.message || 'Run failed') };
+      // 真实错误（非用户主动取消）作为本轮 assistant 的“最后一个 chunk”：
+      // 已有部分回复则追加在末尾，没有则新建 error-<runId> 消息。
+      // 这样错误既在界面上成为可见的 assistant 回复，也会随 persistRunSnapshot
+      // 作为 assistant 文本持久化到历史，刷新后不丢失。
+      if (event.code !== 'CANCELLED') {
+        const errorText = String(event.message || event.code || 'Run failed');
+        let targetId = '';
+        for (let index = next.messageOrder.length - 1; index >= 0; index -= 1) {
+          const messageId = next.messageOrder[index];
+          // 只追加到“本轮”的 assistant（runId 匹配）；MESSAGES_SNAPSHOT 会带入上一轮消息，
+          // 若误追加到上一轮错误回复，会出现 err2 跑到 Q2 之前的顺序错乱/内容串轮。
+          if (next.messages[messageId]?.role === 'assistant' && next.messages[messageId]?.runId === next.runId) {
+            targetId = messageId;
+            break;
+          }
+        }
+        if (!targetId) targetId = `error-${next.runId}`;
+        const existing = next.messages[targetId];
+        next.messages[targetId] = {
+          ...(existing ?? { content: '', id: targetId, role: 'assistant', runId: next.runId }),
+          content: existing?.content ? `${existing.content}\n\n${errorText}` : errorText,
+          eventId: input.eventId,
+        };
+        if (!next.messageOrder.includes(targetId)) next.messageOrder.push(targetId);
+      }
+      return finalizeReasoningMeta(next);
+    }
+    case 'TEXT_MESSAGE_START': if (!id) break; next.messages[id] = { id, role: String(event.role || 'assistant') as RuntimeMessage['role'], content: '', eventId: input.eventId, runId: next.runId }; appendMessageId(next, id); break;
+    case 'TEXT_MESSAGE_CONTENT': if (!id) break; next.messages[id] ||= { id, role: 'assistant', content: '', runId: next.runId }; appendMessageId(next, id); next.messages[id].content += String(event.delta || ''); if (input.eventId) next.messages[id].eventId = input.eventId; break;
+    case 'TEXT_MESSAGE_CHUNK': if (!id) break; next.messages[id] ||= { id, role: 'assistant', content: '', runId: next.runId }; appendMessageId(next, id); next.messages[id].content += String(event.delta || event.content || ''); if (input.eventId) next.messages[id].eventId = input.eventId; break;
     case 'TEXT_MESSAGE_END': if (!id) break; if (input.eventId && next.messages[id]) next.messages[id].eventId = input.eventId; break;
     case 'REASONING_START': next.reasoningMeta[id] = { ...next.reasoningMeta[id], startedAt: Date.now(), streaming: true }; break;
     case 'REASONING_MESSAGE_START': next.reasoning[id] = ''; next.reasoningMeta[id] = { ...next.reasoningMeta[id], startedAt: Date.now(), streaming: true }; pushOrderedBlock(next, 'reasoning', id); break;
@@ -105,11 +147,19 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
               next.messages[existingId].role === 'assistant',
           );
           if (placeholderId) {
+            // 占位替换为规范 UUID：继承占位消息的 runId（属于当前 run），
+            // 保证后续 RUN_ERROR 仍能识别为“本轮 assistant”并正确追加。
+            const placeholderRunId = next.messages[placeholderId]?.runId;
             delete next.messages[placeholderId];
             next.messageOrder = next.messageOrder.filter((id) => id !== placeholderId);
+            next.messages[message.id] = { ...message, runId: placeholderRunId ?? next.runId };
+            continue;
           }
         }
-        next.messages[message.id] = message;
+        // 已存在的消息保留原 runId（跨轮消息不带当前 runId，RUN_ERROR 不会误追加）；
+        // 新消息（快照先于流式事件到达）保持快照原样。
+        const existing = next.messages[message.id];
+        next.messages[message.id] = existing?.runId ? { ...message, runId: existing.runId } : message;
       }
       break;
     }

@@ -85,7 +85,7 @@ export default {
   "chat.process.streaming": "İşleniyor…",
   'chat.reasoning': 'Akıl yürütme',
   'chat.reasoningDone': "Derinlemesine Düşünüldü",
-  'chat.send': "Derinlemesine Düşünüldü",
+  'chat.send': "Gönder",
   'chat.stop': 'Üretimi durdur',
   'chat.suggestion.analyze': 'Bugünün uçuş verilerini analiz et',
   'chat.suggestion.compare': 'İki test uçuşunu karşılaştır',

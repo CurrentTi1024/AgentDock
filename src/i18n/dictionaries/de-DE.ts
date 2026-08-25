@@ -85,7 +85,7 @@ export default {
   "chat.process.streaming": "Verarbeitung läuft…",
   'chat.reasoning': 'Gedankengang',
   'chat.reasoningDone': "Tief durchdacht",
-  'chat.send': "Tief durchdacht",
+  'chat.send': "Senden",
   'chat.stop': 'Generierung stoppen',
   'chat.suggestion.analyze': 'Flugdaten von heute analysieren',
   'chat.suggestion.compare': 'Zwei Testflüge vergleichen',
