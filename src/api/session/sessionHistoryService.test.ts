@@ -68,6 +68,42 @@ test('createSession 写入后可读，显式 id 幂等覆盖', async () => {
   assert.equal(loaded?.type, 'agent');
 });
 
+test('hasMessages：空会话为 false；落库用户/助手文本后为 true；仅过程块仍为 false', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-has-messages';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: '首条消息标题',
+    type: 'agent',
+    version: '2.1.0',
+  });
+  assert.equal(await sessionHistoryService.hasMessages(sessionId), false, '空会话无消息');
+
+  // 只有过程块（tool/reasoning）不算可见文本消息
+  await sessionHistoryService.appendMessages([
+    { createdAt: new Date().toISOString(), id: 'tool:only', kind: 'tool', sessionId, sequence: 1 },
+  ]);
+  assert.equal(await sessionHistoryService.hasMessages(sessionId), false, '仅过程块不算首条消息');
+
+  await sessionHistoryService.appendMessages([
+    {
+      content: '帮我分析一下今天的飞行试验数据',
+      createdAt: new Date().toISOString(),
+      id: 'text:first',
+      kind: 'text',
+      role: 'user',
+      sessionId,
+      sequence: 2,
+    },
+  ]);
+  assert.equal(await sessionHistoryService.hasMessages(sessionId), true, '用户文本落库后为 true');
+});
+
 test('单 Agent 运行结束 flush 后：messages 落库、sessions 时间戳更新、终态不落 checkpoint', async () => {
   const sessionId = 'session-persist-run-1';
   const runId = 'run-persist-1';

@@ -234,6 +234,15 @@ export const sessionHistoryService = {
     return record;
   },
   async getSession(id: string) { return db.sessions.get(id); },
+  /** 会话是否已有可见文本消息（用户/助手），用于「首条消息」语义的标题默认值。 */
+  async hasMessages(sessionId: string) {
+    const row = await db.messages
+      .where('sessionId')
+      .equals(sessionId)
+      .filter((record) => record.kind === 'text' && (record.role === 'user' || record.role === 'assistant'))
+      .first();
+    return row !== undefined;
+  },
   /** 分页读取会话列表（按 updatedAt 倒序）；不传 limit 时保持旧行为返回全部。 */
   async listSessions(options?: { limit?: number; offset?: number }) {
     let collection = db.sessions.orderBy('updatedAt').reverse();

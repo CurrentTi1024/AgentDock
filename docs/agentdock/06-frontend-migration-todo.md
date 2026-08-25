@@ -243,6 +243,7 @@ src/
 - [x] 非 zh-CN/en-US/zh-TW 的 15 种语言已人工翻译补齐；`dictionaries.test.ts` 守护 18 种语言的 key 集合与占位符一致；全量联网复核见 `task.md`，脚本 `scripts/verify-i18n.mjs` + `scripts/argos-translate-server.py`。
 - [x] 需求 Review / Code Review 已输出详细设计与缺口清单：见 `docs/agentdock/design/`（00-10：索引、端到端链路、AG-UI、A2UI、Registry、渲染矩阵、CopilotKit 接入、联调调试指南、最终架构决策、渲染投影层、逐行 Code Review）。
 - [x] Agent 会话身份/URL 路由守卫（2026-08-26）：AgentSidebar 会话 id 改从 `location.pathname` 解析（修复 Routes 外 useParams 拿不到参数的根因）；身份按 pendingSession → URL `?agent=&fab=` → 已落库 session 解析；会话入口 URL 一律携带 agentId+fab（`buildAgentSessionPath`）；ChatPage 路由守卫校验参数在 mentionAgents 可用列表内，非法参数移除回退会话解析（防手改 URL 越权）；输入框左下角切换下拉进页即默认选中当前 Agent；聊天头部/欢迎卡/输入框底部/首页头部头像按 agentId+fab 跟随 Agent（不再硬编码 🛩️）。回归：`agentIdentity.test.ts` 18 例，全套 75/75。
+- [x] 会话标题默认规则（2026-08-26）：无用户命名时取首条消息（清理 `<mention>`、折叠空白）前 20 字符，`buildSessionTitle` 统一入口 + `hasMessages` 首条语义；HomePage/ChatPage/GroupChatPage 三处统一。回归：`mentions.test.ts` 3 例 + hasMessages 用例，全套 80/80。
 - [ ] 浏览器逐页视觉验收（当前环境无浏览器驱动，已用 build/test + HTTP 冒烟代替）。
 - [ ] 真实后端联调（`VITE_SERVICE_MODE=http` 时按新契约走通）。
 
