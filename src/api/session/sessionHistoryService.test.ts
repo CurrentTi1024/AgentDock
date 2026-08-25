@@ -8,6 +8,7 @@ import Dexie from 'dexie';
 import { createRunState, reduceRunEvent } from '../runtime/runReducer.ts';
 import type { RunAgentInput, RuntimeRunState } from '../runtime/types.ts';
 import {
+  cancelPendingCheckpoint,
   flushRunCheckpoint,
   sessionDatabase,
   scheduleRunCheckpoint,
@@ -813,7 +814,39 @@ test('RUN_ERROR 经 reducer 生成 assistant 错误回复并持久化为历史',
   assert.ok(errorRow, '错误回复作为消息行落库');
   assert.equal(errorRow?.role, 'assistant');
   assert.equal(errorRow?.content, 'upstream exploded');
+  // 幂等：同一终态错误重复落盘只保留一行，不重复持久化。
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input, state);
+  const again = await sessionHistoryService.getMessages(sessionId);
+  assert.equal(
+    again.filter((record) => record.id === 'text:error-run-error-persist').length,
+    1,
+    '错误回复重复落盘不产生重复行',
+  );
   assert.equal(await sessionHistoryService.getLatestRun(sessionId), undefined, '终态不落 checkpoint');
+});
+
+test('cancelPendingCheckpoint：错误兜底后丢弃未落盘快照，flush 不写回陈旧 running checkpoint', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-cancel-pending';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'cancel-pending',
+    type: 'agent',
+  });
+  const { input, snapshot } = buildSingleAgentRun(sessionId, 'run-cancel-pending');
+  scheduleRunCheckpoint(sessionId, input, { ...snapshot, status: 'running' as const });
+  cancelPendingCheckpoint('run-cancel-pending');
+  await flushRunCheckpoint();
+  assert.equal(
+    await sessionHistoryService.getLatestRun(sessionId),
+    undefined,
+    '取消后 flush 不再写入陈旧 running checkpoint',
+  );
 });
 
 test('listSessions 分页：limit/offset 按 updatedAt 倒序，countSessions 返回总数', async () => {

@@ -350,6 +350,10 @@ eventId 必须**字符串可排序**（序号定宽补零，如 `{epoch_ms}-{seq
 2. **reducer 生成 assistant 回复**：`RUN_ERROR`（真实错误，非 CANCELLED）把错误文本作为该轮 assistant 的**最后一个 chunk**——已有部分回复则追加在末尾，没有则新建 `error-<runId>` 消息；同时置 `status/error` 元信息。用户主动取消（CANCELLED）不伪造回复。
 3. **持久化**：该错误消息是普通 assistant 文本，随 `persistRunSnapshot` 落库，刷新后作为该轮 assistant 的回答存在于历史；可随 `removeTurn` 整轮删除。
 4. **兜底路径统一**：`runStore.execute`（mock/direct）catch 不再只改状态，改为经 reducer 注入 RUN_ERROR；官方路径 `runAgent` catch 本就 applyEvent RUN_ERROR，两条路径行为一致。
+5. **防重复与顺序**：
+   - 持久化幂等：错误消息是普通 assistant 文本，bulkPut 按 `kind:rawId` upsert，重复落盘只覆盖不新增；`cancelPendingCheckpoint(runId)` 在错误兜底后丢弃该 run 未落盘的陈旧 running 快照，避免终态报错后防抖 flush 又写回 running checkpoint。
+   - 显示不重复：错误文本作为 assistant 气泡正文渲染，不再额外推 ErrorBlock（同一错误不出现两处）。
+   - 顺序不乱：错误消息追加为该轮 messageOrder 的最后一项（有部分回复则原地追加内容），sequence 最大 → 始终是该轮最后一条。
 
 ---
 
@@ -633,6 +637,13 @@ canary 已演进为“服务端 DB + 单记录库缓存”，AgentDock 是纯本
 - 模块清单：schema/迁移、会话 CRUD 与列表、消息写入与一致性、消息分页读取、删除/编辑/分支、checkpoint 生命周期、防抖落盘、跨页同步、容量与清理、sessionStore、运行态与续传（runStore + useAgentDockConversation 全量）、UI 消费（单聊/群聊/侧栏/设置/AppShell）、测试。
 - 结论：未发现新 bug；`useAgentDockConversation` 官方路径的 send/stop/HITL/A2UI/restore/refreshAgentContext 逐行核对一致。
 - 加固：防抖测试等待 500ms → 600ms（消除负载边界抖动）；测试连跑稳定。
+
+**清理与防重复复核（RUN_ERROR 收尾）**
+
+- 移除 Mock 关键词错误注入（`!error` 等）与对应测试文件、UI 测试指南文档——错误场景由代码级测试覆盖，不再依赖界面关键字。
+- 移除 `renderRunBlocks` 中的 ErrorBlock 冗余展示：错误文本已作为 assistant 气泡正文渲染，同一错误不出现两处。
+- 新增 `cancelPendingCheckpoint(runId)`：错误兜底后丢弃该 run 未落盘的陈旧 running 快照，防抖 flush 不再写回 running checkpoint。
+- 持久化幂等验证：同一终态错误重复落盘仅保留一行；错误消息 sequence 最大、位于该轮末尾，顺序不乱。
 
 **确认无问题**
 

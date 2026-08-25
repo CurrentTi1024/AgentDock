@@ -2,7 +2,7 @@
 import { ActionIcon, Block, Button, Flexbox, Icon, Tag, Text, TextArea } from '@lobehub/ui';
 import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Atom, Check, CheckCircle2, ChevronDown, ChevronRight, Crown, Layers, ListTodo, Loader2, Play, Users, Wrench, X, XCircle } from 'lucide-react';
+import { Atom, Check, CheckCircle2, ChevronDown, ChevronRight, Crown, Layers, ListTodo, Loader2, Play, Users, Wrench, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -920,24 +920,6 @@ const HttpStoredA2uiSurface = ({
   return <A2uiSurfaceBlock payload={payload} />;
 };
 
-export const ErrorBlock = ({ code, message }: { code?: string; message: string }) => (
-  <ErrorBlockInner code={code} message={message} />
-);
-
-const ErrorBlockInner = ({ code, message }: { code?: string; message: string }) => {
-  const { t } = useI18n();
-  return (
-  <Block gap={10} padding={16} variant="outlined">
-    <Flexbox horizontal align="center" gap={9}>
-      <Icon color={cssVar.colorError} icon={XCircle} />
-      <Text weight={500}>{t('chat.error.title')}</Text>
-      {code && <Tag color="error" size="small">{code}</Tag>}
-    </Flexbox>
-    <Text type="secondary">{message}</Text>
-  </Block>
-  );
-};
-
 export interface StoredTextMessage {
   blocks: SessionMessageRecord[];
   record: SessionMessageRecord;
@@ -1280,6 +1262,7 @@ export const renderRunBlocks = (
     }
     flushSteps();
   }
-  if (run.error) blocks.push(<ErrorBlock code={run.error.code} key="error" message={run.error.message} />);
+  // RUN_ERROR 的错误文本已由 reducer 作为 assistant 消息内容（最后一个 chunk）渲染，
+  // 不再额外推 ErrorBlock，避免同一错误在气泡正文与过程区重复显示。
   return blocks;
 };

@@ -2,7 +2,12 @@ import { create } from 'zustand';
 import { agentRuntimeService, createRuntimeAction } from '@/api/runtime/agentRuntimeService';
 import { createRunState, reduceRunEvent } from '@/api/runtime/runReducer';
 import type { RunAgentInput, RuntimeRunState } from '@/api/runtime/types';
-import { flushRunCheckpoint, scheduleRunCheckpoint, sessionHistoryService } from '@/api/session/sessionHistoryService';
+import {
+  cancelPendingCheckpoint,
+  flushRunCheckpoint,
+  scheduleRunCheckpoint,
+  sessionHistoryService,
+} from '@/api/session/sessionHistoryService';
 interface RunStore { activeInput?: RunAgentInput; controller?: AbortController; run?: RuntimeRunState; execute(input: RunAgentInput): Promise<void>; restoreSession(sessionId: string): Promise<void>; resume(): Promise<void>; stop(): Promise<void>; respondToHitl(payload: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>): Promise<void>; sendA2uiAction(payload: NonNullable<RunAgentInput['forwardedProps']['a2uiAction']>): Promise<void> }
 export const useRunStore = create<RunStore>((set, get) => ({
   async execute(input) {
@@ -24,6 +29,8 @@ export const useRunStore = create<RunStore>((set, get) => ({
             },
           });
           set({ run: failed });
+          // 丢弃该 run 尚未落盘的陈旧 running 快照，避免终态报错后防抖 flush 又写回 running checkpoint。
+          cancelPendingCheckpoint(current.runId);
           await sessionHistoryService.saveRunCheckpoint(input.forwardedProps.sessionId, input, failed);
         }
       }

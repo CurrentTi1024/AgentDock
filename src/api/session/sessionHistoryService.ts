@@ -566,4 +566,17 @@ export const flushRunCheckpoint = async () => {
   }
 };
 
+/**
+ * 取消某 run 的待落盘快照：错误兜底后丢弃陈旧 running 快照，
+ * 避免稍后防抖 flush 把“已终态报错”的 run 重新写回 running checkpoint。
+ * 待落盘队列清空时同时取消定时器，防止空转。
+ */
+export const cancelPendingCheckpoint = (runId: string): void => {
+  pendingCheckpoints.delete(runId);
+  if (pendingCheckpoints.size === 0 && checkpointTimer) {
+    clearTimeout(checkpointTimer);
+    checkpointTimer = undefined;
+  }
+};
+
 export { notifySessionsChanged };

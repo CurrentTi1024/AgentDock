@@ -33,7 +33,6 @@
 | [12-message-history-rendering-fixes.md](12-message-history-rendering-fixes.md) | 消息历史与渲染修复记录：落库竞态、`lc_run--` 去重、chat mock 根因、构建修复 | 前端 |
 | [13-r4-pages-migration-design.md](13-r4-pages-migration-design.md) | R4 其余页面全量迁移设计与实现：Tasks/Memory/Documents/Channel/Artifact/Page/Settings、Service 契约、hooks 改写、运行时修复、验证 | 前端 |
 | [16-indexeddb-storage-plan.md](16-indexeddb-storage-plan.md) | Session 本地 IndexedDB（Dexie）完整方案：现状 vs LobeHub、schema v2 迁移、lastMessageAt、容量监控预警、导出清理、跨页同步、zustand 操作中间层 | 前端 |
-| [17-error-scenarios-testing.md](17-error-scenarios-testing.md) | RUN_ERROR 错误兜底 UI 测试场景指南：Mock 关键词触发 + HTTP/真实后端故障注入 + 自检清单 | 前端/联调 |
 | [17-chat-full-feature-architecture.md](17-chat-full-feature-architecture.md) | Chat 全功能架构与设计机制：运行时/事件投影/历史落库/消息渲染/过程可视化/输入区/消息操作/滚动/群聊复用/一致性防护（重机制轻代码） | 前端 |
 
 ## 3. 与权威文档的关系
