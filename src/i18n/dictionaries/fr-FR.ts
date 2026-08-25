@@ -42,7 +42,7 @@ export default {
   "chat.activity.supervisor": "Superviseur",
   "chat.activity.tasks": "Sous-tâches",
   "chat.reasoningDuration": "Réflexion terminée (en {seconds} secondes)",
-  "chat.reasoningEncrypted": "Réflexion terminée (en {seconds} secondes)",
+  "chat.reasoningEncrypted": "Réflexion chiffrée",
   "chat.reasoningInProgress": "En cours…",
   "chat.reasoningStreaming": "Réflexion approfondie...",
   "chat.toolDuration": "Réflexion approfondie...",

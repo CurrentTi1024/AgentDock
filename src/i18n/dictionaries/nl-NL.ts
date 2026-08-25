@@ -42,7 +42,7 @@ export default {
   "chat.activity.supervisor": "Supervisor",
   "chat.activity.tasks": "Deeltaken",
   "chat.reasoningDuration": "Diep nagedacht (in {seconds} seconden)",
-  "chat.reasoningEncrypted": "Diep nagedacht (in {seconds} seconden)",
+  "chat.reasoningEncrypted": "Versleuteld denken",
   "chat.reasoningInProgress": "Bezig…",
   "chat.reasoningStreaming": "Diep aan het nadenken...",
   "chat.toolDuration": "Diep aan het nadenken...",

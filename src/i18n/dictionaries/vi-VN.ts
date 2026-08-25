@@ -42,7 +42,7 @@ export default {
   "chat.activity.supervisor": "Người giám sát",
   "chat.activity.tasks": "Tác vụ con",
   "chat.reasoningDuration": "Đã suy nghĩ sâu (trong {seconds} giây)",
-  "chat.reasoningEncrypted": "Đã suy nghĩ sâu (trong {seconds} giây)",
+  "chat.reasoningEncrypted": "Suy nghĩ được mã hóa",
   "chat.reasoningInProgress": "Đang xử lý…",
   "chat.reasoningStreaming": "Đang suy nghĩ sâu...",
   "chat.toolDuration": "Đang suy nghĩ sâu...",

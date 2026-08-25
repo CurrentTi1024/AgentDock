@@ -42,7 +42,7 @@ export default {
   "chat.activity.supervisor": "ناظر",
   "chat.activity.tasks": "زیروظیفه‌ها",
   "chat.reasoningDuration": "تفکر عمیق انجام شد (در {seconds} ثانیه)",
-  "chat.reasoningEncrypted": "تفکر عمیق انجام شد (در {seconds} ثانیه)",
+  "chat.reasoningEncrypted": "تفکر رمزگذاری شده",
   "chat.reasoningInProgress": "در حال انجام…",
   "chat.reasoningStreaming": "در حال تفکر عمیق...",
   "chat.toolDuration": "در حال تفکر عمیق...",

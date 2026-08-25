@@ -42,7 +42,7 @@ export default {
   "chat.activity.supervisor": "Supervisor",
   "chat.activity.tasks": "Subtareas",
   "chat.reasoningDuration": "Pensamiento profundo (en {seconds} segundos)",
-  "chat.reasoningEncrypted": "Pensamiento profundo (en {seconds} segundos)",
+  "chat.reasoningEncrypted": "Razonamiento cifrado",
   "chat.reasoningInProgress": "En curso…",
   "chat.reasoningStreaming": "Pensando profundamente...",
   "chat.toolDuration": "Pensando profundamente...",

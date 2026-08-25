@@ -42,7 +42,7 @@ export default {
   "chat.activity.supervisor": "Denetçi",
   "chat.activity.tasks": "Alt görevler",
   "chat.reasoningDuration": "{seconds} saniyede Derinlemesine Düşünüldü",
-  "chat.reasoningEncrypted": "{seconds} saniyede Derinlemesine Düşünüldü",
+  "chat.reasoningEncrypted": "Şifrelenmiş düşünce",
   "chat.reasoningInProgress": "Devam ediyor…",
   "chat.reasoningStreaming": "Derin Düşünülüyor...",
   "chat.toolDuration": "Derin Düşünülüyor...",
