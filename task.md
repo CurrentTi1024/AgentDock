@@ -38,6 +38,7 @@
 - 输入框迁移 LobeHub `@` 联想：Home/单聊/群聊输入框统一支持 `@Agent` 联想（后缀过滤、方向键/Enter/Tab 选中、Escape 关闭、多 @ 保留），发送时解析为 `forwardedProps.mentionAgents[{agentId, fab, agentName?, version?}]`；`@` 选择不再切换会话 Agent（切换走左下角下拉）。Server `fabProxy/FabRoutingAgent` 原样透传 input，无需改动。
 - 修复 `@` 菜单不可见：联想菜单原本渲染在 `overflow: hidden` 的输入框容器内，被整体裁剪；已移到容器外的相对定位包裹层，菜单悬浮于输入框上方可见。
 - 输入框还原 LobeHub 选中后的蓝色 mention chip：真实输入保持纯文本 `@Name`（用于解析 mentionAgents），下层叠加层把已匹配的 @提及渲染为蓝色圆角 chip（`blue1/blue3/blue9` token：暗色 #001740/#003b79/#60b1ff，与官网一致），含 Agent 头像图标，文字/光标交互不受影响。
+- 输入框正式迁移 `@lobehub/editor`（LobeHub ChatInput/InputEditor 同款）：`@` 联想菜单、蓝色 mention chip（`<mention name id />`）、Backspace 整块删除、Enter 发送（`COMMAND_PRIORITY_HIGH` 注册，菜单打开时仍由菜单消费 Enter 选中）全部由官方编辑器实现；发送内容序列化为 `<mention name=".." id=".." />`，`parseMentionedAgents` 解析后写入 `forwardedProps.mentionAgents`；空内容不报错，发送后输入区自动清空。Home/单聊/群聊三处输入区统一。
 
 > 2026-08-20 更新：R3 前三项已完成并通过 Chrome headless + CDP 验证
 > （sortBy 下拉 + 升降序切换、Agent 卡片 skill/mcp 数量标签、
@@ -534,3 +535,14 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   聊天头部（ChatHeader）、欢迎卡片（Welcome）、输入框底部（ChatInput 按 currentAgent 匹配）、
   首页头部（HomePage 随 selected）不再硬编码 🛩️，切换 Agent 后头像统一跟随；新增 2 个回归用例
   （75/75 通过），无头 Chrome 实测 code-review 会话四个头像全部为 🧑‍💻。
+
+第十七轮（2026-08-26，会话标题默认 = 首条消息前 20 字符）：
+
+- **规则**：新建会话无用户命名时，标题默认取会话内第一条消息（清理 `<mention>` 标记、折叠
+  空白后）的前 20 字符；无消息/空内容时保持原兜底（Agent 全名 / 群聊名 / 新对话）。
+- **实现**：`mentions.ts` 新增 `buildSessionTitle(content, fallback)`（全链路唯一入口）；
+  `sessionHistoryService` 新增 `hasMessages(sessionId)`（首条消息语义，只认用户/助手文本，
+  过程块不算）；HomePage 建会话、ChatPage 首条发送（覆盖侧边栏新建 title=agentFullName 的
+  会话与默认 inbox）、群聊未命名会话三处统一改用该规则（原 32 字符与「标题==新对话」判断移除）。
+- **验证**：`mentions.test.ts` 新增 3 例（20 字符截断/mention 清理/空白折叠与回退），
+  `sessionHistoryService.test.ts` 新增 hasMessages 用例；全套 80/80、typecheck、build 通过。

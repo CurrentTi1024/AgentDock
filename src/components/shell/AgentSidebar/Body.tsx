@@ -9,6 +9,7 @@ import NavItem from '@/components/shell/NavItem';
 import SidebarSection from '@/components/shell/SidebarSection';
 import { sessionHistoryService, type SessionRecord } from '@/api/session/sessionHistoryService';
 import { buildAgentSessionPath } from '@/features/chat/agentIdentity';
+import { sanitizeMentionMarkup } from '@/features/chat/mentions';
 import { useI18n } from '@/i18n';
 
 const TOPIC_PAGE_SIZE = 30;
@@ -84,7 +85,7 @@ const AgentSidebarBody = memo<AgentSidebarBodyProps>(
                     active={location.pathname === `/chat/${session.id}`}
                     iconSize={15}
                     key={session.id}
-                    title={session.title}
+                    title={sanitizeMentionMarkup(session.title)}
                     onClick={() =>
                       navigate(buildAgentSessionPath(session.id, session.agentId, session.fab))
                     }

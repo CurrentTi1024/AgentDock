@@ -5,6 +5,7 @@ import type { MentionAgent } from '../../api/market/agentMarketService.ts';
 import type { SessionRecord } from '../../api/session/sessionHistoryService.ts';
 import {
   buildAgentSessionPath,
+  matchMentionAgent,
   parseAgentChatSessionId,
   resolveChatRouteQuery,
   resolveAgentIcon,
@@ -116,6 +117,23 @@ test('resolveAgentIcon：按 agentId+fab 返回图标，未知 Agent 返回 unde
   assert.equal(resolveAgentIcon(agents, 'flight-analysis', 'F15B'), '🛩️');
   assert.equal(resolveAgentIcon(agents, 'unknown', 'F99B'), undefined);
   assert.equal(resolveAgentIcon(agents, undefined, 'F15B'), undefined);
+});
+
+test('matchMentionAgent：优先 agentId+fab，名称格式不一致时回退 name+fab', () => {
+  const byId = matchMentionAgent(agents, {
+    agentId: 'code-review',
+    agentName: '旧名-不匹配',
+    fab: 'F15B',
+  });
+  assert.equal(byId?.agentId, 'code-review');
+  assert.equal(byId?.icon, '🧑‍💻');
+  const byName = matchMentionAgent(agents, {
+    agentName: 'FlightAnalysis_Agent-F15B',
+    fab: 'F15B',
+  });
+  assert.equal(byName?.agentId, 'flight-analysis');
+  assert.equal(matchMentionAgent(agents, { agentId: 'missing', fab: 'F99B' }), undefined);
+  assert.equal(matchMentionAgent([], { agentId: 'code-review', fab: 'F15B' }), undefined);
 });
 
 test('AgentSidebar 刷新/直达链接：无 session 时用 URL ?agent=&fab= 匹配列表解析名称', () => {

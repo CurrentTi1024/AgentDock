@@ -7,11 +7,12 @@ import { Editor } from '@lobehub/editor/react';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { COMMAND_PRIORITY_HIGH, KEY_DOWN_COMMAND } from 'lexical';
 import { ArrowBigUp, CornerDownLeft, Mic, Paperclip, Send, Square } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { type MentionAgent } from '@/api/market/agentMarketService';
 import type { RunStatus } from '@/api/runtime/types';
 import OpStatusTray, { type OpStatusActivity } from '@/features/chat/components/OpStatusTray';
+import { matchMentionAgent } from '@/features/chat/agentIdentity';
 import { useI18n } from '@/i18n';
 
 export type ApprovalMode = 'auto' | 'manual';
@@ -93,6 +94,7 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
 interface ChatInputProps {
   /** 当前活动（官方 OpStatusTray 的 activity 等价物）。 */
   activity?: OpStatusActivity;
+  agentId?: string;
   agentName?: string;
   approvalMode?: ApprovalMode;
   fab?: string;
@@ -135,6 +137,7 @@ MentionItemLabel.displayName = 'MentionItemLabel';
 const ChatInput = memo<ChatInputProps>(
   ({
     activity,
+    agentId,
     agentName,
     approvalMode = 'manual',
     fab,
@@ -156,6 +159,7 @@ const ChatInput = memo<ChatInputProps>(
   }) => {
     const { t } = useI18n();
     const editorRef = useRef<IEditor | null>(null);
+    const [editorReady, setEditorReady] = useState(false);
     // 发送后编辑器缓存的 markdown 可能在下一次 onTextChange 回写，导致输入框“复活”。
     // 记录最近一次已发送内容，相同内容回写时忽略一次。
     const lastSentRef = useRef<string>('');
@@ -168,6 +172,7 @@ const ChatInput = memo<ChatInputProps>(
     const handleEditorInit = useCallback(
       (editor: IEditor) => {
         editorRef.current = editor;
+        setEditorReady(true);
       },
       [],
     );
@@ -184,23 +189,24 @@ const ChatInput = memo<ChatInputProps>(
       [getMarkdown, onChange],
     );
 
-    // 外部受控 value（发送后清空 / 候选问题 / 恢复草稿）同步进编辑器。
-    // setDocument('markdown') 不受支持，改用 cleanDocument + INSERT_MARKDOWN_COMMAND。
+    // 外部受控 value 同步：仅处理非空外部内容（候选问题 / 恢复草稿）。
+    // 发送清空由 send handler 直接 cleanDocument；这里不做破坏性清空，
+    // 避免 onChange 偶发回传空串时把用户正在输入的编辑器内容 wipe 掉。
     useEffect(() => {
+      if (!value) return;
       const editor = editorRef.current;
       if (!editor) return;
       const current = getMarkdown(editor);
       if (value === current) return;
       editor.cleanDocument();
-      if (value) {
-        editor.dispatchCommand(INSERT_MARKDOWN_COMMAND, { historyState: null, markdown: value });
-      }
+      editor.dispatchCommand(INSERT_MARKDOWN_COMMAND, { historyState: null, markdown: value });
     }, [getMarkdown, value]);
 
     // Enter 发送：注册在 COMMAND_PRIORITY_HIGH。
     // 菜单打开时菜单的 CRITICAL 处理器先消费 Enter（选中）；Lexical 默认换行在 EDITOR
     // 优先级，晚于我们，因此能可靠拦截发送且不影响菜单选中与 Shift+Enter 换行。
     useEffect(() => {
+      if (!editorReady) return;
       const editor = editorRef.current;
       if (!editor) return;
       return editor.registerHighCommand(
@@ -209,7 +215,12 @@ const ChatInput = memo<ChatInputProps>(
           if (event.key !== 'Enter' || event.isComposing || event.shiftKey || sendDisabled) {
             return false;
           }
-          const content = getMarkdown(editor);
+          let content = '';
+          try {
+            content = getMarkdown(editor);
+          } catch (error) {
+            console.error('[AgentDock] serialize markdown failed', error);
+          }
           if (!content) return false;
           lastSentRef.current = content;
           onSend(content);
@@ -220,7 +231,7 @@ const ChatInput = memo<ChatInputProps>(
         },
         COMMAND_PRIORITY_HIGH,
       );
-    }, [getMarkdown, onSend, sendDisabled]);
+    }, [editorReady, getMarkdown, onSend, sendDisabled]);
 
     const handleSendContent = useCallback(() => {
       const editor = editorRef.current;
@@ -233,16 +244,12 @@ const ChatInput = memo<ChatInputProps>(
       requestAnimationFrame(() => editor.focus());
     }, [getMarkdown, onSend]);
 
-    // 当前 Agent（按名称+fab 匹配候选列表）：切换下拉选中态与底部 icon 共用，
-    // 保证切换 Agent 后头像跟随变化，不再硬编码 🛩️。
+    // 当前 Agent：与侧边栏/聊天头部同用 agentId+fab 匹配候选列表
+    // （名称格式不一致时回退 name+fab），切换下拉选中态与底部 icon 共用，
+    // 保证切换 Agent 后三个头像跟随变化，不再硬编码 🛩️。
     const currentAgent = useMemo(
-      () =>
-        switchAgents?.length && agentName
-          ? switchAgents.find(
-              (agent) => agent.agentFullName === agentName && agent.fab === fab,
-            )
-          : undefined,
-      [agentName, fab, switchAgents],
+      () => matchMentionAgent(switchAgents ?? [], { agentId, agentName, fab }),
+      [agentId, agentName, fab, switchAgents],
     );
     // 切换 Agent 下拉：选中态显示当前 Agent（头像+名称），无边框紧凑样式。
     const switchValue = currentAgent ? `${currentAgent.agentId}@${currentAgent.fab}` : undefined;

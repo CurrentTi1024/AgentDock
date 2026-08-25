@@ -79,9 +79,8 @@ const ChatItem = memo<ChatItemProps>(
         placement={isUser ? 'right' : 'left'}
         renderMessage={(node) => (
           <Flexbox gap={8} style={{ width: '100%' }}>
-            {!isUser && typeof content === 'string' && content ? (
+            {typeof content === 'string' && content ? (
               <>
-                {/* LobeHub 顺序：思考/工具过程（折叠）在正文上方，正文（Markdown + @提及）在下方。 */}
                 {children}
                 <Markdown content={content} />
               </>

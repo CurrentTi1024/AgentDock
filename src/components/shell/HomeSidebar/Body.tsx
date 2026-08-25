@@ -23,6 +23,7 @@ import { sessionHistoryService, type SessionRecord } from '@/api/session/session
 import NavItem from '@/components/shell/NavItem';
 import SidebarSection from '@/components/shell/SidebarSection';
 import { buildAgentSessionPath } from '@/features/chat/agentIdentity';
+import { sanitizeMentionMarkup } from '@/features/chat/mentions';
 import { useI18n } from '@/i18n';
 import { formatRelativeTime } from '@/lib/relativeTime';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -258,7 +259,7 @@ const Body = () => {
                       style={{ flex: 'none' }}
                     />
                   }
-                  title={session.title}
+                  title={sanitizeMentionMarkup(session.title)}
                   description={
                     <Flexbox horizontal align="center" gap={6} style={{ overflow: 'hidden' }}>
                       <Text ellipsis fontSize={11} type="secondary">
