@@ -498,6 +498,9 @@ export const sessionHistoryService = {
       // 只持久化用户与助手文本；system/developer 上下文消息（如 A2UI catalog）
       // 不进入可见历史，避免以 assistant 气泡误渲染。
       if (message.role !== 'user' && message.role !== 'assistant') continue;
+      // 流式中间态不落“空占位”：TEXT_MESSAGE_START 后内容尚未到达时 content 为空，
+      // 若此时恰逢中途 flush 会把空行持久化，刷新后出现空白气泡；有内容后按序落库即可。
+      if (!message.content) continue;
       // 文本消息记录自己最后一次更新时的 eventId；其余类型记录 run 当前游标。
       push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, eventId: message.eventId ?? snapshot.latestEventId });
     }
@@ -509,6 +512,7 @@ export const sessionHistoryService = {
       if (!message || !message.id) continue;
       if (message.role !== 'user' && message.role !== 'assistant') continue;
       if (String(message.id).startsWith('lc_run--')) continue;
+      if (!message.content) continue;
       push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, eventId: message.eventId ?? snapshot.latestEventId });
     }
     for (const [id, content] of Object.entries(snapshot.reasoning || {})) push('reasoning', id, { content, runId: snapshot.runId, eventId: snapshot.latestEventId });

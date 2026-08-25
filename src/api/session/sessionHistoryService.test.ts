@@ -875,6 +875,8 @@ test('多轮错误持久化：第二轮带 MESSAGES_SNAPSHOT 时落库顺序 Q1A
   let run1 = createRunState('me-run-1', `thread-${sessionId}`);
   run1 = reduceRunEvent(run1, { eventId: '1', event: { type: 'RUN_STARTED', threadId: run1.threadId, runId: run1.runId } });
   run1 = reduceRunEvent(run1, { eventId: '2', event: { type: 'TEXT_MESSAGE_START', messageId: 'q1', role: 'user' } });
+  // 用户消息内容由 runStore/execute 从 input 种子注入（真实路径）。
+  run1.messages['q1'] = { ...run1.messages['q1'], content: 'Q1' };
   run1 = reduceRunEvent(run1, {
     eventId: '3',
     event: { code: 'BACKEND_ERROR', message: 'err1', runId: run1.runId, threadId: run1.threadId, type: 'RUN_ERROR' },
@@ -895,6 +897,7 @@ test('多轮错误持久化：第二轮带 MESSAGES_SNAPSHOT 时落库顺序 Q1A
       ],
     },
   });
+  run2.messages['q2'] = { ...run2.messages['q2'], content: 'Q2' };
   run2 = reduceRunEvent(run2, {
     eventId: '12',
     event: { code: 'BACKEND_ERROR', message: 'err2', runId: run2.runId, threadId: run2.threadId, type: 'RUN_ERROR' },
@@ -1011,6 +1014,51 @@ test('sequence 单调：系统时钟回拨后，新消息仍排在旧消息之�
     ids.indexOf('text:user-clock-run-2') > ids.indexOf('text:assistant-clock-run-1'),
     '回拨后第二轮仍排在第一轮之后',
   );
+});
+
+test('流式中间态：A 尚无内容时不落空占位，有内容后按序落库', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-no-empty-placeholder';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'no-empty-placeholder',
+    type: 'agent',
+  });
+  const input: RunAgentInput = {
+    context: [],
+    forwardedProps: { action: 'run', agentId: 'flight-analysis', fab: 'F15B', sessionId },
+    messages: [{ content: 'Q', id: 'q-empty', role: 'user' }],
+    runId: 'empty-run',
+    state: {},
+    threadId: `thread-${sessionId}`,
+    tools: [],
+  };
+  // 中途 flush：Q 有内容，assistant 仅有 TEXT_MESSAGE_START（content 为空）。
+  let state = createRunState('empty-run', `thread-${sessionId}`);
+  state = reduceRunEvent(state, { eventId: '1', event: { type: 'RUN_STARTED', threadId: state.threadId, runId: state.runId } });
+  state.messages['q-empty'] = { content: 'Q', id: 'q-empty', role: 'user' };
+  state.messageOrder.push('q-empty');
+  state = reduceRunEvent(state, { eventId: '2', event: { type: 'TEXT_MESSAGE_START', messageId: 'a-empty', role: 'assistant' } });
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...state, status: 'running' as const });
+
+  let messages = await sessionHistoryService.getMessages(sessionId);
+  assert.equal(messages.some((record) => record.id === 'text:a-empty'), false, '空内容不落占位行');
+  assert.ok(messages.some((record) => record.id === 'text:q-empty'), '用户消息已落库');
+
+  // 内容到达后再 flush：assistant 行出现，且排在用户行之后。
+  state = reduceRunEvent(state, { eventId: '3', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'a-empty', delta: '回复内容' } });
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...state, status: 'running' as const });
+  messages = await sessionHistoryService.getMessages(sessionId);
+  const assistantRow = messages.find((record) => record.id === 'text:a-empty');
+  assert.ok(assistantRow, '有内容后落库');
+  assert.equal(assistantRow?.content, '回复内容');
+  const userRow = messages.find((record) => record.id === 'text:q-empty');
+  assert.ok(userRow && assistantRow && assistantRow.sequence > userRow.sequence, 'assistant 排在用户之后');
 });
 
 test('listSessions 分页：limit/offset 按 updatedAt 倒序，countSessions 返回总数', async () => {

@@ -509,3 +509,24 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - `02-agui-a2ui-runtime-contract.md`：§8.2 写入真实 HITL 事件样本（CUSTOM on_interrupt 结构、resume[] 约定、前端行为、ag_ui-langgraph resume 映射限制）；§10 新增 10.5 断线重连实测（eventId 注入/游标回放/STREAM_EXPIRED/runtime SSE 校验限制/前端不自动 resume 策略）；§14 待冻结项勾选更新。
 - `03-integration-and-acceptance.md`：Case 8（断线恢复）与 Case 9（真实 HITL）验收状态与遗留项更新。
 - `11-e2e-joint-test-report.md`：测试矩阵补 11（断线重连 eventId）与 12（真实 HITL）两行。
+
+第十六轮（2026-08-26，Agent 会话身份解析 / URL 归一化 / 权限路由守卫修复）：
+
+- **根因**：AgentSidebar 渲染在 `<Routes>` 外部，`useParams()` 永远拿不到路由参数 → 会话记录
+  加载不到，头部一直显示「对话」；话题列表按兜底 `flight-analysis/F15B` 过滤，切换 Agent 后不过滤；
+  输入框左下角切换下拉依赖 mentions 懒加载，进页默认无选中。
+- **AgentSidebar 身份解析**（`agentIdentity.ts` 纯函数 + `AgentSidebar/index.tsx`）：
+  会话 id 改为从 `location.pathname` 解析；身份按 pendingSession（先跳转后落库的导航 state）→
+  URL `?agent=&fab=`（显式指定优先，防创建兜底记录错绑）→ 已落库 session → 兜底 解析；
+  订阅 `sessions-changed` 在异步落库完成后重读；头部头像随当前 Agent（不再硬编码 🛩️）。
+- **ChatPage 输入框默认选中**：挂载即预取 mentionAgents；`selectedAgent` 改为按会话精确匹配
+  （绝不误绑列表第一项）；头部显示名改为响应式派生（selectedAgent → session.agentName → 兜底），
+  消除 `ensureSession` 异步 `.then` 覆盖显示名的竞态；会话记录与 URL/解析结果不一致时回填。
+- **URL 归一化 + 权限守卫**：所有会话入口（HomeSidebar/HomePage/AgentSidebar 话题）跳转一律带
+  `?agent=&fab=`（`buildAgentSessionPath`）；ChatPage 进入时校验 `agentId+fab` 是否在当前用户
+  可用的 mentionAgents 列表中——不在列表则移除参数回退到会话记录解析（防手改 URL 越权），
+  未带参数则按会话补上参数。
+- **验证**：`agentIdentity.test.ts` 新增 16 个回归用例（身份优先级/URL 解析/权限守卫/URL 构造），
+  全套 72/72 通过；`pnpm run typecheck`、`pnpm run build` 通过；无头 Chrome + CDP 实测：
+  `/chat/session-inbox` 自动补 `?agent=flight-analysis&fab=F15B`，`?agent=evil&fab=F99B` 被守卫
+  移除并回退默认 Agent，`?agent=code-review&fab=F15B` 原样保留且侧边栏/话题/输入框全部一致。

@@ -18,6 +18,7 @@
     "@copilotkit/a2ui-renderer": "1.68.1",
     "@copilotkit/react-core": "1.68.1",
     "@copilotkit/runtime": "1.68.1",
+    "@lobehub/editor": "^4.24.1",
     "@lobehub/fluent-emoji": "^4.1.0",
     "@lobehub/icons": "^5.11.0",
     "@lobehub/ui": "^5.31.1",

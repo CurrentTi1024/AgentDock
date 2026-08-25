@@ -354,6 +354,7 @@ eventId 必须**字符串可排序**（序号定宽补零，如 `{epoch_ms}-{seq
    - 持久化幂等：错误消息是普通 assistant 文本，bulkPut 按 `kind:rawId` upsert，重复落盘只覆盖不新增；`cancelPendingCheckpoint(runId)` 在错误兜底后丢弃该 run 未落盘的陈旧 running 快照，避免终态报错后防抖 flush 又写回 running checkpoint。
    - 显示不重复：错误文本作为 assistant 气泡正文渲染，不再额外推 ErrorBlock（同一错误不出现两处）。
    - 顺序不乱（含多轮错误）：`RuntimeMessage.runId` 标记消息所属 run；RUN_ERROR 只追加到**本轮** assistant（runId 匹配），MESSAGES_SNAPSHOT 带入的上一轮错误回复不会被污染。第二轮再报错时顺序保持 Q1 A1 Q2 A2，错误消息为该轮 messageOrder 最后一项、sequence 最大。
+   - 空占位防护：流式中间态（TEXT_MESSAGE_START 已到、内容未到）恰逢 350ms 中途 flush 时，**不落空 assistant 行**；内容到达后按序落库（upsert 同 id）。避免“转圈空白”阶段持久化占位行、刷新后出现空白气泡。
 
 ---
 
