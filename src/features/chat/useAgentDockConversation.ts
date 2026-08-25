@@ -33,8 +33,6 @@ export interface AgentDockConversationOptions {
 export interface AgentDockConversationResult {
   agent: unknown;
   isReady: boolean;
-  /** 从 IndexedDB 重建 agent 上下文（删除/重新生成后调用，避免已删轮次被后端线程带回）。 */
-  refreshAgentContext: () => Promise<void>;
   respondToHitl: (
     hitlResponse: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>,
   ) => Promise<void>;
@@ -62,9 +60,6 @@ const useMockConversation = (options: AgentDockConversationOptions): AgentDockCo
   const restore = useCallback(async () => {
     await useRunStore.getState().restoreSession(optionsRef.current.sessionId);
   }, []);
-
-  // mock 每次 send 只带新消息并从 IndexedDB 重建会话上下文，删除后无需额外处理。
-  const refreshAgentContext = useCallback(async () => undefined, []);
 
   useEffect(() => {
     void restore();
@@ -106,7 +101,6 @@ const useMockConversation = (options: AgentDockConversationOptions): AgentDockCo
   return {
     agent: undefined,
     isReady: true,
-    refreshAgentContext,
     respondToHitl,
     restore,
     run: useRunStore((state) => state.run),
@@ -222,10 +216,6 @@ const useOfficialConversation = (
       }));
     agent.setMessages(restoredMessages as Message[]);
   }, [agent]);
-
-  const refreshAgentContext = useCallback(async () => {
-    await rebuildAgentContext();
-  }, [rebuildAgentContext]);
 
   const restore = useCallback(async () => {
     const sessionId = optionsRef.current.sessionId;
@@ -411,7 +401,6 @@ const useOfficialConversation = (
   return {
     agent,
     isReady,
-    refreshAgentContext,
     respondToHitl,
     restore,
     run: httpRun,

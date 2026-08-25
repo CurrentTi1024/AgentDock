@@ -5,6 +5,7 @@ import { ActionIcon, Alert, Avatar, Button, Flexbox, Select, Tag, Text } from '@
 import { INSERT_MARKDOWN_COMMAND, INSERT_MENTION_COMMAND, type IEditor } from '@lobehub/editor';
 import { Editor } from '@lobehub/editor/react';
 import { createStaticStyles, cssVar } from 'antd-style';
+import { COMMAND_PRIORITY_HIGH, KEY_DOWN_COMMAND } from 'lexical';
 import { ArrowBigUp, CornerDownLeft, Mic, Paperclip, Send, Square } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 
@@ -155,6 +156,9 @@ const ChatInput = memo<ChatInputProps>(
   }) => {
     const { t } = useI18n();
     const editorRef = useRef<IEditor | null>(null);
+    // 发送后编辑器缓存的 markdown 可能在下一次 onTextChange 回写，导致输入框“复活”。
+    // 记录最近一次已发送内容，相同内容回写时忽略一次。
+    const lastSentRef = useRef<string>('');
 
     const getMarkdown = useCallback((editor?: IEditor | null) => {
       if (!editor) return '';
@@ -170,7 +174,12 @@ const ChatInput = memo<ChatInputProps>(
 
     const handleTextChange = useCallback(
       (editor: IEditor) => {
-        onChange(getMarkdown(editor));
+        const markdown = getMarkdown(editor);
+        if (lastSentRef.current && markdown === lastSentRef.current) {
+          lastSentRef.current = '';
+          return;
+        }
+        onChange(markdown);
       },
       [getMarkdown, onChange],
     );
@@ -188,23 +197,41 @@ const ChatInput = memo<ChatInputProps>(
       }
     }, [getMarkdown, value]);
 
+    // Enter 发送：注册在 COMMAND_PRIORITY_HIGH。
+    // 菜单打开时菜单的 CRITICAL 处理器先消费 Enter（选中）；Lexical 默认换行在 EDITOR
+    // 优先级，晚于我们，因此能可靠拦截发送且不影响菜单选中与 Shift+Enter 换行。
+    useEffect(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      return editor.registerHighCommand(
+        KEY_DOWN_COMMAND,
+        (event) => {
+          if (event.key !== 'Enter' || event.isComposing || event.shiftKey || sendDisabled) {
+            return false;
+          }
+          const content = getMarkdown(editor);
+          if (!content) return false;
+          lastSentRef.current = content;
+          onSend(content);
+          editor.cleanDocument();
+          requestAnimationFrame(() => editor.focus());
+          event.preventDefault();
+          return true;
+        },
+        COMMAND_PRIORITY_HIGH,
+      );
+    }, [getMarkdown, onSend, sendDisabled]);
+
     const handleSendContent = useCallback(() => {
       const editor = editorRef.current;
       if (!editor) return;
-      onSend(getMarkdown(editor));
+      const content = getMarkdown(editor);
+      if (!content) return;
+      lastSentRef.current = content;
+      onSend(content);
+      editor.cleanDocument();
       requestAnimationFrame(() => editor.focus());
     }, [getMarkdown, onSend]);
-
-    const handlePressEnter = useCallback(
-      ({ editor, event }: { editor: IEditor; event: KeyboardEvent }) => {
-        // Shift+Enter 换行；sendDisabled（如首页未选 Agent）时也走换行。
-        if (event.shiftKey || sendDisabled) return false;
-        onSend(getMarkdown(editor));
-        requestAnimationFrame(() => editor.focus());
-        return true;
-      },
-      [getMarkdown, onSend, sendDisabled],
-    );
 
     // 当前 Agent（按名称+fab 匹配候选列表）：切换下拉选中态与底部 icon 共用，
     // 保证切换 Agent 后头像跟随变化，不再硬编码 🛩️。
@@ -220,22 +247,45 @@ const ChatInput = memo<ChatInputProps>(
     // 切换 Agent 下拉：选中态显示当前 Agent（头像+名称），无边框紧凑样式。
     const switchValue = currentAgent ? `${currentAgent.agentId}@${currentAgent.fab}` : undefined;
 
+    // 对齐 LobeHub：items 为函数（挂载即注册 @ trigger，数据就绪后返回列表），
+    // 避免数组形式在 mentions 异步加载完成前导致 mention 插件未挂载。
+    const mentionItems = useMemo(
+      () =>
+        mentions.map((mention) => {
+          const searchText = `${mention.agentFullName} ${mention.fab} ${mention.description}`;
+          return {
+            key: `${mention.agentId}@${mention.fab}`,
+            label: <MentionItemLabel mention={mention} />,
+            metadata: {
+              agentId: mention.agentId,
+              fab: mention.fab,
+              icon: mention.icon,
+              id: `${mention.agentId}@${mention.fab}`,
+              label: mention.agentFullName,
+              searchText,
+              version: mention.version,
+            },
+          };
+        }),
+      [mentions],
+    );
+
+    const mentionItemsFn = useCallback(
+      async (search: { matchingString: string } | null) => {
+        const query = (search?.matchingString || '').trim().toLowerCase();
+        if (!query) return mentionItems;
+        return mentionItems.filter((item) =>
+          String(item.metadata?.searchText ?? item.key).toLowerCase().includes(query),
+        );
+      },
+      [mentionItems],
+    );
+
     const mentionOption = useMemo(
       () =>
-        mentionEnabled && mentions.length > 0
+        mentionEnabled
           ? {
-              items: mentions.map((mention) => ({
-                key: `${mention.agentId}@${mention.fab}`,
-                label: <MentionItemLabel mention={mention} />,
-                metadata: {
-                  agentId: mention.agentId,
-                  fab: mention.fab,
-                  icon: mention.icon,
-                  id: `${mention.agentId}@${mention.fab}`,
-                  label: mention.agentFullName,
-                  version: mention.version,
-                },
-              })),
+              items: mentionItemsFn,
               maxLength: 50,
               markdownWriter: (node: { label: string; metadata?: Record<string, unknown> }) =>
                 `<mention name="${node.label}" id="${String(node.metadata?.id ?? '')}" />`,
@@ -247,7 +297,7 @@ const ChatInput = memo<ChatInputProps>(
               },
             }
           : undefined,
-      [mentionEnabled, mentions],
+      [mentionEnabled, mentionItemsFn],
     );
 
     return (
@@ -276,7 +326,7 @@ const ChatInput = memo<ChatInputProps>(
               content={value}
               mentionOption={mentionOption}
               onInit={handleEditorInit}
-              onPressEnter={handlePressEnter}
+              onChange={handleTextChange}
               onTextChange={handleTextChange}
               pasteAsPlainText
               placeholder={placeholder ?? t('chat.placeholder')}

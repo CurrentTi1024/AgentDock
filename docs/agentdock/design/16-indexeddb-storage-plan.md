@@ -22,7 +22,7 @@
 
 - **防抖写入**：`scheduleRunCheckpoint`（`:204-210`）按 `runId` 分槽，空闲 350ms 统一 `flushRunCheckpoint`；终态（success/cancelled/error）显式 flush（`runStore.ts:11,15`）。多轮并发互不覆盖。
 - **多轮顺序**：`persistRunSnapshot`（`:141-197`）保留已存在消息的 `sequence/createdAt/runId`，新消息按 `messageOrder` 追加，避免时间线错乱。
-- **级联删除**：`removeSession` 事务内删除 sessions + messages + checkpoints；`removeMessage(s)/removeTurn` 联动清理 checkpoint 防止快照复活已删消息。
+- **级联删除**：`removeSession` 事务内删除 sessions + messages + checkpoints。消息级删除/编辑/重新生成已移除（历史只读），避免 MESSAGES_SNAPSHOT 复活。
 - **跨页面（弱）**：同窗口内靠 `window` CustomEvent（`agentdock:sessions-changed` / `agentdock:run-persisted`）刷新侧栏；`blocked` / `versionchange` 监听处理 schema 升级阻塞（`:18-29`），`AppShell.tsx` 显示阻塞提示。
 - **断线恢复**：`getLatestRecoverableRun` 取 `running/paused` 的最新 checkpoint（`:200`）。
 
@@ -114,7 +114,7 @@ this.version(2).stores({
 |---|---|
 | `persistRunSnapshot` | 计算本次快照 text 行最大 createdAt，与库内现有值取 max 后写入 |
 | `saveRunCheckpoint` | 复用 persist 后的结果 |
-| `removeMessage(s)/removeTurn` | 删除后重算该会话 text 行最大值，无消息回退 createdAt |
+| `persistRunSnapshot` | 落盘时取“现有行 + 本次写入”的 text 最大 createdAt（单调守卫），空会话回退 createdAt |
 | `createSession` | 初始化为 `createdAt` |
 | `updateSession` | 不覆盖 lastMessageAt（只改标题等） |
 
@@ -123,7 +123,7 @@ this.version(2).stores({
 checkpoint 是**运行状态快照**（完整 `RuntimeRunState`），用途只有两个：
 
 1. **刷新/断线恢复**：`runStore.restoreSession` 取最新 checkpoint 恢复 `input + snapshot`，`running` 且有 `latestEventId` 时按游标续跑；HITL `paused` 恢复同样依赖。
-2. **回放权威数据源**：`messages` 表只是投影渲染行，checkpoint 里才有完整 `messageOrder`、tool 结果、reasoning、activities、surfaces payload；删除/编辑消息时同步清理防“复活”。
+2. **回放权威数据源**：`messages` 表只是投影渲染行，checkpoint 里才有完整 `messageOrder`、tool 结果、reasoning、activities、surfaces payload。消息历史只读（无删除/编辑/重新生成），不存在快照复活问题。
 
 **终态 checkpoint 完全不需要**：对话页 `isActiveRun` 仅对 `running/paused` 为真，终态恢复后 run 不参与渲染——历史文本与全部过程块都由 `messages` 表渲染。因此：
 
@@ -149,7 +149,7 @@ checkpoint 是**运行状态快照**（完整 `RuntimeRunState`），用途只�
 ### 3.5 跨页面同步（双通道）
 
 - 新增 `BroadcastChannel('agentdock:session-sync')`：
-  - 写入侧：`createSession/updateSession/removeSession/saveRunCheckpoint/removeMessage(s)/removeTurn/exportAndDelete` 后 `postMessage({ type: 'sessions-changed' })`；checkpoint 落库另发 `run-persisted`。
+  - 写入侧：`createSession/updateSession/removeSession/saveRunCheckpoint/exportAndDelete` 后 `postMessage({ type: 'sessions-changed' })`；checkpoint 落库另发 `run-persisted`。
   - 读取侧：提供 `subscribeSessionChanges(callback)`，同时监听 BroadcastChannel 与同窗口 CustomEvent，返回退订函数。各侧栏/首页改用该订阅，跨标签页实时刷新。
 - schema 升级：保留 `blocked/versionchange` 监听；`versionchange` 时主动 `db.close()` 并广播 `agentdock:db-versionchange`（其他标签页收到后延迟重试打开新版本）。
 

@@ -188,6 +188,16 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
       pushOrderedBlock(next, 'activity', id);
       if (activityType === 'agentDock.hitl') next.status = 'paused';
       if (activityType === 'a2ui.surface' || activityType === 'a2ui-surface') {
+        // 中间态（如 {status:'building', progressTokens}）没有可渲染 UI，不建 surface 行；
+        // 最终 a2ui_operations 或 components 到达时才渲染，避免正文出现 building JSON 回退卡。
+        const content = event.content as Record<string, unknown> | undefined;
+        if (
+          !content ||
+          typeof content !== 'object' ||
+          (!Array.isArray(content.a2ui_operations) && !Array.isArray(content.components))
+        ) {
+          break;
+        }
         // 统一以逻辑 surfaceId 为键：与 render_a2ui 工具的 components 版本共用键，
         // pushOrderedBlock 按 `${kind}:${id}` 幂等，不会重复插入同一 surface。
         const surfaceId = findLogicalSurfaceId(event.content) || String(event.surfaceId || id);

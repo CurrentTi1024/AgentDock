@@ -44,7 +44,7 @@ const buildSingleAgentRun = (sessionId: string, runId: string): { input: RunAgen
   state = reduceRunEvent(state, { eventId: '10', event: { type: 'TEXT_MESSAGE_START', messageId: `assistant-${runId}`, role: 'assistant' } });
   state = reduceRunEvent(state, { eventId: '11', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: `assistant-${runId}`, delta: '分析完成' } });
   state = reduceRunEvent(state, { eventId: '12', event: { type: 'TEXT_MESSAGE_END', messageId: `assistant-${runId}` } });
-  state = reduceRunEvent(state, { eventId: '13', event: { type: 'ACTIVITY_SNAPSHOT', messageId: `surface-${runId}`, activityType: 'a2ui.surface', surfaceId: `surface-${runId}`, content: { catalogId: 'agentdock://catalog' } } });
+  state = reduceRunEvent(state, { eventId: '13', event: { type: 'ACTIVITY_SNAPSHOT', messageId: `surface-${runId}`, activityType: 'a2ui.surface', surfaceId: `surface-${runId}`, content: { catalogId: 'agentdock://catalog', components: [] } } });
   state = reduceRunEvent(state, { eventId: '14', event: { type: 'RUN_FINISHED', threadId: state.threadId, runId } });
   return { input, snapshot: state };
 };
@@ -240,45 +240,6 @@ test('多会话隔离：消息与 checkpoint 不串库', async () => {
   }
 });
 
-test('removeTurn 整轮删除（用户文本 + 回复 + 过程块 + checkpoint）', async () => {
-  await flushRunCheckpoint();
-  const sessionId = 'session-remove-branch';
-  const runId = 'run-remove-branch';
-  const { input, snapshot } = buildSingleAgentRun(sessionId, runId);
-  await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...snapshot, status: 'running' as const });
-  const before = await sessionHistoryService.getMessages(sessionId);
-  const userMessageId = input.messages[0].id;
-  assert.ok(before.some((record) => record.id === `text:${userMessageId}`));
-  assert.ok(before.some((record) => record.kind === 'tool'));
-
-  await sessionHistoryService.removeTurn(sessionId, userMessageId);
-  const after = await sessionHistoryService.getMessages(sessionId);
-  assert.equal(after.some((record) => record.id === `text:${userMessageId}`), false);
-  // 助手回复与过程块（tool/reasoning/step）随该轮一并删除
-  assert.equal(after.some((record) => record.kind === 'text'), false);
-  assert.equal(after.some((record) => record.kind === 'tool'), false);
-  assert.equal(after.some((record) => record.kind === 'reasoning'), false);
-  // checkpoint 不复活已删消息
-  const latest = await sessionHistoryService.getLatestRun(sessionId);
-  assert.equal(latest, undefined);
-});
-
-test('updateMessageContent 同步消息行与 checkpoint 快照', async () => {
-  await flushRunCheckpoint();
-  const sessionId = 'session-edit-content';
-  const runId = 'run-edit-content';
-  const { input, snapshot } = buildSingleAgentRun(sessionId, runId);
-  await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...snapshot, status: 'running' as const });
-  const userMessageId = input.messages[0].id;
-
-  await sessionHistoryService.updateMessageContent(sessionId, userMessageId, '编辑后的新问题');
-  const records = await sessionHistoryService.getMessages(sessionId);
-  const record = records.find((item) => item.id === `text:${userMessageId}`);
-  assert.equal(record?.content, '编辑后的新问题');
-  const checkpoint = await sessionHistoryService.getLatestRun(sessionId);
-  assert.equal(checkpoint?.snapshot.messages[userMessageId].content, '编辑后的新问题');
-});
-
 test('多轮 run 快照累积（MESSAGES_SNAPSHOT）后文本消息顺序保持时间线', async () => {
   await flushRunCheckpoint();
   const sessionId = 'session-multi-run-order';
@@ -442,7 +403,7 @@ test('持久化不落 lc_run-- 占位行：规范 UUID 是唯一权威文本行'
   assert.equal(textIds.some((id) => id.includes('lc_run--')), false);
 });
 
-test('lastMessageAt：随消息落库更新，消息清空后回退 createdAt', async () => {
+test('lastMessageAt：随消息落库更新到最后一条消息时间', async () => {
   await flushRunCheckpoint();
   const sessionId = 'session-last-message-at';
   await sessionHistoryService.createSession({
@@ -465,12 +426,6 @@ test('lastMessageAt：随消息落库更新，消息清空后回退 createdAt', 
     after?.lastMessageAt && new Date(after.lastMessageAt).getTime() > new Date(after.createdAt).getTime(),
     '落库后 lastMessageAt 应更新到最后一条消息时间',
   );
-
-  const messages = await sessionHistoryService.getMessages(sessionId);
-  const textIds = messages.filter((record) => record.kind === 'text').map((record) => record.id);
-  await sessionHistoryService.removeMessages(sessionId, textIds);
-  const cleared = await sessionHistoryService.getSession(sessionId);
-  assert.equal(cleared?.lastMessageAt, cleared?.createdAt, '消息清空后回退 createdAt');
 });
 
 test('v1 → v2 升级：lastMessageAt 从 text 消息回填，空会话回退 createdAt，旧数据保留', async () => {
@@ -747,34 +702,6 @@ test('断线续传：checkpoint 存 latestEventId，restore 取用并构造 resu
   assert.equal(resumeInput.forwardedProps.fab, 'F15B', 'fab 保留');
   assert.equal(resumeInput.runId, 'run-resume-eid', 'runId 保留');
   assert.equal(resumeInput.threadId, `thread-${sessionId}`, 'threadId 保留');
-});
-
-test('removeMessages：删除消息时按 raw id 联动清理 running checkpoint（text: 前缀兼容）', async () => {
-  await flushRunCheckpoint();
-  const sessionId = 'session-remove-checkpoint-prefix';
-  await sessionHistoryService.createSession({
-    agentId: 'flight-analysis',
-    agentName: 'FlightAnalysis_Agent',
-    fab: 'F15B',
-    id: sessionId,
-    pinned: false,
-    threadId: `thread-${sessionId}`,
-    title: 'remove-prefix',
-    type: 'agent',
-  });
-  const { input, snapshot } = buildSingleAgentRun(sessionId, 'run-prefix');
-  await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...snapshot, status: 'running' as const });
-  assert.ok(await sessionHistoryService.getLatestRun(sessionId), 'running checkpoint 已落库');
-
-  // ChatPage/GroupChatPage 删除时传 record.id（text: 前缀），快照 key 是裸 rawId。
-  await sessionHistoryService.removeMessages(sessionId, [`text:${input.messages[0].id}`]);
-  assert.equal(
-    await sessionHistoryService.getLatestRun(sessionId),
-    undefined,
-    '含被删消息的 running checkpoint 应被联动删除（防刷新复活）',
-  );
-  const messages = await sessionHistoryService.getMessages(sessionId);
-  assert.equal(messages.some((record) => record.id === `text:${input.messages[0].id}`), false);
 });
 
 test('RUN_ERROR 经 reducer 生成 assistant 错误回复并持久化为历史', async () => {
@@ -1061,36 +988,6 @@ test('LobeHub 同款占位+增量：空占位行存在，内容到达后同 id u
   assert.equal(assistantRow?.content, '回复内容');
   assert.equal(assistantRow?.sequence, placeholder?.sequence, '占位行 upsert 不改变 sequence');
   assert.ok(userRow && assistantRow && assistantRow.sequence > userRow.sequence, 'assistant 排在用户之后');
-});
-
-test('墓碑数组有上限：超限淘汰最旧条目，不无限膨胀', async () => {
-  await flushRunCheckpoint();
-  const sessionId = 'session-tombstone-cap';
-  await sessionHistoryService.createSession({
-    agentId: 'flight-analysis',
-    agentName: 'FlightAnalysis_Agent',
-    fab: 'F15B',
-    id: sessionId,
-    pinned: false,
-    threadId: `thread-${sessionId}`,
-    title: 'tombstone-cap',
-    type: 'agent',
-  });
-  // 预置接近上限的旧墓碑。
-  await sessionDatabase.sessions.update(sessionId, {
-    deletedMessageIds: Array.from({ length: 999 }, (_, index) => `text:old-${index}`),
-  });
-  const { input, snapshot } = buildSingleAgentRun(sessionId, 'tomb-run');
-  await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...snapshot, status: 'running' as const });
-  await sessionHistoryService.removeTurn(sessionId, input.messages[0].id);
-
-  const session = await sessionHistoryService.getSession(sessionId);
-  assert.ok(session?.deletedMessageIds, '删除后应写入墓碑');
-  assert.ok(session.deletedMessageIds!.length <= 1000, '墓碑数组不超过上限');
-  assert.ok(
-    session.deletedMessageIds!.some((id) => id.startsWith('text:user-tomb-run')),
-    '新删除的轮次墓碑保留',
-  );
 });
 
 test('listSessions 分页：limit/offset 按 updatedAt 倒序，countSessions 返回总数', async () => {

@@ -67,10 +67,19 @@ export const resolveAgentSidebarIdentity = (
 ): AgentIdentity | undefined => {
   const { pendingSession, queryAgent, queryFab, session } = sources;
   if (pendingSession) {
+    // pendingSession 记录没有 icon 字段，按 agentId+fab 从候选列表补头像/名称，
+    // 否则切换 Agent 后 Home 右侧头像回落到默认 🛩️。
+    const match =
+      pendingSession.agentId && pendingSession.fab
+        ? agents.find(
+            (agent) => agent.agentId === pendingSession.agentId && agent.fab === pendingSession.fab,
+          )
+        : undefined;
     return {
       agentId: pendingSession.agentId,
-      agentName: pendingSession.agentName || pendingSession.title,
+      agentName: match?.agentFullName || pendingSession.agentName || pendingSession.title,
       fab: pendingSession.fab,
+      icon: match?.icon,
     };
   }
   if (queryAgent && queryFab) {

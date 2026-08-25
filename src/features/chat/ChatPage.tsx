@@ -77,8 +77,6 @@ export default function ChatPage() {
   const pendingSession = (location.state as { pendingSession?: SessionRecord } | null)?.pendingSession;
 
   const [input, setInput] = useState('');
-  const [editingId, setEditingId] = useState<string>();
-  const [editDraft, setEditDraft] = useState('');
   const [composerHeight, setComposerHeight] = useState(0);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [feedbackModal, setFeedbackModal] = useState<FeedbackTarget>();
@@ -146,7 +144,6 @@ export default function ChatPage() {
   const agentIcon = resolveAgentIcon(mentions, agentId, fab);
   const {
     agent: runtimeAgent,
-    refreshAgentContext,
     respondToHitl,
     restore,
     run,
@@ -511,68 +508,6 @@ export default function ChatPage() {
     threadId: session?.threadId || '',
   };
   const hasAnyMessage = storedMessages.length > 0 || (isActiveRun && Boolean(answer || running || run?.status));
-  const lastUserPrompt = useMemo(() => {
-    const fromRun = liveMessages.filter((message) => message.role === 'user').at(-1)?.content;
-    if (fromRun) return fromRun;
-    return (
-      [...history]
-        .reverse()
-        .find((record) => record.role === 'user' && !deletedKeys.has(record.id))?.content || ''
-    );
-  }, [deletedKeys, history, liveMessages]);
-
-  const deleteMessage = useCallback(
-    (messageId: string) => {
-      void sessionHistoryService.removeMessage(sessionId, messageId).then(() => reloadHistoryWindow());
-    },
-    [reloadHistoryWindow, sessionId],
-  );
-
-  // branch 替换：删除以该用户消息开头的一整轮（用户消息 + 助手回复过程块 + checkpoint），
-  // 再以新 prompt 重跑——编辑与「重新生成」统一走这条路径（LobeHub regenerate 语义）。
-  const replaceTurn = async (userMessageId: string, prompt: string) => {
-    if (!prompt || running) return;
-    // record.id 可能带 text: 前缀，removeTurn 按无前缀 id 查找。
-    await sessionHistoryService.removeTurn(sessionId, userMessageId.replace(/^text:/, ''));
-    await reloadHistoryWindow();
-    // 删除轮次后重建 agent 上下文：否则后端线程仍携带已删消息，
-    // 新 run 的 MESSAGES_SNAPSHOT 会把它们复活（user 消息重复、旧回复混入）。
-    await refreshAgentContext();
-    await sendMessageWith(prompt);
-  };
-
-  const regenerateAssistant = (assistantRecordId: string) => {
-    // storedMessages 的 record.id 带 text: 前缀，这里兼容两种形态，避免拼成 text:text:xxx 查不到。
-    const index = history.findIndex(
-      (record) => record.id === assistantRecordId || record.id === `text:${assistantRecordId}`,
-    );
-    if (index < 0) return;
-    let userRecord: SessionMessageRecord | undefined;
-    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-      // 必须回找到真正的用户消息：同 run 里可能有一条空的助手文本（kind 也是 text），
-      // 只判 kind 会误把它当用户记录，导致 prompt 为空、替换静默失败。
-      if (history[cursor].kind === 'text' && history[cursor].role === 'user') {
-        userRecord = history[cursor];
-        break;
-      }
-    }
-    if (!userRecord) return;
-    void replaceTurn(userRecord.id.replace(/^text:/, ''), userRecord.content || '');
-  };
-
-  const commitEdit = (userMessageId: string, originalContent: string) => {
-    if (editDraft && editDraft !== originalContent) {
-      void replaceTurn(userMessageId, editDraft);
-    }
-    setEditingId(undefined);
-    setEditDraft('');
-  };
-
-  const regenerate = (prompt: string) => {
-    if (!prompt || running) return;
-    void sendMessageWith(prompt);
-  };
-
   const copyMessage = useCallback((content: string) => {
     void navigator.clipboard.writeText(content || '');
   }, []);
@@ -636,7 +571,6 @@ export default function ChatPage() {
               const gap = previous
                 ? new Date(record.createdAt).getTime() - new Date(previous.createdAt).getTime()
                 : 0;
-              const editing = editingId === record.id;
               const originalContent = record.content || '';
               return (
                 <Fragment key={record.id}>
@@ -648,27 +582,12 @@ export default function ChatPage() {
                           content={originalContent}
                           placement="user"
                           onCopy={copyMessage}
-                          onDelete={() => deleteMessage(record.id)}
-                          onEdit={() => {
-                            setEditingId(record.id);
-                            setEditDraft(originalContent);
-                          }}
-                          onRegenerate={() => regenerate(originalContent)}
                           onRestoreToInput={(content) => setInput(content)}
                         />
                       }
                       content={record.content}
-                      editing={editing}
                       id={record.id}
                       name={t('chat.you')}
-                      onChange={setEditDraft}
-                      onDoubleClick={() => {
-                        setEditingId(record.id);
-                        setEditDraft(originalContent);
-                      }}
-                      onEditingChange={(next) => {
-                        if (!next) commitEdit(record.id, originalContent);
-                      }}
                       role="user"
                       showAvatar
                       showTitle={false}
@@ -680,7 +599,6 @@ export default function ChatPage() {
                         <MessageActions
                           content={originalContent}
                           onCopy={copyMessage}
-                          onDelete={() => deleteMessage(record.id)}
                           onDislike={() =>
                             setFeedbackModal({
                               messageId: record.id,
@@ -695,8 +613,6 @@ export default function ChatPage() {
                               feedback: 'like',
                             })
                           }
-                          onDeleteAndRegenerate={() => regenerateAssistant(record.id)}
-                          onRegenerate={() => regenerateAssistant(record.id)}
                         />
                       }
                       content={record.content}
@@ -777,7 +693,6 @@ export default function ChatPage() {
                             feedback: 'like',
                           })
                         }
-                        onRegenerate={() => regenerate(lastUserPrompt)}
                       />
                     )
                   }

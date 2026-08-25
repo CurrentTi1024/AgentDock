@@ -51,6 +51,34 @@ test('a2ui.surface 活动与 render_a2ui 工具共用逻辑 surfaceId，不重�
   assert.equal(state.orderedBlocks.filter((block) => block.kind === 'surface').length, 1);
 });
 
+test('a2ui.surface 中间态（building/progress）不建 surface 行，最终 ops 到达才渲染', () => {
+  let state = createRunState('run-2d', 'thread-2d');
+  // 中间态：无 a2ui_operations / components
+  state = reduceRunEvent(state, {
+    eventId: '1',
+    event: {
+      type: 'ACTIVITY_SNAPSHOT',
+      messageId: 'a2ui-surface-call_00_x',
+      activityType: 'a2ui.surface',
+      content: { status: 'building', progressTokens: 548 },
+    },
+  });
+  assert.equal(Object.keys(state.surfaces).length, 0);
+  assert.equal(state.orderedBlocks.filter((block) => block.kind === 'surface').length, 0);
+  // 最终 ops 到达：创建 surface 行
+  state = reduceRunEvent(state, {
+    eventId: '2',
+    event: {
+      type: 'ACTIVITY_SNAPSHOT',
+      messageId: 'a2ui-surface-call_00_x',
+      activityType: 'a2ui.surface',
+      content: { a2ui_operations: [{ version: 'v0.9', createSurface: { surfaceId: 'ticket', catalogId: 'catalog' } }] },
+    },
+  });
+  assert.deepEqual(Object.keys(state.surfaces), ['ticket']);
+  assert.equal(state.orderedBlocks.filter((block) => block.kind === 'surface').length, 1);
+});
+
 test('tracks workflow step lifecycle from STEP events', () => {
   let state = createRunState('run-3', 'thread-3');
   state = reduceRunEvent(state, { eventId: '1', event: { type: 'STEP_STARTED', stepId: 'plan', stepName: '规划' } });

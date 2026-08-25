@@ -64,6 +64,18 @@ test('AgentSidebar 切换 Agent：pendingSession 优先于旧的 session 状态�
   assert.equal(identity?.fab, 'F15B');
 });
 
+test('AgentSidebar pendingSession 分支：按 agentId+fab 从列表补 icon（Home 右侧头像跟随切换）', () => {
+  const pending = sessionRecord({
+    agentId: 'code-review',
+    agentName: 'CodeReview_Agent-F15B',
+    id: 'session-b',
+    title: 'CodeReview_Agent-F15B',
+  });
+  const identity = resolveAgentSidebarIdentity(agents, { pendingSession: pending });
+  assert.equal(identity?.icon, '🧑‍💻');
+  assert.equal(identity?.agentName, 'CodeReview_Agent-F15B');
+});
+
 test('AgentSidebar 已落库会话是权威身份（无 pendingSession 时按 session 显示）', () => {
   const identity = resolveAgentSidebarIdentity(agents, { session: sessionRecord() });
   assert.equal(identity?.agentName, 'CodeReview_Agent-F15B');

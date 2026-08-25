@@ -23,6 +23,9 @@ const A2UI_TOOL_NAMES = new Set(['generate_a2ui', 'render_a2ui']);
 const INTERNAL_STEP_RE = /Middleware|^model$/i;
 const isInternalStep = (name?: string) => !name || INTERNAL_STEP_RE.test(name);
 const isA2uiTool = (apiName?: string) => !!apiName && A2UI_TOOL_NAMES.has(apiName);
+/** surface 是否有可渲染 UI：官方 ops 或组件树。中间态（building/progress）跳过，避免 JSON 回退卡。 */
+const hasSurfaceContent = (payload: Record<string, unknown>): boolean =>
+  Array.isArray(payload.a2ui_operations) || Array.isArray(payload.components);
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
   block: css`
@@ -1104,7 +1107,7 @@ export const renderStoredBlocks = (
       if (options.showSurfaces === false) continue;
       const surfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : record.id;
       const logicalId = findLogicalSurfaceId(payload) || surfaceId;
-      if (seenSurfaces.has(logicalId)) continue;
+      if (!hasSurfaceContent(payload) || seenSurfaces.has(logicalId)) continue;
       seenSurfaces.add(logicalId);
       // A2UI Surface 是纯正文内容：不加边框/背景/左竖线，直接内联渲染。
       nodes.push(
@@ -1186,7 +1189,7 @@ export const renderRunBlocks = (
       for (const [surfaceId, payload] of Object.entries(run.surfaces || {})) {
         if (typeof payload === 'object' && payload !== null) {
           const logicalId = findLogicalSurfaceId(payload) || surfaceId;
-          if (!seenSurfaces.has(logicalId)) {
+          if (hasSurfaceContent(payload as Record<string, unknown>) && !seenSurfaces.has(logicalId)) {
             seenSurfaces.add(logicalId);
             blocks.push(
               <A2uiStoredSurface key={`surface-${surfaceId}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId }} />,
@@ -1282,7 +1285,7 @@ export const renderRunBlocks = (
         const payload = run.surfaces?.[ref.id];
         if (typeof payload === 'object' && payload !== null) {
           const logicalId = findLogicalSurfaceId(payload) || ref.id;
-          if (!seenSurfaces.has(logicalId)) {
+          if (hasSurfaceContent(payload as Record<string, unknown>) && !seenSurfaces.has(logicalId)) {
             seenSurfaces.add(logicalId);
             // A2UI Surface 纯内联渲染（无包装，避免双左竖线/外框观感）。
             blocks.push(

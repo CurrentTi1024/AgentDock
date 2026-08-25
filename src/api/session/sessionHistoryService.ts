@@ -5,10 +5,6 @@ export interface SessionRecord { agentId?: string; agentName?: string; createdAt
 export type SessionMessageKind = 'activity' | 'reasoning' | 'step' | 'surface' | 'text' | 'tool';
 export interface SessionMessageRecord { content?: string; createdAt: string; id: string; kind: SessionMessageKind; payload?: Record<string, unknown>; role?: RuntimeMessage['role']; runId?: string; sequence: number; sessionId: string; eventId?: string }
 export interface RunCheckpointRecord { input: RunAgentInput; latestEventId?: string; runId: string; sessionId: string; snapshot: RuntimeRunState; status: RuntimeRunState['status']; threadId: string; updatedAt: string }
-/** 已删消息墓碑上限：防数组无限膨胀（长会话频繁编辑/重新生成时）。超限时淘汰最旧条目。 */
-const MAX_TOMBSTONE_IDS = 1000;
-const mergeTombstones = (existing: string[] | undefined, added: Iterable<string>): string[] =>
-  [...new Set([...(existing ?? []), ...added])].slice(-MAX_TOMBSTONE_IDS);
 export interface MessagesPage {
   hasMore: boolean;
   nextBeforeSequence?: number;
@@ -314,108 +310,6 @@ export const sessionHistoryService = {
           .toArray();
     return { hasMore: older.length > 0, nextBeforeSequence, records };
   },
-  /** 删除后重算 lastMessageAt：取会话内 text 行最大 createdAt，无消息回退 createdAt。 */
-  async recomputeLastMessageAt(sessionId: string) {
-    const session = await db.sessions.get(sessionId);
-    if (!session) return;
-    const rows = await db.messages.where('sessionId').equals(sessionId).toArray();
-    let max = 0;
-    for (const row of rows) if (row.kind === 'text') max = Math.max(max, new Date(row.createdAt).getTime());
-    await db.sessions.update(sessionId, { lastMessageAt: max > 0 ? new Date(max).toISOString() : session.createdAt });
-  },
-  /**
-   * 删除一条消息及其关联的过程块（reasoning/tool/step/activity/surface），
-   * 同时删除包含该消息的 checkpoint，避免刷新后从快照复活已删消息。
-   */
-  async removeMessage(sessionId: string, id: string) {
-    await this.removeMessages(sessionId, [id]);
-  },
-  /**
-   * 批量删除消息行及其关联过程块；同时删除包含任一消息的 checkpoint，避免刷新后复活。
-   */
-  async removeMessages(sessionId: string, ids: string[]) {
-    // 快照 messages 的 key 是裸 rawId；调用方可能传 text: 前缀，需归一化后再匹配 checkpoint。
-    const rawIdSet = new Set(ids.map((id) => id.replace(/^text:/, '')));
-    await db.transaction('rw', db.messages, db.checkpoints, db.sessions, async () => {
-      const all = await db.messages.where('sessionId').equals(sessionId).sortBy('sequence');
-      const idsToRemove = new Set<string>();
-      for (const id of ids) {
-        const targetIndex = all.findIndex((record) => record.id === `text:${id}` || record.id === id);
-        if (targetIndex < 0) continue;
-        idsToRemove.add(all[targetIndex].id);
-        for (let index = targetIndex + 1; index < all.length; index += 1) {
-          const record = all[index];
-          if (record.kind === 'text') break;
-          idsToRemove.add(record.id);
-        }
-      }
-      if (idsToRemove.size) await db.messages.bulkDelete([...idsToRemove]);
-      // 记录墓碑：后端线程仍携带被删消息，新一轮快照会把它带回来，
-      // persistRunSnapshot 依据 deletedMessageIds 跳过，避免普通删除后被复活。
-      if (idsToRemove.size) {
-        const session = await db.sessions.get(sessionId);
-        const merged = mergeTombstones(session?.deletedMessageIds, idsToRemove);
-        await db.sessions.update(sessionId, { deletedMessageIds: merged });
-      }
-      const checkpoints = await db.checkpoints.where('sessionId').equals(sessionId).toArray();
-      for (const checkpoint of checkpoints) {
-        if (Object.keys(checkpoint.snapshot.messages).some((key) => rawIdSet.has(key))) {
-          await db.checkpoints.delete(checkpoint.runId);
-        }
-      }
-    });
-    await this.recomputeLastMessageAt(sessionId);
-    notifySessionsChanged();
-  },
-  /**
-   * 分支替换：删除以该用户消息开始的整轮（用户文本 + 助手回复 + 全部过程块 + checkpoint）。
-   * 存储顺序是文本在前、过程块在后，不能按「下一条文本即止」切分，必须按 runId 整轮删除。
-   */
-  async removeTurn(sessionId: string, userMessageId: string) {
-    await db.transaction('rw', db.messages, db.checkpoints, db.sessions, async () => {
-      const target = await db.messages.get(`text:${userMessageId}`);
-      if (!target?.runId) return;
-      // 记录被删轮次的全部消息 key（text:/tool:/step:/activity:/surface:/reasoning:），
-      // 作为墓碑持久化：后端线程仍携带该轮，新 run 的 MESSAGES_SNAPSHOT 会把它带回来，
-      // persistRunSnapshot 据此跳过，避免「删除并重新生成」把已删消息复活污染历史。
-      const turnRecords = await db.messages
-        .where('sessionId')
-        .equals(sessionId)
-        .filter((record) => record.runId === target.runId)
-        .toArray();
-      await db.messages.bulkDelete(turnRecords.map((record) => record.id));
-      await db.checkpoints.where('sessionId').equals(sessionId).and((checkpoint) => checkpoint.runId === target.runId).delete();
-      if (turnRecords.length) {
-        const session = await db.sessions.get(sessionId);
-        const merged = mergeTombstones(session?.deletedMessageIds, turnRecords.map((record) => record.id));
-        await db.sessions.update(sessionId, { deletedMessageIds: merged });
-      }
-    });
-    await this.recomputeLastMessageAt(sessionId);
-    notifySessionsChanged();
-  },
-  /** 编辑消息内容：同步更新消息行与 checkpoint 中的快照。 */
-  async updateMessageContent(sessionId: string, id: string, content: string) {
-    const rawId = id.replace(/^text:/, '');
-    await db.transaction('rw', db.messages, db.checkpoints, async () => {
-      const target = await db.messages.get(`text:${rawId}`);
-      if (target) {
-        await db.messages.update(`text:${rawId}`, { content });
-      } else {
-        const record = await db.messages.get(rawId);
-        if (record) await db.messages.update(rawId, { content });
-      }
-      const checkpoints = await db.checkpoints.where('sessionId').equals(sessionId).toArray();
-      for (const checkpoint of checkpoints) {
-        const message = checkpoint.snapshot.messages[rawId];
-        if (message) {
-          checkpoint.snapshot.messages[rawId] = { ...message, content };
-          await db.checkpoints.put(checkpoint);
-        }
-      }
-    });
-    notifySessionsChanged();
-  },
   /**
    * checkpoint 剪枝：删除全部终态（success/cancelled/error）行，只保留 running/paused
    * （断线续传与 HITL 恢复依赖，见 runStore.restoreSession / getLatestRecoverableRun）。
@@ -528,6 +422,13 @@ export const sessionHistoryService = {
       const activityType = String(payload.activityType || '');
       push('activity', id, { payload: { ...payload, activityType, messageId: id }, runId: snapshot.runId, eventId: snapshot.latestEventId });
       if (activityType === 'a2ui.surface') {
+        // 中间态（building/progress）无 UI 内容，不落 surface 行；否则正文出现 JSON 回退卡。
+        if (
+          !Array.isArray(payload.a2ui_operations) &&
+          !Array.isArray(payload.components)
+        ) {
+          continue;
+        }
         // 与 snapshot.surfaces 共用“逻辑 surfaceId”键：a2ui.surface 活动与 render_a2ui
         // 工具的 components 版是同一界面，必须去重，否则历史出现重复 surface / JSON 回退卡。
         const surfaceId = findLogicalSurfaceId(payload) || String(payload.surfaceId || id);

@@ -243,17 +243,16 @@ erDiagram
 - **sequence 稳定**：一旦分配不再改动；重写快照只 upsert，不重排。
 - **messageOrder 权威**：新消息按首次出现追加，多轮 MESSAGES_SNAPSHOT 累积时不覆盖旧顺序。
 
-### 6.2 删除/编辑不“复活”
+### 6.2 消息历史只读（不提供删除/编辑/重新生成）
 
-- **删除消息**：删文本行 + 其后随过程块 + 含该消息的 checkpoint，避免刷新后快照把已删消息“复活”。
-- **分支替换（regenerate/编辑）**：按 runId 整轮删除（用户文本 + 回复 + 全部过程块 + checkpoint），再重跑——存储顺序是“文本在前、过程块在后”，不能按“下一条文本”切分，必须按 runId 打包。
-- **编辑内容**：同步消息行与 running/paused checkpoint 快照。
+为彻底避免“后端 MESSAGES_SNAPSHOT 把已删/已改消息复活”，**消息级删除、编辑、删除并重新生成三个功能已移除**：
 
-### 6.3 删除后的派生状态
+- 不再有 `removeMessage(s)/removeTurn/updateMessageContent` 写路径，也不再有墓碑写入（`deletedMessageIds`）；
+- 历史按轮次不可变：每条消息一旦落库只增不改（占位行内容随流式 upsert，属同一行）；
+- 旧数据里的 `deletedMessageIds` 与显示层 `deletedKeys` 过滤仍保留，用于防御历史遗留的已删消息被快照带回；
+- 会话级清理不受影响（设置页导出并删除整个会话，走 `deleteSessions` 级联删除）。
 
-删除文本后重算 `lastMessageAt`（取剩余 text 行最大 createdAt，空会话回退 createdAt），保证清理语义不被删除操作污染。
-
-### 6.4 幂等与去重
+### 6.3 幂等与去重
 
 - 重放同一 eventId：`processedEventIds` 精确去重，reducer 直接返回旧状态，不重复拼接文本。
 - 落库幂等：`kind:rawId` 主键 + bulkPut，同一行重复写是覆盖而非重复插入。
@@ -348,13 +347,13 @@ eventId 必须**字符串可排序**（序号定宽补零，如 `{epoch_ms}-{seq
 
 1. **Runtime 侧主动捕获**（`FabRoutingAgent`）：缺 FAB 配置、上游请求失败/流中断、内部 run 报错，一律合成 `RUN_ERROR` AG-UI 事件（code + message）而不是抛异常/断流——前端不再收到 network error，也不会让 runtime 挂掉；重复 run 守卫同样返回结构化 RUN_ERROR。
 2. **reducer 生成 assistant 回复**：`RUN_ERROR`（真实错误，非 CANCELLED）把错误文本作为该轮 assistant 的**最后一个 chunk**——已有部分回复则追加在末尾，没有则新建 `error-<runId>` 消息；同时置 `status/error` 元信息。用户主动取消（CANCELLED）不伪造回复。
-3. **持久化**：该错误消息是普通 assistant 文本，随 `persistRunSnapshot` 落库，刷新后作为该轮 assistant 的回答存在于历史；可随 `removeTurn` 整轮删除。
+3. **持久化**：该错误消息是普通 assistant 文本，随 `persistRunSnapshot` 落库，刷新后作为该轮 assistant 的回答存在于历史（历史只读，不再提供单条删除）。
 4. **兜底路径统一**：`runStore.execute`（mock/direct）catch 不再只改状态，改为经 reducer 注入 RUN_ERROR；官方路径 `runAgent` catch 本就 applyEvent RUN_ERROR，两条路径行为一致。
 5. **防重复与顺序**：
    - 持久化幂等：错误消息是普通 assistant 文本，bulkPut 按 `kind:rawId` upsert，重复落盘只覆盖不新增；`cancelPendingCheckpoint(runId)` 在错误兜底后丢弃该 run 未落盘的陈旧 running 快照，避免终态报错后防抖 flush 又写回 running checkpoint。
    - 显示不重复：错误文本作为 assistant 气泡正文渲染，不再额外推 ErrorBlock（同一错误不出现两处）。
    - 顺序不乱（含多轮错误）：`RuntimeMessage.runId` 标记消息所属 run；RUN_ERROR 只追加到**本轮** assistant（runId 匹配），MESSAGES_SNAPSHOT 带入的上一轮错误回复不会被污染。第二轮再报错时顺序保持 Q1 A1 Q2 A2，错误消息为该轮 messageOrder 最后一项、sequence 最大。
-   - 占位 + 增量（对齐 LobeHub）：消息行在首次进入快照时即落库（空/部分内容也写行），后续 flush 用同一 id upsert 覆盖——刷新/断线时 DB 始终有该消息（部分内容可恢复）；文本行保持“先于其过程块”的顺序，removeMessages 整块删除不失效。UI 流式期间渲染运行态，不显示空占位。
+   - 占位 + 增量（对齐 LobeHub）：消息行在首次进入快照时即落库（空/部分内容也写行），后续 flush 用同一 id upsert 覆盖——刷新/断线时 DB 始终有该消息（部分内容可恢复）；文本行保持“先于其过程块”的顺序。UI 流式期间渲染运行态，不显示空占位。
 
 ---
 
@@ -440,7 +439,7 @@ messages 行里，助手文本与其过程块（reasoning/tool/step/activity/sur
 
 ### 10.4 lastMessageAt 维护点
 
-创建时=createdAt；落盘时取“现有行 + 本次写入”的 text 最大 createdAt；删除消息后重算；空会话回退 createdAt。任何清理语义都不会被陈旧字段污染。
+创建时=createdAt；落盘时取“现有行 + 本次写入”的 text 最大 createdAt（单调守卫防回退）；空会话回退 createdAt。任何清理语义都不会被陈旧字段污染。
 
 ### 10.5 写失败降级
 
