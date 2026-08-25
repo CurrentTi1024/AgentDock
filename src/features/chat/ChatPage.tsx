@@ -1,6 +1,5 @@
 // AgentDock conversation page — LobeHub ConversationArea + ChatItem + ChatInput adaptation.
 import { ActionIcon, Button, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
-import { LoadingDots } from '@lobehub/ui/chat';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { FileBarChart, X } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -40,6 +39,7 @@ import {
 } from '@/api/session/sessionHistoryService';
 import { useAgentDockConversation } from '@/features/chat/useAgentDockConversation';
 import { useChatScroll } from '@/features/chat/hooks/useChatScroll';
+import ContentLoading from '@/features/chat/components/lobehub/ContentLoading';
 import { useUiStore } from '@/stores/uiStore';
 import { useI18n } from '@/i18n';
 
@@ -715,7 +715,7 @@ export default function ChatPage() {
                   time={Date.now()}
                 >
                   {blocks}
-                  {running && !answer && !blocks && <LoadingDots />}
+                  {running && !answer && !blocks && <ContentLoading startTime={runStartedAt} />}
                   {!running && answer && (
                     <Flexbox horizontal gap={8}>
                       <ActionIcon

@@ -39,7 +39,7 @@ export default {
   "chat.activity.supervisor": "Supervisor",
   "chat.activity.tasks": "Sub-tasks",
   "chat.reasoningDuration": "Deeply Thought (in {seconds} seconds)",
-  "chat.reasoningEncrypted": "Deeply Thought (in {seconds} seconds)",
+  "chat.reasoningEncrypted": "Encrypted reasoning",
   "chat.reasoningInProgress": "In progress…",
   "chat.reasoningStreaming": "Deep Thinking...",
   "chat.toolDuration": "Deep Thinking...",

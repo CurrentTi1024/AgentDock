@@ -42,7 +42,7 @@ export default {
   "chat.activity.supervisor": "Супервайзер",
   "chat.activity.tasks": "Подзадачи",
   "chat.reasoningDuration": "Обмислено (за {seconds} секунди)",
-  "chat.reasoningEncrypted": "Обмислено (за {seconds} секунди)",
+  "chat.reasoningEncrypted": "Шифровано мислене",
   "chat.reasoningInProgress": "В процес…",
   "chat.reasoningStreaming": "Задълбочено мислене...",
   "chat.toolDuration": "Задълбочено мислене...",

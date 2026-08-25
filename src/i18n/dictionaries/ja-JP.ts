@@ -42,7 +42,7 @@ export default {
   "chat.activity.supervisor": "スーパーバイザー",
   "chat.activity.tasks": "サブタスク",
   "chat.reasoningDuration": "深く考えました（所要時間 {seconds} 秒）",
-  "chat.reasoningEncrypted": "深く考えました（所要時間 {seconds} 秒）",
+  "chat.reasoningEncrypted": "暗号化された思考",
   "chat.reasoningInProgress": "実行中…",
   "chat.reasoningStreaming": "深く考えています...",
   "chat.toolDuration": "深く考えています...",

@@ -42,7 +42,7 @@ export default {
   "chat.activity.supervisor": "슈퍼바이저",
   "chat.activity.tasks": "하위 작업",
   "chat.reasoningDuration": "심층 사고 완료 (소요 시간 {seconds}초)",
-  "chat.reasoningEncrypted": "심층 사고 완료 (소요 시간 {seconds}초)",
+  "chat.reasoningEncrypted": "암호화된 사고",
   "chat.reasoningInProgress": "진행 중…",
   "chat.reasoningStreaming": "심층 사고 중...",
   "chat.toolDuration": "심층 사고 중...",

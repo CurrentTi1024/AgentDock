@@ -42,7 +42,7 @@ export default {
   "chat.activity.supervisor": "المشرف",
   "chat.activity.tasks": "مهام فرعية",
   "chat.reasoningDuration": "تم التفكير بعمق (في {seconds} ثانية)",
-  "chat.reasoningEncrypted": "تم التفكير بعمق (في {seconds} ثانية)",
+  "chat.reasoningEncrypted": "التفكير مشفر",
   "chat.reasoningInProgress": "قيد التنفيذ…",
   "chat.reasoningStreaming": "تفكير عميق...",
   "chat.toolDuration": "تفكير عميق...",

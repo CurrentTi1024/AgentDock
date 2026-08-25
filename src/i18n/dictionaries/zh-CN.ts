@@ -42,7 +42,7 @@ export default {
   "chat.activity.supervisor": "监督者",
   "chat.activity.tasks": "子任务",
   "chat.reasoningDuration": "已深度思考（用时 {seconds} 秒）",
-  "chat.reasoningEncrypted": "已深度思考（用时 {seconds} 秒）",
+  "chat.reasoningEncrypted": "思考内容已加密",
   "chat.reasoningInProgress": "进行中…",
   "chat.reasoningStreaming": "深度思考中…",
   "chat.toolDuration": "深度思考中…",
