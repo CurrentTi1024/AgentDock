@@ -1,11 +1,51 @@
 import type { AgUiEvent, RunAgentInput } from '@/api/runtime/types';
 const delay = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => { const timer = setTimeout(resolve, ms); signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); }, { once: true }); });
+/**
+ * UI 错误场景注入（Mock 模式）：在输入框输入以下关键词即可触发对应错误路径——
+ * - !error / 后端报错：上游返回结构化 RUN_ERROR（无部分回复）
+ * - !partial-error / 部分回复后报错：先输出部分回复，再追加 RUN_ERROR 到最后一条 assistant 消息
+ * - !runtime-error / runtime中断：流中途抛错，验证 runStore 捕获后生成 NETWORK_ERROR 回复
+ */
+type MockErrorScenario = 'backend-error' | 'partial-error' | 'runtime-error';
+const detectErrorScenario = (prompt: string): MockErrorScenario | undefined => {
+  const text = prompt.toLowerCase();
+  if (text.includes('!partial-error') || text.includes('部分回复后报错')) return 'partial-error';
+  if (text.includes('!runtime-error') || text.includes('runtime中断') || text.includes('运行时中断')) return 'runtime-error';
+  if (text.includes('!error') || text.includes('后端报错') || text.includes('测试后端错误')) return 'backend-error';
+  return undefined;
+};
 export async function* createAgentRuntimeMockEvents(input: RunAgentInput, signal?: AbortSignal): AsyncGenerator<AgUiEvent> {
   const assistantId = `assistant-${input.runId}`; const fab = input.forwardedProps.fab; let sequence = 0;
   // eventId 序号定宽补零：与后端契约一致，保证字符串排序即事件顺序（续传按字符串比较游标）。
   const event = (value: AgUiEvent) => ({ ...value, rawEvent: { runId: input.runId, eventId: `${Date.now()}-${String(sequence++).padStart(6, '0')}` } });
   if (input.forwardedProps.action === 'stop') { yield event({ type: 'RUN_ERROR', threadId: input.threadId, runId: input.runId, code: 'CANCELLED', message: 'Run cancelled by user.' }); return; }
   if (input.forwardedProps.action === 'run' || input.forwardedProps.action === 'a2uiAction') yield event({ type: 'RUN_STARTED', threadId: input.threadId, runId: input.runId });
+  // 错误场景注入：仅对 action=run 生效，模拟 后端返回 RUN_ERROR / 部分回复后报错 / runtime 流中断。
+  const scenario = input.forwardedProps.action === 'run'
+    ? detectErrorScenario(input.messages.map((message) => message.content || '').join(' '))
+    : undefined;
+  if (scenario === 'backend-error') {
+    yield event({ code: 'BACKEND_ERROR', message: '【Mock 后端错误】Orchestration 返回 502：模拟上游报错。', runId: input.runId, threadId: input.threadId, type: 'RUN_ERROR' });
+    return;
+  }
+  if (scenario === 'partial-error') {
+    yield event({ type: 'REASONING_MESSAGE_START', messageId: `reasoning-${input.runId}` });
+    yield event({ type: 'REASONING_MESSAGE_CONTENT', messageId: `reasoning-${input.runId}`, delta: '开始分析……' });
+    yield event({ type: 'REASONING_MESSAGE_END', messageId: `reasoning-${input.runId}` });
+    yield event({ type: 'TEXT_MESSAGE_START', messageId: assistantId, role: 'assistant' });
+    for (const token of '已经生成了部分回复，然后后端报错。'.match(/.{1,4}/g) || []) {
+      await delay(20, signal);
+      yield event({ type: 'TEXT_MESSAGE_CONTENT', messageId: assistantId, delta: token });
+    }
+    yield event({ code: 'BACKEND_ERROR', message: '【Mock 后端错误】部分回复后连接中断：模拟上游流中断。', runId: input.runId, threadId: input.threadId, type: 'RUN_ERROR' });
+    return;
+  }
+  if (scenario === 'runtime-error') {
+    yield event({ type: 'STEP_STARTED', stepName: 'plan' });
+    await delay(120, signal);
+    // 流中途抛错：由 runStore.execute catch 捕获 → NETWORK_ERROR RUN_ERROR → assistant 错误回复。
+    throw new Error('Mocked runtime stream interruption');
+  }
   if (input.forwardedProps.group) {
     yield event({ type: 'CUSTOM_EVENT', name: 'agentDock.supervisor', messageId: `supervisor-${input.runId}`, value: { description: `${input.forwardedProps.group.orchestrationMode} 模式：由 Supervisor Agent 拆解任务并汇总结论。`, status: 'active' } });
   }
