@@ -296,7 +296,7 @@ const GroupChatPage = () => {
   // 同一轮 run 的连续助手文本合并为单个气泡（与单聊共用 buildDisplayUnits）。
   const displayUnits = useMemo(() => buildDisplayUnits(storedMessages), [storedMessages]);
 
-  const { isTerminalRun, scrollRef, stickToBottom } = useChatScroll({
+  const { scrollRef, stickToBottom } = useChatScroll({
     answer,
     composerHeight,
     contentVersion: displayUnits,
@@ -308,10 +308,26 @@ const GroupChatPage = () => {
   useEffect(() => {
     if (run && ['success', 'cancelled', 'error'].includes(run.status)) {
       void reloadHistoryWindow().then(() => {
-        if (isTerminalRun()) stickToBottom();
+        stickToBottom();
+        // 终态后内容可能延迟增高：强制贴底直到高度连续 1s 稳定（或 12s 上限）。
+        let stableTicks = 0;
+        let lastHeight = -1;
+        const settleTimer = window.setInterval(() => {
+          const node = scrollRef.current;
+          if (!node) return;
+          node.scrollTop = node.scrollHeight;
+          if (node.scrollHeight === lastHeight) {
+            stableTicks += 1;
+            if (stableTicks >= 4) window.clearInterval(settleTimer);
+          } else {
+            stableTicks = 0;
+            lastHeight = node.scrollHeight;
+          }
+        }, 250);
+        window.setTimeout(() => window.clearInterval(settleTimer), 12_000);
       });
     }
-  }, [isTerminalRun, reloadHistoryWindow, run?.status, sessionId, stickToBottom]);
+  }, [reloadHistoryWindow, run?.status, scrollRef, sessionId, stickToBottom]);
 
   const blocks = renderRunBlocks(run, {
     onApproveHitl: (requestId, payload) =>

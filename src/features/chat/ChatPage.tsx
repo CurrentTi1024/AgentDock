@@ -476,7 +476,7 @@ export default function ChatPage() {
   // 同一轮 run 的连续助手文本合并为单个气泡（单聊/群聊共用 buildDisplayUnits）。
   const displayUnits = useMemo(() => buildDisplayUnits(storedMessages), [storedMessages]);
 
-  const { isTerminalRun, scrollRef, stickToBottom } = useChatScroll({
+  const { isStickToBottom, isTerminalRun, scrollRef, scrollToBottom, stickToBottom } = useChatScroll({
     answer,
     composerHeight,
     contentVersion: displayUnits,
@@ -495,12 +495,35 @@ export default function ChatPage() {
     const refresh = () => {
       if (runStatusRef.current === 'running' || runStatusRef.current === 'paused') return;
       void reloadHistoryWindow().then(() => {
-        if (isTerminalRun()) stickToBottom();
+        if (isStickToBottom()) stickToBottom();
       });
     };
     window.addEventListener('agentdock:run-persisted', refresh);
     return () => window.removeEventListener('agentdock:run-persisted', refresh);
-  }, [isTerminalRun, reloadHistoryWindow, sessionId, stickToBottom]);
+  }, [isStickToBottom, isTerminalRun, reloadHistoryWindow, scrollRef, scrollToBottom, sessionId, stickToBottom]);
+
+  // 终态后内容可能延迟数秒增高（A2UI 官方渲染器渐进挂载、图片、折叠块，且渲染期
+  // 占用主线程会推迟定时器）：run 状态一变终态即强制贴底，250ms 间隔直接赋值
+  // scrollTop=scrollHeight，直到高度连续 1s 稳定（或 12s 上限）才停，保证最终停在最底部。
+  useEffect(() => {
+    if (!run || !['success', 'cancelled', 'error'].includes(run.status)) return;
+    stickToBottom();
+    let stableTicks = 0;
+    let lastHeight = -1;
+    const settleTimer = window.setInterval(() => {
+      const node = scrollRef.current;
+      if (!node) return;
+      node.scrollTop = node.scrollHeight;
+      if (node.scrollHeight === lastHeight) {
+        stableTicks += 1;
+        if (stableTicks >= 4) window.clearInterval(settleTimer);
+      } else {
+        stableTicks = 0;
+        lastHeight = node.scrollHeight;
+      }
+    }, 250);
+    window.setTimeout(() => window.clearInterval(settleTimer), 12_000);
+  }, [run?.status, scrollRef, stickToBottom]);
 
   const blocks = renderRunBlocks(run, {
     onApproveHitl: (requestId, payload) =>

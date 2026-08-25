@@ -34,10 +34,33 @@ export const useChatScroll = ({
     node.scrollTo({ top: node.scrollHeight, behavior });
   }, []);
 
+  // 只在“回到底部附近”时重新贴底；绝不因“距底远”取消贴底——
+  // live→历史切换的 scrollTop 钳制事件会误判，导致完成后停在半空。
   const handleScroll = useCallback(() => {
     const node = scrollRef.current;
     if (!node) return;
-    stickToBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 120;
+    if (node.scrollHeight - node.scrollTop - node.clientHeight < 120) {
+      stickToBottomRef.current = true;
+    }
+  }, []);
+
+  // 用户主动上滚查看历史时才取消贴底（wheel/touch），程序化滚动不影响。
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) stickToBottomRef.current = false;
+      else if (event.deltaY > 0) stickToBottomRef.current = true;
+    };
+    const onTouchStart = () => {
+      stickToBottomRef.current = false;
+    };
+    node.addEventListener('wheel', onWheel, { passive: true });
+    node.addEventListener('touchstart', onTouchStart, { passive: true });
+    return () => {
+      node.removeEventListener('wheel', onWheel);
+      node.removeEventListener('touchstart', onTouchStart);
+    };
   }, []);
 
   useEffect(() => {
@@ -52,7 +75,10 @@ export const useChatScroll = ({
     if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
   }, []);
 
-  // 历史/异步内容（A2UI、图片等）渲染完成后高度变化：贴底状态继续跟随，避免停在半空。
+  // 历史/异步内容（A2UI、图片、折叠块等）渲染完成后高度变化：贴底状态继续跟随，避免停在半空。
+  // 注意：ResizeObserver 只报盒尺寸变化，滚动容器/消息列的盒高度固定，内容增高不触发；
+  // 因此用 MutationObserver 监听消息列子节点插入（A2UI 组件、折叠行等晚挂载），
+  // 仅按“贴底跟随”门控（不能依赖终态标记：stickToBottom 会复位它），50ms 防抖避免流式高频开销。
   useEffect(() => {
     const node = scrollRef.current;
     if (!node) return;
@@ -61,6 +87,26 @@ export const useChatScroll = ({
     });
     observer.observe(node);
     return () => observer.disconnect();
+  }, [scrollToBottom]);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const content = node.firstElementChild;
+    if (!content) return;
+    let timer: number | undefined;
+    const observer = new MutationObserver(() => {
+      if (!stickToBottomRef.current || timer !== undefined) return;
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        requestAnimationFrame(() => scrollToBottom('auto'));
+      }, 50);
+    });
+    observer.observe(content, { characterData: true, childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, [scrollToBottom]);
 
   // 进入会话 / 新消息 / 运行状态变化 / 输入区高度变化：贴底时自动定位到最新一条。
@@ -100,6 +146,8 @@ export const useChatScroll = ({
 
   /** 终态 run 已落库完成（供 run-persisted 刷新后补一次滚动）。 */
   const isTerminalRun = useCallback(() => terminalRunRef.current, []);
+  /** 当前是否处于“贴底跟随”状态（用户上滚查看历史时为 false）。 */
+  const isStickToBottom = useCallback(() => stickToBottomRef.current, []);
 
-  return { isTerminalRun, scrollRef, scrollToBottom, stickToBottom };
+  return { isStickToBottom, isTerminalRun, scrollRef, scrollToBottom, stickToBottom };
 };
