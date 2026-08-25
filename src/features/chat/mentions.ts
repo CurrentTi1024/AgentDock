@@ -55,3 +55,19 @@ export const parseMentionedAgents = (
   }
   return result;
 };
+
+/** 把 <mention name id /> 标记还原为 @Name 文本（用于会话标题等纯文本场景）。 */
+export const sanitizeMentionMarkup = (content: string): string => {
+  const complete = content.replace(
+    /<mention\s+name="([^"]*)"\s+id="[^"]*"\s*\/?>/g,
+    '@$1',
+  );
+  // 兼容早期被 slice 截断在标签中间的残缺 <mention 片段（旧数据标题）。
+  return complete.replace(/<mention[^>]*/g, '');
+};
+
+/** 会话标题默认值：首条消息清理 <mention> 标记、折叠空白后取前 20 字符；空内容回退。 */
+export const buildSessionTitle = (content: string, fallback: string): string => {
+  const clean = sanitizeMentionMarkup(content).replace(/\s+/g, ' ').trim();
+  return clean ? clean.slice(0, 20) : fallback;
+};

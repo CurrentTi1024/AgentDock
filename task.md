@@ -535,3 +535,14 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   聊天头部（ChatHeader）、欢迎卡片（Welcome）、输入框底部（ChatInput 按 currentAgent 匹配）、
   首页头部（HomePage 随 selected）不再硬编码 🛩️，切换 Agent 后头像统一跟随；新增 2 个回归用例
   （75/75 通过），无头 Chrome 实测 code-review 会话四个头像全部为 🧑‍💻。
+
+第十七轮（2026-08-26，会话标题默认 = 首条消息前 20 字符）：
+
+- **规则**：新建会话无用户命名时，标题默认取会话内第一条消息（清理 `<mention>` 标记、折叠
+  空白后）的前 20 字符；无消息/空内容时保持原兜底（Agent 全名 / 群聊名 / 新对话）。
+- **实现**：`mentions.ts` 新增 `buildSessionTitle(content, fallback)`（全链路唯一入口）；
+  `sessionHistoryService` 新增 `hasMessages(sessionId)`（首条消息语义，只认用户/助手文本，
+  过程块不算）；HomePage 建会话、ChatPage 首条发送（覆盖侧边栏新建 title=agentFullName 的
+  会话与默认 inbox）、群聊未命名会话三处统一改用该规则（原 32 字符与「标题==新对话」判断移除）。
+- **验证**：`mentions.test.ts` 新增 3 例（20 字符截断/mention 清理/空白折叠与回退），
+  `sessionHistoryService.test.ts` 新增 hasMessages 用例；全套 80/80、typecheck、build 通过。

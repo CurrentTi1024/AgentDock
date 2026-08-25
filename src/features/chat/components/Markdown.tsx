@@ -29,12 +29,25 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
   `,
 }));
 
-// LobeHub @agent mention：文本中的 @AgentName 转成可点击的站内链接（跳市场/对话）。
+// LobeHub @agent mention：
+// - 编辑器序列化的 `<mention name=".." id=".." />` 转成可点击的蓝色 chip（跳 Agent 详情）；
+// - 纯文本 @AgentName 转成站内链接（跳市场搜索）。
 const AGENT_MENTION_RE = /@([A-Za-z0-9_\-\u4e00-\u9fa5]+)/g;
+const MENTION_TAG_RE = /<mention\s+name="([^"]*)"\s+id="([^"]*)"\s*\/?>/g;
+
+const mentionUrlFromId = (id: string) => {
+  const [agentId, fab] = id.split('@');
+  return `/market/agent/${encodeURIComponent(agentId || '')}?fab=${encodeURIComponent(fab || '')}`;
+};
 
 const remarkAgentMention = () => (tree: { type?: string; value?: string; children?: unknown[] }) => {
-  const visit = (node: { type?: string; value?: string; children?: unknown[] }, parent?: { children: unknown[] }, index = -1) => {
+  const visit = (
+    node: { type?: string; value?: string; children?: unknown[] },
+    parent?: { children: unknown[]; type?: string },
+    index = -1,
+  ) => {
     if (node.type === 'text' && typeof node.value === 'string' && node.value.includes('@')) {
+      // 纯文本 @AgentName → 链接；link 内部（mention chip 已由预处理生成）不再重复处理。
       const parts: unknown[] = [];
       let last = 0;
       const re = new RegExp(AGENT_MENTION_RE.source, 'g');
@@ -53,7 +66,7 @@ const remarkAgentMention = () => (tree: { type?: string; value?: string; childre
       if (last < node.value.length) {
         parts.push({ type: 'text', value: node.value.slice(last) });
       }
-      if (parent && parts.length > 1 && index >= 0) {
+      if (parent?.type !== 'link' && parent && parts.length > 1 && index >= 0) {
         parent.children.splice(index, 1, ...parts);
         parts.forEach((part, offset) => visit(part as { type?: string; value?: string; children?: unknown[] }, parent, index + offset));
         return;
@@ -61,12 +74,21 @@ const remarkAgentMention = () => (tree: { type?: string; value?: string; childre
     }
     if (Array.isArray(node.children)) {
       node.children.forEach((child, childIndex) =>
-        visit(child as { type?: string; value?: string; children?: unknown[] }, node as unknown as { children: unknown[] }, childIndex),
+        visit(
+          child as { type?: string; value?: string; children?: unknown[] },
+          node.type === 'link' ? undefined : (node as unknown as { children: unknown[] }),
+          node.type === 'link' ? -1 : childIndex,
+        ),
       );
     }
   };
   visit(tree);
 };
+
+// <mention name id />（编辑器序列化）在 react-markdown 里是 html 节点而非文本节点，
+// 插件不便处理；这里在渲染前直接替换为标准 markdown 链接，走蓝色 chip 链接渲染。
+const withMentionLinks = (content: string) =>
+  content.replace(MENTION_TAG_RE, (_match, name: string, id: string) => `[@${name}](${mentionUrlFromId(id)})`);
 
 const AgentMentionLink = ({ children, href }: { children?: React.ReactNode; href?: string }) => {
   const navigate = useNavigate();
@@ -100,7 +122,7 @@ export const Markdown = memo<MarkdownProps>(({ content, enableStream = true }) =
     remarkPlugins={[remarkAgentMention]}
     variant="chat"
   >
-    {content}
+    {withMentionLinks(content)}
   </LobeMarkdown>
 ));
 

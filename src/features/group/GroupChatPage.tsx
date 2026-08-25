@@ -18,7 +18,7 @@ import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
 import FeedbackModal, { type FeedbackTarget } from '@/features/chat/components/FeedbackModal';
 import { MessageActions } from '@/features/chat/components/MessageActions';
-import { parseMentionedAgents } from '@/features/chat/mentions';
+import { buildSessionTitle, parseMentionedAgents } from '@/features/chat/mentions';
 import type { OpStatusActivity } from '@/features/chat/components/OpStatusTray';
 import NavHeader from '@/components/shell/NavHeader';
 import {
@@ -341,7 +341,7 @@ const GroupChatPage = () => {
     stickToBottom();
     setRunStartedAt(Date.now());
     await sessionHistoryService.updateSession(session.id, {
-      title: session.title === t('nav.newGroup') ? message.slice(0, 32) || session.title : session.title,
+      title: session.title === t('nav.newGroup') ? buildSessionTitle(message, session.title) : session.title,
     });
     await send(message, { mentionAgents });
   };

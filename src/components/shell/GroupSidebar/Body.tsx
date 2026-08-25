@@ -7,6 +7,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import NavItem from '@/components/shell/NavItem';
 import { sessionHistoryService, type SessionRecord } from '@/api/session/sessionHistoryService';
+import { sanitizeMentionMarkup } from '@/features/chat/mentions';
 import { useI18n } from '@/i18n';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
@@ -76,7 +77,7 @@ const GroupSidebarBody = () => {
             active={location.pathname === `/group/${group.id}`}
             icon={Users}
             iconSize={15}
-            title={group.title}
+            title={sanitizeMentionMarkup(group.title)}
             onClick={() => navigate(`/group/${group.id}`)}
           />
         ))

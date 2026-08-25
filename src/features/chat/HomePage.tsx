@@ -11,6 +11,7 @@ import NavHeader from '@/components/shell/NavHeader';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
 import { sessionHistoryService } from '@/api/session/sessionHistoryService';
 import ChatInput from '@/features/chat/components/ChatInput';
+import { buildSessionTitle, sanitizeMentionMarkup } from '@/features/chat/mentions';
 import { buildAgentSessionPath } from '@/features/chat/agentIdentity';
 import { useI18n } from '@/i18n';
 import { formatRelativeTime } from '@/lib/relativeTime';
@@ -78,7 +79,7 @@ const HomePage = memo(() => {
     // 发送即清空输入框（与会话页一致）：导航后首页若被浏览器 bfcache 恢复也不残留旧消息。
     setInput('');
     // 选中/解析出的 Agent 从输入里去掉 @ 前缀（保留正文）。
-    const cleanPrompt = prompt.replace(/^@\S*\s*/, '').trim() || prompt;
+    const cleanPrompt = sanitizeMentionMarkup(prompt).replace(/^@\S*\s*/, '').trim() || prompt;
     const id = `session-${crypto.randomUUID()}`;
     const record = {
       agentId: target.agentId,
@@ -87,7 +88,7 @@ const HomePage = memo(() => {
       id,
       pinned: false,
       threadId: crypto.randomUUID(),
-      title: cleanPrompt.slice(0, 32) || target.agentFullName,
+      title: buildSessionTitle(cleanPrompt, target.agentFullName),
       type: 'agent' as const,
       version: target.version,
     };
@@ -179,7 +180,7 @@ const HomePage = memo(() => {
                     <Avatar avatar={group ? '👥' : agent?.icon || '🤖'} shape="square" size={28} />
                     <Flexbox flex={1} style={{ minWidth: 0 }}>
                       <Text ellipsis weight={500}>
-                        {session.title}
+                        {sanitizeMentionMarkup(session.title)}
                       </Text>
                       <Text ellipsis fontSize={11} type="secondary">
                         {group ? session.title : agent?.agentFullName || session.agentName} ·{' '}

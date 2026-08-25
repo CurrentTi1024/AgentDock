@@ -17,7 +17,10 @@ import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
 import FeedbackModal, { type FeedbackTarget } from '@/features/chat/components/FeedbackModal';
 import { MessageActions } from '@/features/chat/components/MessageActions';
-import { parseMentionedAgents } from '@/features/chat/mentions';
+import {
+  buildSessionTitle,
+  parseMentionedAgents,
+} from '@/features/chat/mentions';
 import type { OpStatusActivity } from '@/features/chat/components/OpStatusTray';
 import Welcome from '@/features/chat/components/Welcome';
 import {
@@ -371,11 +374,14 @@ export default function ChatPage() {
     setArtifactOpen(false);
     const active = session ?? (await ensureSession());
     if (!active) return;
+    // 标题默认 = 首条消息前 20 字符：会话还没有可见文本消息时才更新，
+    // 覆盖侧边栏新建（初始 title=agentFullName）与默认 inbox 两种无消息场景。
+    const hasAnyMessage = await sessionHistoryService.hasMessages(active.id);
     await sessionHistoryService.updateSession(active.id, {
       agentId: selectedAgent?.agentId || active.agentId,
       agentName: selectedAgent?.agentFullName || active.agentName,
       fab,
-      title: active.title === t('nav.newSessionTitle') ? prompt.slice(0, 32) || active.title : active.title,
+      title: hasAnyMessage ? active.title : buildSessionTitle(prompt, active.title),
       version: selectedAgent?.version || active.version,
     });
     await send(prompt, { mentionAgents });
@@ -464,10 +470,16 @@ export default function ChatPage() {
     runStatus: run?.status,
   });
 
-  // 落库完成事件：确定性刷新历史（大 run 落库可能超过 600ms，时间兜底不可靠）；
-  // 终态落库完成后 DOM 会重建（live→历史），此时再滚一次确保停在最新一条。
+  // 落库完成事件：只在终态落库完成后刷新历史（live→历史切换）。
+  // 注意：流式中每次防抖 flush（350ms）也会广播 run-persisted，若照单全收会不断
+  // 全量重读历史 + setHistory 重渲染——http 大工具参数/大 A2UI ops 时 IO 与渲染
+  // 积压会占满主线程，页面冻结后直接跳到终态（用户感知为“thinking 突然消失”）。
+  // 用 ref 跟踪最新 run 状态：running/paused 的广播直接跳过，终态广播才刷新一次。
+  const runStatusRef = useRef(run?.status);
+  runStatusRef.current = run?.status;
   useEffect(() => {
     const refresh = () => {
+      if (runStatusRef.current === 'running' || runStatusRef.current === 'paused') return;
       void reloadHistoryWindow().then(() => {
         if (isTerminalRun()) stickToBottom();
       });
