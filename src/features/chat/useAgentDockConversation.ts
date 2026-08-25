@@ -10,8 +10,8 @@ import type { Message } from '@ag-ui/client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { createRunInput } from '@/api/runtime/agentRuntimeService';
-import { createRunState, reduceRunEvent } from '@/api/runtime/runReducer';
-import type { AgUiEvent, RunAgentInput, RuntimeRunState } from '@/api/runtime/types';
+import { createRunState, finalizeReasoningMeta, reduceRunEvent } from '@/api/runtime/runReducer';
+import type { AgUiEvent, MentionAgentRef, RunAgentInput, RuntimeRunState } from '@/api/runtime/types';
 import { getChatServiceMode } from '@/api/core/serviceMode';
 import {
   flushRunCheckpoint,
@@ -24,6 +24,8 @@ export interface AgentDockConversationOptions {
   agentId: string;
   fab: string;
   group?: RunAgentInput['forwardedProps']['group'];
+  /** 本轮用户消息中 @ 提及的 Agent（后端据此启用 callAgent 委派）。 */
+  mentionAgents?: MentionAgentRef[];
   sessionId: string;
   threadId?: string;
 }
@@ -38,7 +40,7 @@ export interface AgentDockConversationResult {
   ) => Promise<void>;
   restore: () => Promise<void>;
   run: RuntimeRunState | undefined;
-  send: (message: string) => Promise<void>;
+  send: (message: string, options?: { mentionAgents?: MentionAgentRef[] }) => Promise<void>;
   sendA2uiAction: (
     a2uiAction: NonNullable<RunAgentInput['forwardedProps']['a2uiAction']>,
   ) => Promise<void>;
@@ -69,16 +71,16 @@ const useMockConversation = (options: AgentDockConversationOptions): AgentDockCo
   }, [options.sessionId, restore]);
 
   const send = useCallback(
-    async (message: string) => {
+    async (message: string, options?: { mentionAgents?: MentionAgentRef[] }) => {
       // 防重入：上一轮 run 未结束（running/paused）时忽略新发送，
       // 避免 UI 门禁延迟导致同一会话并发 run（后端日志曾出现同一时刻两个 /ag-ui POST）。
       const currentRun = useRunStore.getState().run;
       if (currentRun && (currentRun.status === 'running' || currentRun.status === 'paused')) return;
-      const { agentId, fab, group, sessionId } = optionsRef.current;
+      const { agentId, fab, group, mentionAgents, sessionId } = optionsRef.current;
       const threadId = optionsRef.current.threadId || `thread-${sessionId}`;
       await useRunStore
         .getState()
-        .execute(createRunInput({ agentId, fab, group, message, sessionId, threadId }));
+        .execute(createRunInput({ agentId, fab, group, mentionAgents: options?.mentionAgents ?? mentionAgents, message, sessionId, threadId }));
     },
     [],
   );
@@ -234,11 +236,11 @@ const useOfficialConversation = (
     if (checkpoint) {
       inputRef.current = checkpoint.input;
       const restored = checkpoint.status === 'running'
-        ? {
+        ? finalizeReasoningMeta({
             ...checkpoint.snapshot,
             error: { code: 'CANCELLED', message: 'Run interrupted by reload; stream resume is not supported yet.' },
             status: 'cancelled' as const,
-          }
+          })
         : checkpoint.snapshot;
       runRef.current = restored;
       setHttpRun(restored);
@@ -258,16 +260,23 @@ const useOfficialConversation = (
   }, [options.sessionId, restore]);
 
   const send = useCallback(
-    async (message: string) => {
+    async (message: string, options?: { mentionAgents?: MentionAgentRef[] }) => {
       // 防重入：与官方路径一致，上一轮未结束时忽略新发送。
       const currentRun = runRef.current;
       if (currentRun && (currentRun.status === 'running' || currentRun.status === 'paused')) return;
-      const { agentId, fab, group, sessionId } = optionsRef.current;
+      const { agentId, fab, group, mentionAgents, sessionId } = optionsRef.current;
       const threadId = optionsRef.current.threadId || `thread-${sessionId}`;
       const runId = crypto.randomUUID();
       const input: RunAgentInput = {
         context: [],
-        forwardedProps: { action: 'run', agentId, fab, group, sessionId },
+        forwardedProps: {
+          action: 'run',
+          agentId,
+          fab,
+          group,
+          mentionAgents: options?.mentionAgents ?? mentionAgents,
+          sessionId,
+        },
         messages: [{ content: message, id: crypto.randomUUID(), role: 'user' }],
         runId,
         state: {},

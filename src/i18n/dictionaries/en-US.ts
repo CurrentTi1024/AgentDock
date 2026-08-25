@@ -82,7 +82,7 @@ export default {
   "chat.process.streaming": "Processing…",
   'chat.reasoning': 'Reasoning',
   'chat.reasoningDone': "Deeply Thought",
-  'chat.send': "Deeply Thought",
+  'chat.send': "Send",
   'chat.stop': 'Stop generating',
   'chat.suggestion.analyze': 'Analyze today\'s flight data',
   'chat.suggestion.compare': 'Compare two test flights',

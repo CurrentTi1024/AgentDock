@@ -85,7 +85,7 @@ export default {
   "chat.process.streaming": "Обработва се…",
   'chat.reasoning': 'Разсъждение',
   'chat.reasoningDone': "Обмислено",
-  'chat.send': "Обмислено",
+  'chat.send': "Изпращане",
   'chat.stop': 'Спри генерирането',
   'chat.suggestion.analyze': 'Анализирай днешните полетни данни',
   'chat.suggestion.compare': 'Сравни два пробни полета',

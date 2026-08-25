@@ -758,31 +758,41 @@ export const A2uiSurfaceBlock = ({
   payload: Record<string, unknown>;
 }) => {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
+  // A2UI Surface 属于消息正文，回退渲染也必须与 thinking/工具卡视觉分离：
+  // 使用 surfaceBody（左侧主色条 + 无整卡边框）而不是 thinking 的 block 卡。
   return (
-    <div className={styles.block}>
-      <div className={styles.header} onClick={() => setOpen((value) => !value)}>
+    <div className={styles.surfaceBody}>
+      <Flexbox horizontal align="center" gap={8} style={{ marginBlockEnd: 8 }}>
         <Icon color={cssVar.colorInfo} icon={CheckCircle2} size={15} />
-        <Text fontSize={12} weight={500} style={{ flex: 1 }}>
+        <Text fontSize={12} type="secondary" style={{ flex: 1 }}>
           {t('chat.a2uiSurface')}
         </Text>
         <Tag color="info" size="small">
           {String(payload.surfaceId || 'surface')}
         </Tag>
-        <Icon icon={ChevronDown} size={14} />
-      </div>
-      {open && (
-        <div className={styles.content}>
-          <Flexbox gap={8} style={{ paddingBlockEnd: 8 }}>
-            {onAction && (
-              <Button icon={Play} size="small" type="primary" onClick={onAction}>
-                {t('chat.a2ui.action')}
-              </Button>
-            )}
-          </Flexbox>
-          {JSON.stringify(payload, null, 2)}
-        </div>
+      </Flexbox>
+      {onAction && (
+        <Flexbox gap={8} style={{ marginBlockEnd: 8 }}>
+          <Button icon={Play} size="small" type="primary" onClick={onAction}>
+            {t('chat.a2ui.action')}
+          </Button>
+        </Flexbox>
       )}
+      <pre
+        style={{
+          color: cssVar.colorTextDescription,
+          fontFamily: cssVar.fontFamilyCode,
+          fontSize: 12,
+          lineHeight: 1.6,
+          margin: 0,
+          maxHeight: 320,
+          overflow: 'auto',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-all',
+        }}
+      >
+        {JSON.stringify(payload, null, 2)}
+      </pre>
     </div>
   );
 };
@@ -1261,7 +1271,11 @@ export const renderRunBlocks = (
         flushSteps();
         if (options.showSurfaces === false) continue;
         const payload = run.surfaces?.[ref.id];
-        if (typeof payload === 'object' && payload !== null) blocks.push(<A2uiStoredSurface key={`surface-${ref.id}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId: ref.id }} />);
+        if (typeof payload === 'object' && payload !== null) blocks.push(
+          <div className={styles.surfaceBody} data-testid="a2ui-surface-body" key={`surface-${ref.id}`}>
+            <A2uiStoredSurface onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId: ref.id }} />
+          </div>,
+        );
       }
     }
     flushSteps();

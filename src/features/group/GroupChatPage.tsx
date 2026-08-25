@@ -18,6 +18,7 @@ import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
 import FeedbackModal, { type FeedbackTarget } from '@/features/chat/components/FeedbackModal';
 import { MessageActions } from '@/features/chat/components/MessageActions';
+import { parseMentionedAgents } from '@/features/chat/mentions';
 import type { OpStatusActivity } from '@/features/chat/components/OpStatusTray';
 import NavHeader from '@/components/shell/NavHeader';
 import {
@@ -335,12 +336,13 @@ const GroupChatPage = () => {
 
   const sendMessage = async (message: string) => {
     if (!session) return;
+    const mentionAgents = parseMentionedAgents(message, mentions);
     stickToBottom();
     setRunStartedAt(Date.now());
     await sessionHistoryService.updateSession(session.id, {
       title: session.title === t('nav.newGroup') ? message.slice(0, 32) || session.title : session.title,
     });
-    await send(message);
+    await send(message, { mentionAgents });
   };
 
   // 发送输入框内容后立即清空输入框（与单聊一致）；示例消息走 sendMessage 不清空。
@@ -366,7 +368,7 @@ const GroupChatPage = () => {
     await refreshAgentContext();
     setRunStartedAt(Date.now());
     stickToBottom();
-    await send(prompt);
+    await send(prompt, { mentionAgents: parseMentionedAgents(prompt, mentions) });
   };
 
   const regenerateAssistant = (assistantRecordId: string) => {
@@ -730,8 +732,7 @@ const GroupChatPage = () => {
               activity={opStatusActivity}
               agentName={session?.title || t('nav.group')}
               fab={fab}
-              mentionEnabled={false}
-              mentions={[]}
+              mentions={mentions}
               running={running}
               value={input}
               onChange={setInput}

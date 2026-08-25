@@ -1,4 +1,4 @@
-import type { AgUiEvent, RunAgentInput } from '@/api/runtime/types';
+import type { AgUiEvent, RunAgentInput } from '../api/runtime/types';
 const delay = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => { const timer = setTimeout(resolve, ms); signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); }, { once: true }); });
 /**
  * UI 错误场景注入（Mock 模式）：在输入框输入以下关键词即可触发对应错误路径——

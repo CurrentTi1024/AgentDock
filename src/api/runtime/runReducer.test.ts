@@ -127,6 +127,23 @@ test('tracks reasoning streaming state and duration across REASONING events', ()
   assert.deepEqual(state.orderedBlocks, [{ id: 'reasoning-5', kind: 'reasoning' }]);
 });
 
+test('RUN_FINISHED / RUN_ERROR 兜底收尾所有 reasoning（thinking 完成后必定折叠）', () => {
+  let state = createRunState('run-5b', 'thread-5b');
+  state = reduceRunEvent(state, { eventId: '1', event: { type: 'REASONING_MESSAGE_START', messageId: 'reasoning-5b' } });
+  assert.equal(state.reasoningMeta['reasoning-5b'].streaming, true);
+  // 后端未发 REASONING_MESSAGE_END 直接结束：终态必须兜底置 false
+  state = reduceRunEvent(state, { eventId: '2', event: { type: 'RUN_FINISHED', threadId: 'thread-5b', runId: 'run-5b' } });
+  assert.equal(state.status, 'success');
+  assert.equal(state.reasoningMeta['reasoning-5b'].streaming, false);
+  assert.ok(state.reasoningMeta['reasoning-5b'].finishedAt);
+  // RUN_ERROR 同样兜底
+  state = createRunState('run-5c', 'thread-5c');
+  state = reduceRunEvent(state, { eventId: '1', event: { type: 'REASONING_MESSAGE_START', messageId: 'reasoning-5c' } });
+  state = reduceRunEvent(state, { eventId: '2', event: { type: 'RUN_ERROR', threadId: 'thread-5c', runId: 'run-5c', code: 'CANCELLED', message: 'cancelled' } });
+  assert.equal(state.status, 'cancelled');
+  assert.equal(state.reasoningMeta['reasoning-5c'].streaming, false);
+});
+
 test('records tool call timing, apiName and result message id', () => {
   let state = createRunState('run-6', 'thread-6');
   state = reduceRunEvent(state, { eventId: '1', event: { type: 'TOOL_CALL_START', toolCallId: 'tool-6', toolCallName: 'flightData.queryMetrics', apiName: 'flightData.queryMetrics' } });

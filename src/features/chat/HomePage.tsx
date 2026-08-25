@@ -100,8 +100,9 @@ const HomePage = memo(() => {
 
   const selectMention = useCallback(
     (mention: MentionAgent) => {
-      setSelected(mention);
-      setInput((value) => `@${mention.agentFullName} ${value.replace(/^@\S*\s*/, '')}`);
+      // @ 提及只插入 @AgentName 文本（由 ChatInput 完成），不改“发送目标 Agent”；
+      // 目标 Agent 由输入框左下角下拉选择。
+      void mention;
     },
     [],
   );

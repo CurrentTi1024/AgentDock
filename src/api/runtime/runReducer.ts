@@ -33,13 +33,26 @@ const applyStateDelta = (state: unknown, delta: unknown) => {
   }
   return next;
 };
+/** 终态兜底：无论后端是否发送 REASONING_END，都收尾所有推理块的 streaming 状态，
+ *  保证 run 完成后 thinking 必定折叠（ReasoningBlock 的 open 跟随 streaming）。 */
+export const finalizeReasoningMeta = (state: RuntimeRunState): RuntimeRunState => {
+  const next = structuredClone(state);
+  for (const meta of Object.values(next.reasoningMeta)) {
+    meta.streaming = false;
+    meta.finishedAt ??= Date.now();
+  }
+  return next;
+};
 export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent): RuntimeRunState {
   if (input.eventId && previous.processedEventIds.includes(input.eventId)) return previous;
   const next = structuredClone(previous); const event = input.event; const id = String(event.messageId || ''); const toolId = String(event.toolCallId || ''); next.rawEvents.push(event); if (next.rawEvents.length > 1000) next.rawEvents.shift();
   if (input.eventId) { next.latestEventId = input.eventId; next.processedEventIds.push(input.eventId); if (next.processedEventIds.length > 5000) next.processedEventIds.shift(); }
   switch (event.type) {
     case 'RUN_STARTED': next.status = 'running'; break;
-    case 'RUN_FINISHED': next.status = 'success'; break;
+    case 'RUN_FINISHED': {
+      next.status = 'success';
+      return finalizeReasoningMeta(next);
+    }
     case 'RUN_ERROR': {
       next.status = event.code === 'CANCELLED' ? 'cancelled' : 'error';
       next.error = { code: String(event.code || ''), message: String(event.message || 'Run failed') };
@@ -66,7 +79,7 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
         };
         if (!next.messageOrder.includes(targetId)) next.messageOrder.push(targetId);
       }
-      break;
+      return finalizeReasoningMeta(next);
     }
     case 'TEXT_MESSAGE_START': if (!id) break; next.messages[id] = { id, role: String(event.role || 'assistant') as RuntimeMessage['role'], content: '', eventId: input.eventId }; appendMessageId(next, id); break;
     case 'TEXT_MESSAGE_CONTENT': if (!id) break; next.messages[id] ||= { id, role: 'assistant', content: '' }; appendMessageId(next, id); next.messages[id].content += String(event.delta || ''); if (input.eventId) next.messages[id].eventId = input.eventId; break;

@@ -13,6 +13,7 @@ import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
 import FeedbackModal, { type FeedbackTarget } from '@/features/chat/components/FeedbackModal';
 import { MessageActions } from '@/features/chat/components/MessageActions';
+import { parseMentionedAgents } from '@/features/chat/mentions';
 import type { OpStatusActivity } from '@/features/chat/components/OpStatusTray';
 import Welcome from '@/features/chat/components/Welcome';
 import {
@@ -220,12 +221,14 @@ export default function ChatPage() {
   // @ 触发时经 Service 拉取可提及 Agent（mock 模式返回 mock 数据），只拉一次并缓存。
   const mentionsLoadedRef = useRef(false);
   const mentionsInFlightRef = useRef(false);
+  const mentionsRef = useRef<MentionAgent[]>([]);
   const ensureMentions = useCallback(async () => {
     if (mentionsLoadedRef.current || mentionsInFlightRef.current) return;
     mentionsInFlightRef.current = true;
     setMentionsLoading(true);
     try {
       const { items } = await agentMarketService.getMentionAgentsList({ locale: 'zh-CN' });
+      mentionsRef.current = items;
       setMentions(items);
       mentionsLoadedRef.current = true;
       setSelectedAgent((current) => current ?? items[0]);
@@ -318,6 +321,12 @@ export default function ChatPage() {
 
   const sendMessageWith = async (prompt: string) => {
     if (!prompt || running) return;
+    // 解析 @Agent 提及：先确保候选列表已加载（直接手输 @ 也可能没触发过联想菜单）。
+    if (prompt.includes('@')) await ensureMentions();
+    const mentionAgents = parseMentionedAgents(prompt, mentionsRef.current).filter(
+      (mention) =>
+        !(mention.agentId === (selectedAgent?.agentId || session?.agentId) && mention.fab === fab),
+    );
     stickToBottom();
     setRunStartedAt(Date.now());
     setArtifactOpen(false);
@@ -330,7 +339,7 @@ export default function ChatPage() {
       title: active.title === t('nav.newSessionTitle') ? prompt.slice(0, 32) || active.title : active.title,
       version: selectedAgent?.version || active.version,
     });
-    await send(prompt);
+    await send(prompt, { mentionAgents });
   };
 
   // 首页 hub 发送：路由 state 携带 pendingPrompt，挂载且会话就绪后自动发送一次；
@@ -353,9 +362,9 @@ export default function ChatPage() {
   };
 
   const selectMention = (mention: MentionAgent) => {
-    setSelectedAgent(mention);
-    setAgent(mention.agentFullName);
-    setInput((value) => `@${mention.agentFullName} ${value.replace(/^@\S*\s*/, '')}`);
+    // @ 提及只负责插入 @AgentName 文本（由 ChatInput 完成），不切换当前会话 Agent；
+    // 切换 Agent 走输入框左下角下拉或会话侧栏头部。
+    void mention;
   };
 
   const switchAgent = useCallback(

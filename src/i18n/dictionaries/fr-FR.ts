@@ -85,7 +85,7 @@ export default {
   "chat.process.streaming": "Traitement…",
   'chat.reasoning': 'Raisonnement',
   'chat.reasoningDone': "Réflexion terminée",
-  'chat.send': "Réflexion terminée",
+  'chat.send': "Envoyer",
   'chat.stop': 'Arrêter la génération',
   'chat.suggestion.analyze': 'Analyser les données de vol du jour',
   'chat.suggestion.compare': 'Comparer deux essais en vol',

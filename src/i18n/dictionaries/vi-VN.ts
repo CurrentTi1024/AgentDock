@@ -85,7 +85,7 @@ export default {
   "chat.process.streaming": "Đang xử lý…",
   'chat.reasoning': 'Lập luận',
   'chat.reasoningDone': "Đã suy nghĩ sâu",
-  'chat.send': "Đã suy nghĩ sâu",
+  'chat.send': "Gửi",
   'chat.stop': 'Dừng tạo',
   'chat.suggestion.analyze': 'Phân tích dữ liệu chuyến bay hôm nay',
   'chat.suggestion.compare': 'So sánh hai chuyến bay thử nghiệm',
