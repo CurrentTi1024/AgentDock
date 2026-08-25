@@ -30,7 +30,6 @@ import {
 import { messageFeedbackService } from '@/api/conversation/messageFeedbackService';
 import { getChatServiceMode } from '@/api/core/serviceMode';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
-import type { RunStatus, RuntimeStep } from '@/api/runtime/types';
 import {
   sessionHistoryService,
   type SessionMessageRecord,
@@ -732,6 +731,7 @@ export default function ChatPage() {
           >
             <ChatInput
               activity={opStatusActivity}
+              agentId={agentId}
               agentName={agent}
               approvalMode={approvalMode}
               fab={fab}
