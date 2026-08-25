@@ -347,3 +347,71 @@ checkpoint 转 cancelled）同样没有收尾 reasoning。
   `expandedReasoning=[]`（thinking 全部收起）、`已处理 1 步 · 23.9s` 折叠一行、
   surface 在折叠卡之后、正文在最后；刷新后不再误显“已中断”。
 - 发送按钮文案回归“发送”。
+
+## 十二、追加：A2UI 重复渲染（双左竖线 + A2UI Surface JSON 卡）+ 折叠样式与 LobeHub 差距
+
+> 日期：2026-08-26
+> 现象来源：真实 http 航班机票 run 截图：1) A2UI 动态渲染左侧有竖线/外框，看起来还在
+> thinking 里；2) 渲染完后又出现一个“A2UI Surface”原始 JSON 卡，且是双左竖线；
+> 3) 自动收缩后的折叠行样式与 LobeHub（“共执行 1 步 · 点击查看完整记录”）差距大。
+
+### 根因
+
+#### 根因 1：同一逻辑 surface 被存成多个记录（ops 版 + components 版）
+
+协议里同一界面会出现两种形态：
+- `a2ui.surface` 活动的 `content.a2ui_operations`（官方 renderer 数据）；
+- `render_a2ui` 工具参数的 `{ surfaceId, components }`（前端注入 schema）。
+
+`runReducer` 之前用“事件自带 id / 工具参数 surfaceId”作 `surfaces` 键：
+活动版键是 `a2ui-surface-call_00_…`，工具版键是 `flight-dashboard`/`flight-ticket-card`，
+两个键并存 → `orderedBlocks` 插两条 surface → 历史落库也落两行 →
+渲染出现两次界面（一个官方 UI + 一个 components 回退 JSON 卡），且都包 surfaceBody
+（左侧主色条）→ 视觉上“双左竖线 + 还在 thinking 里”。
+
+#### 根因 2：A2UI 中间态（building/progress）被当成可渲染 surface
+
+后端在生成 UI 前会发 `{status:'building', progressTokens}` 的 a2ui.surface 快照，
+它没有任何 UI 内容，但旧逻辑也把它写进 `surfaces` 并落库，渲染时没有
+`a2ui_operations`/`components` → 走 `A2uiSurfaceBlock` 回退 → 出现
+“A2UI Surface · a2ui-surface-call_… {status:'building', …}”原始 JSON 卡。
+
+#### 根因 3：折叠行视觉（ProcessFold）用的是 thinking 卡样式
+
+`ProcessFold` 复用了 `styles.block`（整卡边框 + 背景），文案是“已处理 N 步 · 耗时”，
+而 LobeHub 是 borderless 文本行“共执行 N 步 · 点击查看完整记录”（Accordion
+variant=borderless，右侧旋转箭头，无边框无背景）。
+
+#### 根因 4：live 渲染多一条官方 activity 渲染路径
+
+`ChatPage` live 同时渲染 `renderRunBlocks` 的 surface（run.surfaces）和
+`OfficialActivityMessages`（官方 agent.messages 的 activity），同一界面可能双份渲染。
+
+### 修复方法
+
+1. **逻辑 surfaceId 归一 + 去重**（`runReducer`）：
+   - 新增 `findLogicalSurfaceId(payload)`：从 `a2ui_operations` 的
+     createSurface/updateComponents 或顶层 surfaceId 提取逻辑 id；
+   - `ACTIVITY_SNAPSHOT` 与 `TOOL_CALL_END(render_a2ui)` 统一用逻辑 id 作 `surfaces` 键，
+     `pushOrderedBlock` 幂等去重；后到者优先（ops 版覆盖 components 版，不新增块）。
+2. **中间态不建 surface 行**（`runReducer` + `persistRunSnapshot`）：
+   内容没有 `a2ui_operations` 且没有 `components` 时跳过（不写 surfaces、不落库）。
+3. **渲染层防御**（`MessageBlocks`）：按逻辑 surfaceId 去重 + 无 UI 内容（building）跳过；
+   删除 surfaceBody 包装（左竖线/背景），A2UI 纯内联渲染；`A2uiSurfaceBlock` 回退改为
+   无边框小标签 + JSON 预览。
+4. **折叠行对齐 LobeHub**：`ProcessFold` 改 borderless（无边框/背景），文案
+   `chat.process.done` 改为“共执行 {count} 步 · 点击查看完整记录”（18 语言），
+   耗时放展开内容/悬浮 title；新增 `chat.process.duration` 键。
+5. **移除 live 官方 activity 重复渲染路径**（`ChatPage`）：删除 `OfficialActivityMessages`
+   与 surfaceBody 包装，surface 只由 `renderRunBlocks` 渲染一份。
+
+### 验证（浏览器实测）
+
+- 旧重复数据会话（session-49b73aa0，历史里有两个 surface 记录）：
+  `✈️ 最近一次飞行数据` / 副标题各渲染 1 次，无 JSON 回退卡；
+- 全新真实航班机票 run：完成后 `共执行 1 步 · 点击查看完整记录` 折叠为一行、
+  机票卡只渲染 1 份（标题/立即预订各 1 个叶子）、无 surfaceBody 包装、无
+  “A2UI Surface”回退卡；刷新后一致；
+- 用户会话（国庆旅游攻略）：`surfaceWraps=0`、`a2uiCards=0`、折叠行正确；
+- 单测：逻辑 surfaceId 去重（正反序）、building 中间态不建行，75/75 通过；
+  typecheck + build 通过。
