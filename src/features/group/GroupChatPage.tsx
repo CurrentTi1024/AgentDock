@@ -93,8 +93,6 @@ const GroupChatPage = () => {
   const loadingOlderRef = useRef(false);
   const [input, setInput] = useState('');
   const [runStartedAt, setRunStartedAt] = useState<number>();
-  const [editingId, setEditingId] = useState<string>();
-  const [editDraft, setEditDraft] = useState('');
   const [feedbackModal, setFeedbackModal] = useState<FeedbackTarget>();
   const [modes, setModes] = useState<Array<{ modeId: string; name: string }>>([]);
   const [mode, setMode] = useState('supervisor');
@@ -158,7 +156,7 @@ const GroupChatPage = () => {
   );
 
   const fab = session?.fab || 'F15B';
-  const { refreshAgentContext, respondToHitl, restore, run, send, sendA2uiAction, stop } = useAgentDockConversation({
+  const { respondToHitl, restore, run, send, sendA2uiAction, stop } = useAgentDockConversation({
     agentId: 'group',
     fab,
     group: {
@@ -270,6 +268,9 @@ const GroupChatPage = () => {
       if (record.id.startsWith('lc_run--')) continue;
       const rawTextId = record.id.replace(/^text:/, '');
       if (record.kind !== 'text' || liveTextIds.has(rawTextId) || deletedKeys.has(record.id)) continue;
+      // 空占位隐藏：assistant 行无内容且无过程块（如 START 后即停止/刷新）不渲染空气泡；
+      // 有工具/推理块的空气泡保留（块需要 assistant 文本作宿主）。
+      if (record.role === 'assistant' && !record.content && !(record.runId && (blocksByRun.get(record.runId)?.length ?? 0) > 0)) continue;
       const blocks = record.role === 'assistant' && record.runId
         ? (blocksByRun.get(record.runId) ?? [])
         : [];
@@ -346,53 +347,11 @@ const GroupChatPage = () => {
   };
 
   // 发送输入框内容后立即清空输入框（与单聊一致）；示例消息走 sendMessage 不清空。
-  const sendInputMessage = () => {
-    if (!input.trim() || !session) return;
-    const prompt = input;
+  const handleSend = (content: string) => {
+    const prompt = content.trim();
+    if (!prompt || !session) return;
     setInput('');
     void sendMessage(prompt);
-  };
-
-  const deleteMessage = useCallback(
-    (messageId: string) => {
-      void sessionHistoryService.removeMessage(sessionId, messageId).then(() => reloadHistoryWindow());
-    },
-    [reloadHistoryWindow, sessionId],
-  );
-
-  // branch 替换：删除以该用户消息开头的一整轮，再以新 prompt 重跑（与单聊一致）。
-  const replaceTurn = async (userMessageId: string, prompt: string) => {
-    if (!prompt || running) return;
-    await sessionHistoryService.removeTurn(sessionId, userMessageId.replace(/^text:/, ''));
-    await reloadHistoryWindow();
-    await refreshAgentContext();
-    setRunStartedAt(Date.now());
-    stickToBottom();
-    await send(prompt, { mentionAgents: parseMentionedAgents(prompt, mentions) });
-  };
-
-  const regenerateAssistant = (assistantRecordId: string) => {
-    const index = history.findIndex(
-      (record) => record.id === assistantRecordId || record.id === `text:${assistantRecordId}`,
-    );
-    if (index < 0) return;
-    let userRecord: SessionMessageRecord | undefined;
-    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-      if (history[cursor].kind === 'text' && history[cursor].role === 'user') {
-        userRecord = history[cursor];
-        break;
-      }
-    }
-    if (!userRecord) return;
-    void replaceTurn(userRecord.id.replace(/^text:/, ''), userRecord.content || '');
-  };
-
-  const commitEdit = (userMessageId: string, originalContent: string) => {
-    if (editDraft && editDraft !== originalContent) {
-      void replaceTurn(userMessageId, editDraft);
-    }
-    setEditingId(undefined);
-    setEditDraft('');
   };
 
   const commitMembers = (next: typeof members) => {
@@ -553,7 +512,6 @@ const GroupChatPage = () => {
               const gap = previous
                 ? new Date(record.createdAt).getTime() - new Date(previous.createdAt).getTime()
                 : 0;
-              const editing = editingId === record.id;
               const originalContent = record.content || '';
               return (
                 <Fragment key={record.id}>
@@ -565,27 +523,12 @@ const GroupChatPage = () => {
                           content={originalContent}
                           placement="user"
                           onCopy={(content) => void navigator.clipboard.writeText(content || '')}
-                          onDelete={() => deleteMessage(record.id)}
-                          onEdit={() => {
-                            setEditingId(record.id);
-                            setEditDraft(originalContent);
-                          }}
-                          onRegenerate={() => void sendMessage(originalContent)}
                           onRestoreToInput={(content) => setInput(content)}
                         />
                       }
                       content={record.content}
-                      editing={editing}
                       id={record.id}
                       name={t('chat.you')}
-                      onChange={setEditDraft}
-                      onDoubleClick={() => {
-                        setEditingId(record.id);
-                        setEditDraft(originalContent);
-                      }}
-                      onEditingChange={(next) => {
-                        if (!next) commitEdit(record.id, originalContent);
-                      }}
                       role="user"
                       showAvatar
                       showTitle={false}
@@ -597,8 +540,6 @@ const GroupChatPage = () => {
                         <MessageActions
                           content={originalContent}
                           onCopy={(content) => void navigator.clipboard.writeText(content || '')}
-                          onDelete={() => deleteMessage(record.id)}
-                          onDeleteAndRegenerate={() => regenerateAssistant(record.id)}
                           onDislike={() =>
                             setFeedbackModal({
                               messageId: record.id,
@@ -616,7 +557,6 @@ const GroupChatPage = () => {
                               feedback: 'like',
                             })
                           }
-                          onRegenerate={() => regenerateAssistant(record.id)}
                           onRestoreToInput={(content) => setInput(content)}
                         />
                       }
@@ -701,7 +641,6 @@ const GroupChatPage = () => {
                             feedback: 'like',
                           })
                         }
-                        onRegenerate={() => void sendMessage(currentUserMessage || '')}
                         onRestoreToInput={(content) => setInput(content)}
                       />
                     )
@@ -736,9 +675,7 @@ const GroupChatPage = () => {
               running={running}
               value={input}
               onChange={setInput}
-              onMentionTrigger={() => undefined}
-              onSelectMention={() => undefined}
-              onSend={sendInputMessage}
+              onSend={handleSend}
               onStop={() => void stop()}
               runStatus={run?.status}
               startTime={runStartedAt}

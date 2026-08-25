@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { Markdown } from '@/features/chat/components/Markdown';
 import { useI18n } from '@/i18n';
 import { getChatServiceMode } from '@/api/core/serviceMode';
+import { findLogicalSurfaceId } from '@/api/runtime/runReducer';
 import type { RuntimeReasoningMeta, RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
 import type { SessionMessageRecord } from '@/api/session/sessionHistoryService';
 import NeuralNetworkLoading from '@/components/NeuralNetworkLoading';
@@ -22,6 +23,9 @@ const A2UI_TOOL_NAMES = new Set(['generate_a2ui', 'render_a2ui']);
 const INTERNAL_STEP_RE = /Middleware|^model$/i;
 const isInternalStep = (name?: string) => !name || INTERNAL_STEP_RE.test(name);
 const isA2uiTool = (apiName?: string) => !!apiName && A2UI_TOOL_NAMES.has(apiName);
+/** surface 是否有可渲染 UI：官方 ops 或组件树。中间态（building/progress）跳过，避免 JSON 回退卡。 */
+const hasSurfaceContent = (payload: Record<string, unknown>): boolean =>
+  Array.isArray(payload.a2ui_operations) || Array.isArray(payload.components);
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
   block: css`
@@ -90,14 +94,25 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
     border: 1px solid ${token.colorBorder};
     border-radius: ${token.borderRadiusSM}px;
   `,
-  // A2UI Surface 属于消息正文（不是过程/思考）：用 LobeHub 插件块样式（左侧主色条、
-  // 无整卡背景）与过程折叠卡片彻底区分，避免被误认为 thinking 的一部分。
+  // A2UI Surface 属于消息正文（不是过程/思考）：LobeHub 中 A2UI 就是纯内联组件，
+  // 不加边框/背景/左竖线，只留一点上下间距，避免再被误认为 thinking 的一部分。
   surfaceBody: css`
     margin-block-start: 4px;
-    padding: 8px;
-    border-inline-start: 3px solid ${token.colorPrimary};
-    border-radius: ${token.borderRadiusLG}px;
-    background: ${token.colorFillQuaternary};
+  `,
+  // LobeHub ProcessFold：borderless Accordion 行（“共执行 N 步 · 点击查看完整记录”），
+  // 无整卡边框/背景；展开态才显示过程块，二级单个块再各自折叠。
+  processFold: css`
+    margin-block-start: 4px;
+  `,
+  processFoldHeader: css`
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 24px;
+    padding-block: 4px;
+    cursor: pointer;
+    user-select: none;
+    width: fit-content;
   `,
   toolTitle: css`
     overflow: hidden;
@@ -243,7 +258,7 @@ export const ReasoningBlock = ({ id, meta, text }: { id: string; meta?: RuntimeR
 };
 
 // LobeHub ProcessFold：一轮 run 的思考+工具+步骤在完成后折叠为一行
-// “已处理 N 步 · 耗时”，运行中展开；一级=过程汇总，二级=单个块。
+// “共执行 N 步 · 点击查看完整记录”，运行中展开；一级=过程汇总，二级=单个块。
 export const ProcessFold = ({
   children,
   durationText,
@@ -261,22 +276,29 @@ export const ProcessFold = ({
     setOpen(streaming);
   }, [streaming]);
   return (
-    <div className={styles.block}>
-      <div className={styles.header} onClick={() => setOpen((value) => !value)}>
-        <Flexbox flex={1} style={{ minWidth: 0 }}>
-          <Text style={{ fontSize: 12 }} type="secondary">
-            {streaming
-              ? t('chat.process.streaming')
-              : t('chat.process.done', {
-                  count: stepCount,
-                  duration: durationText ?? '–',
-                })}
-          </Text>
-        </Flexbox>
-        <Icon icon={ChevronDown} size={14} />
+    <div className={styles.processFold}>
+      <div
+        className={styles.processFoldHeader}
+        onClick={() => setOpen((value) => !value)}
+        title={durationText ? t('chat.process.duration', { duration: durationText }) : undefined}
+      >
+        <Icon
+          color={cssVar.colorTextTertiary}
+          icon={ChevronDown}
+          size={14}
+          style={{
+            transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
+            transition: 'transform 0.2s',
+          }}
+        />
+        <Text style={{ fontSize: 12 }} type="secondary">
+          {streaming
+            ? t('chat.process.streaming')
+            : t('chat.process.done', { count: stepCount })}
+        </Text>
       </div>
       {open && (
-        <Flexbox gap={8} padding={8}>
+        <Flexbox gap={8} paddingBlock={8}>
           {children}
         </Flexbox>
       )}
@@ -758,19 +780,10 @@ export const A2uiSurfaceBlock = ({
   payload: Record<string, unknown>;
 }) => {
   const { t } = useI18n();
-  // A2UI Surface 属于消息正文，回退渲染也必须与 thinking/工具卡视觉分离：
-  // 使用 surfaceBody（左侧主色条 + 无整卡边框）而不是 thinking 的 block 卡。
+  // A2UI Surface 属于消息正文，回退渲染保持纯内联（无边框/背景/左竖线），
+  // 与 thinking/工具卡彻底区分；仅在小标签 + 原始 JSON 预览。
   return (
     <div className={styles.surfaceBody}>
-      <Flexbox horizontal align="center" gap={8} style={{ marginBlockEnd: 8 }}>
-        <Icon color={cssVar.colorInfo} icon={CheckCircle2} size={15} />
-        <Text fontSize={12} type="secondary" style={{ flex: 1 }}>
-          {t('chat.a2uiSurface')}
-        </Text>
-        <Tag color="info" size="small">
-          {String(payload.surfaceId || 'surface')}
-        </Tag>
-      </Flexbox>
       {onAction && (
         <Flexbox gap={8} style={{ marginBlockEnd: 8 }}>
           <Button icon={Play} size="small" type="primary" onClick={onAction}>
@@ -778,6 +791,12 @@ export const A2uiSurfaceBlock = ({
           </Button>
         </Flexbox>
       )}
+      <Flexbox horizontal align="center" gap={6} style={{ marginBlockEnd: 4 }}>
+        <Icon color={cssVar.colorTextTertiary} icon={CheckCircle2} size={14} />
+        <Text fontSize={12} type="secondary">
+          {t('chat.a2uiSurface')} · {String(payload.surfaceId || 'surface')}
+        </Text>
+      </Flexbox>
       <pre
         style={{
           color: cssVar.colorTextDescription,
@@ -968,6 +987,9 @@ export const renderStoredBlocks = (
   const nodes: React.ReactNode[] = [];
   const stepRecords: SessionMessageRecord[] = [];
   const process = createProcessCollector(false);
+  // 旧数据防御：同一逻辑 surface 可能以多个记录键落库（a2ui.surface 活动键 + render_a2ui
+  // 工具键），按逻辑 surfaceId 去重，只渲染一次。
+  const seenSurfaces = new Set<string>();
   const visibleBlocks =
     options.deletedKeys?.size
       ? blocks.filter((record) => !options.deletedKeys!.has(record.id))
@@ -1084,13 +1106,16 @@ export const renderStoredBlocks = (
       flushSteps();
       if (options.showSurfaces === false) continue;
       const surfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : record.id;
+      const logicalId = findLogicalSurfaceId(payload) || surfaceId;
+      if (!hasSurfaceContent(payload) || seenSurfaces.has(logicalId)) continue;
+      seenSurfaces.add(logicalId);
+      // A2UI Surface 是纯正文内容：不加边框/背景/左竖线，直接内联渲染。
       nodes.push(
-        <div className={styles.surfaceBody} data-testid="a2ui-surface-body" key={record.id}>
-          <StoredA2uiSurface
-            onAction={(actionName) => handlers.onSurfaceAction(actionName, surfaceId)}
-            payload={{ ...payload, surfaceId }}
-          />
-        </div>,
+        <StoredA2uiSurface
+          key={record.id}
+          onAction={(actionName) => handlers.onSurfaceAction(actionName, surfaceId)}
+          payload={{ ...payload, surfaceId }}
+        />,
       );
     }
   }
@@ -1110,6 +1135,7 @@ export const renderRunBlocks = (
   if (!run) return null;
   const blocks: React.ReactNode[] = [];
   const stepBuffer: RuntimeStep[] = [];
+  const seenSurfaces = new Set<string>();
   const process = createProcessCollector(run.status === 'running' || run.status === 'paused');
   const pushStepsIntoProcess = () => {
     if (!stepBuffer.length) return;
@@ -1161,11 +1187,15 @@ export const renderRunBlocks = (
     flushSteps();
     if (options.showSurfaces !== false) {
       for (const [surfaceId, payload] of Object.entries(run.surfaces || {})) {
-        if (typeof payload === 'object' && payload !== null) blocks.push(
-          <div className={styles.surfaceBody} data-testid="a2ui-surface-body" key={`surface-${surfaceId}`}>
-            <A2uiStoredSurface onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId }} />
-          </div>,
-        );
+        if (typeof payload === 'object' && payload !== null) {
+          const logicalId = findLogicalSurfaceId(payload) || surfaceId;
+          if (hasSurfaceContent(payload as Record<string, unknown>) && !seenSurfaces.has(logicalId)) {
+            seenSurfaces.add(logicalId);
+            blocks.push(
+              <A2uiStoredSurface key={`surface-${surfaceId}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId }} />,
+            );
+          }
+        }
       }
     }
   } else {
@@ -1253,11 +1283,16 @@ export const renderRunBlocks = (
         flushSteps();
         if (options.showSurfaces === false) continue;
         const payload = run.surfaces?.[ref.id];
-        if (typeof payload === 'object' && payload !== null) blocks.push(
-          <div className={styles.surfaceBody} data-testid="a2ui-surface-body" key={`surface-${ref.id}`}>
-            <A2uiStoredSurface onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId: ref.id }} />
-          </div>,
-        );
+        if (typeof payload === 'object' && payload !== null) {
+          const logicalId = findLogicalSurfaceId(payload) || ref.id;
+          if (hasSurfaceContent(payload as Record<string, unknown>) && !seenSurfaces.has(logicalId)) {
+            seenSurfaces.add(logicalId);
+            // A2UI Surface 纯内联渲染（无包装，避免双左竖线/外框观感）。
+            blocks.push(
+              <A2uiStoredSurface key={`surface-${ref.id}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId: ref.id }} />,
+            );
+          }
+        }
       }
     }
     flushSteps();

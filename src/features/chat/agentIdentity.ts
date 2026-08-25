@@ -31,6 +31,16 @@ export interface AgentIdentitySources {
 export const parseAgentChatSessionId = (pathname: string): string | undefined =>
   pathname.match(/^\/chat\/([^/?#]+)/)?.[1];
 
+/** 按 agentId+fab 解析 Agent 图标（未匹配返回 undefined，由调用方兜底默认图标）。 */
+export const resolveAgentIcon = (
+  mentions: MentionAgent[],
+  agentId?: string,
+  fab?: string,
+): string | undefined =>
+  agentId && fab
+    ? mentions.find((mention) => mention.agentId === agentId && mention.fab === fab)?.icon
+    : undefined;
+
 /** 构造 Agent 会话 URL：一律携带 agentId+fab，保证侧边栏/输入框/话题过滤一致。 */
 export const buildAgentSessionPath = (
   sessionId: string,
@@ -57,10 +67,19 @@ export const resolveAgentSidebarIdentity = (
 ): AgentIdentity | undefined => {
   const { pendingSession, queryAgent, queryFab, session } = sources;
   if (pendingSession) {
+    // pendingSession 记录没有 icon 字段，按 agentId+fab 从候选列表补头像/名称，
+    // 否则切换 Agent 后 Home 右侧头像回落到默认 🛩️。
+    const match =
+      pendingSession.agentId && pendingSession.fab
+        ? agents.find(
+            (agent) => agent.agentId === pendingSession.agentId && agent.fab === pendingSession.fab,
+          )
+        : undefined;
     return {
       agentId: pendingSession.agentId,
-      agentName: pendingSession.agentName || pendingSession.title,
+      agentName: match?.agentFullName || pendingSession.agentName || pendingSession.title,
       fab: pendingSession.fab,
+      icon: match?.icon,
     };
   }
   if (queryAgent && queryFab) {

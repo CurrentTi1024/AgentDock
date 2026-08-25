@@ -1,51 +1,38 @@
 // Adapted from: src/features/Conversation/Messages/User/Actions + Assistant/Actions (LobeHub canary)
 // LobeHub 风格消息悬浮操作栏：hover 显示，动作全部走回调 props（不绑定 store）。
+// 历史只读：不提供删除/编辑/重新生成（避免后端 MESSAGES_SNAPSHOT 复活已删消息），
+// 仅保留复制、反馈、回填输入框等非破坏性操作。
 import { ActionIcon, Flexbox } from '@lobehub/ui';
 import { DropdownMenu } from '@lobehub/ui/base-ui';
 import {
   AudioLines,
   Copy,
-  Edit,
   Languages,
   MoreHorizontal,
   RotateCcw,
   Share2,
   ThumbsDown,
   ThumbsUp,
-  Trash2,
 } from 'lucide-react';
 import { memo } from 'react';
 
 import { useI18n } from '@/i18n';
 
 export interface MessageActionsProps {
-  canDelete?: boolean;
-  canRegenerate?: boolean;
   content: string;
   placement?: 'assistant' | 'user';
   onCopy?: (content: string) => void;
-  onDelete?: () => void;
-  onDeleteAndRegenerate?: () => void;
   onDislike?: () => void;
-  /** 用户消息编辑（进入编辑态，等价官方 Actions 的 edit）。 */
-  onEdit?: () => void;
   onLike?: () => void;
-  onRegenerate?: () => void;
   onRestoreToInput?: (content: string) => void;
 }
 
 export const MessageActions = memo<MessageActionsProps>(
   ({
-    canDelete = true,
-    canRegenerate = true,
     content,
     onCopy,
-    onDelete,
-    onDeleteAndRegenerate,
     onDislike,
-    onEdit,
     onLike,
-    onRegenerate,
     onRestoreToInput,
     placement = 'assistant',
   }) => {
@@ -54,10 +41,6 @@ export const MessageActions = memo<MessageActionsProps>(
       ...(onRestoreToInput
         ? [{ icon: <RotateCcw size={14} />, key: 'restore', label: t('chat.action.restoreToInput'), onClick: () => onRestoreToInput(content) }]
         : []),
-      ...(onDeleteAndRegenerate
-        ? [{ icon: <Trash2 size={14} />, key: 'del-regen', label: t('chat.action.delAndRegenerate'), onClick: onDeleteAndRegenerate }]
-        : []),
-      ...(onRestoreToInput || onDeleteAndRegenerate ? [{ type: 'divider' as const, key: 'divider' }] : []),
       { disabled: true, icon: <AudioLines size={14} />, key: 'tts', label: t('chat.action.tts') },
       { disabled: true, icon: <Languages size={14} />, key: 'translate', label: t('chat.action.translate') },
       { disabled: true, icon: <Share2 size={14} />, key: 'share', label: t('chat.action.share') },
@@ -93,33 +76,6 @@ export const MessageActions = memo<MessageActionsProps>(
             size="small"
             title={t('chat.copy')}
             onClick={() => onCopy(content)}
-          />
-        )}
-        {canRegenerate && onRegenerate && (
-          <ActionIcon
-            aria-label={t('chat.action.regenerate')}
-            icon={RotateCcw}
-            size="small"
-            title={t('chat.action.regenerate')}
-            onClick={onRegenerate}
-          />
-        )}
-        {placement === 'user' && onEdit && (
-          <ActionIcon
-            aria-label={t('chat.action.edit')}
-            icon={Edit}
-            size="small"
-            title={t('chat.action.edit')}
-            onClick={onEdit}
-          />
-        )}
-        {canDelete && onDelete && (
-          <ActionIcon
-            aria-label={t('chat.action.delete')}
-            icon={Trash2}
-            size="small"
-            title={t('chat.action.delete')}
-            onClick={onDelete}
           />
         )}
         <DropdownMenu items={moreItems} placement="bottom">

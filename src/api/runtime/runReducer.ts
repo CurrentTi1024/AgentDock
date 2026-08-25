@@ -8,6 +8,24 @@ const pushOrderedBlock = (next: RuntimeRunState, kind: RuntimeRunState['orderedB
   const key = `${kind}:${id}`;
   if (!next.orderedBlocks.some((block) => `${block.kind}:${block.id}` === key)) next.orderedBlocks.push({ id, kind });
 };
+/** 从 A2UI payload 提取“逻辑 surfaceId”：官方 ops 的 createSurface/updateComponents 或顶层 surfaceId。
+ *  同一逻辑 surface 在协议里会以两种形态出现（a2ui.surface 活动的 a2ui_operations 与
+ *  render_a2ui 工具的 components 参数），统一用逻辑 id 做键才能去重，避免同一界面渲染两次。 */
+export const findLogicalSurfaceId = (payload: unknown): string | undefined => {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const record = payload as Record<string, unknown>;
+  if (typeof record.surfaceId === 'string') return record.surfaceId;
+  if (Array.isArray(record.a2ui_operations)) {
+    for (const op of record.a2ui_operations) {
+      if (!op || typeof op !== 'object') continue;
+      const create = (op as { createSurface?: { surfaceId?: unknown } }).createSurface?.surfaceId;
+      if (typeof create === 'string') return create;
+      const update = (op as { updateComponents?: { surfaceId?: unknown } }).updateComponents?.surfaceId;
+      if (typeof update === 'string') return update;
+    }
+  }
+  return undefined;
+};
 /** 公司自定义活动类型：直接投影为 LobeHub activity 卡片。 */
 const AGENT_DOCK_ACTIVITY_TYPES = new Set([
   'agentDock.agentDelegation',
@@ -170,7 +188,20 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
       pushOrderedBlock(next, 'activity', id);
       if (activityType === 'agentDock.hitl') next.status = 'paused';
       if (activityType === 'a2ui.surface' || activityType === 'a2ui-surface') {
-        const surfaceId = String(event.surfaceId || id);
+        // 中间态（如 {status:'building', progressTokens}）没有可渲染 UI，不建 surface 行；
+        // 最终 a2ui_operations 或 components 到达时才渲染，避免正文出现 building JSON 回退卡。
+        const content = event.content as Record<string, unknown> | undefined;
+        if (
+          !content ||
+          typeof content !== 'object' ||
+          (!Array.isArray(content.a2ui_operations) && !Array.isArray(content.components))
+        ) {
+          break;
+        }
+        // 统一以逻辑 surfaceId 为键：与 render_a2ui 工具的 components 版本共用键，
+        // pushOrderedBlock 按 `${kind}:${id}` 幂等，不会重复插入同一 surface。
+        const surfaceId = findLogicalSurfaceId(event.content) || String(event.surfaceId || id);
+        // ops 版本信息更全（官方 renderer 依赖 a2ui_operations），后到则覆盖 components 版。
         next.surfaces[surfaceId] = event.content;
         pushOrderedBlock(next, 'surface', surfaceId);
       }
@@ -202,7 +233,16 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
     }
   }
   if (event.type === 'TOOL_CALL_END' && next.toolCalls[toolId]?.name === 'render_a2ui') {
-    try { const payload = JSON.parse(next.toolCalls[toolId].args) as { surfaceId?: string; [key: string]: unknown }; const surfaceId = payload.surfaceId || toolId; next.surfaces[surfaceId] = payload; pushOrderedBlock(next, 'surface', surfaceId); } catch { /* retain malformed arguments for diagnostics */ }
+    try {
+      const payload = JSON.parse(next.toolCalls[toolId].args) as { surfaceId?: string; [key: string]: unknown };
+      const surfaceId = String(payload.surfaceId || toolId);
+      // 同一逻辑 surface 已存在（a2ui.surface 活动的 ops 版先到）时不重复创建，
+      // 保留官方 a2ui_operations（含完整组件树），避免正文出现重复界面/回退 JSON 卡。
+      if (!next.surfaces[surfaceId]) {
+        next.surfaces[surfaceId] = payload;
+        pushOrderedBlock(next, 'surface', surfaceId);
+      }
+    } catch { /* retain malformed arguments for diagnostics */ }
   }
   return next;
 }

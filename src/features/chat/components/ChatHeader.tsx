@@ -13,19 +13,20 @@ interface ChatHeaderProps {
   agentName: string;
   artifactOpen: boolean;
   fab: string;
+  icon?: string;
   onToggleArtifact: () => void;
   status?: string;
 }
 
 const ChatHeader = memo<ChatHeaderProps>(
-  ({ agentId, agentName, artifactOpen, fab, onToggleArtifact, status }) => {
+  ({ agentId, agentName, artifactOpen, fab, icon, onToggleArtifact, status }) => {
     const navigate = useNavigate();
     const { t } = useI18n();
     return (
       <NavHeader
         left={
           <Flexbox horizontal align="center" gap={10} style={{ minWidth: 0 }}>
-            <Avatar avatar="🛩️" shape="square" size={32} />
+            <Avatar avatar={icon || '🛩️'} shape="square" size={32} />
             <Flexbox style={{ minWidth: 0 }}>
               <Flexbox horizontal align="center" gap={8}>
                 <Text ellipsis fontSize={15} weight={500}>

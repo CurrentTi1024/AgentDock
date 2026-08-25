@@ -7,6 +7,7 @@ import {
   buildAgentSessionPath,
   parseAgentChatSessionId,
   resolveChatRouteQuery,
+  resolveAgentIcon,
   resolveAgentSidebarIdentity,
   resolveSessionAgent,
 } from './agentIdentity.ts';
@@ -63,6 +64,18 @@ test('AgentSidebar 切换 Agent：pendingSession 优先于旧的 session 状态�
   assert.equal(identity?.fab, 'F15B');
 });
 
+test('AgentSidebar pendingSession 分支：按 agentId+fab 从列表补 icon（Home 右侧头像跟随切换）', () => {
+  const pending = sessionRecord({
+    agentId: 'code-review',
+    agentName: 'CodeReview_Agent-F15B',
+    id: 'session-b',
+    title: 'CodeReview_Agent-F15B',
+  });
+  const identity = resolveAgentSidebarIdentity(agents, { pendingSession: pending });
+  assert.equal(identity?.icon, '🧑‍💻');
+  assert.equal(identity?.agentName, 'CodeReview_Agent-F15B');
+});
+
 test('AgentSidebar 已落库会话是权威身份（无 pendingSession 时按 session 显示）', () => {
   const identity = resolveAgentSidebarIdentity(agents, { session: sessionRecord() });
   assert.equal(identity?.agentName, 'CodeReview_Agent-F15B');
@@ -96,6 +109,13 @@ test('buildAgentSessionPath：会话 URL 始终携带 agentId+fab（缺字段时
     '/chat/session-1?agent=flight-analysis&fab=F18B',
   );
   assert.equal(buildAgentSessionPath('session-1', undefined, 'F15B'), '/chat/session-1');
+});
+
+test('resolveAgentIcon：按 agentId+fab 返回图标，未知 Agent 返回 undefined（切换 Agent 后 icon 跟随）', () => {
+  assert.equal(resolveAgentIcon(agents, 'code-review', 'F15B'), '🧑‍💻');
+  assert.equal(resolveAgentIcon(agents, 'flight-analysis', 'F15B'), '🛩️');
+  assert.equal(resolveAgentIcon(agents, 'unknown', 'F99B'), undefined);
+  assert.equal(resolveAgentIcon(agents, undefined, 'F15B'), undefined);
 });
 
 test('AgentSidebar 刷新/直达链接：无 session 时用 URL ?agent=&fab= 匹配列表解析名称', () => {

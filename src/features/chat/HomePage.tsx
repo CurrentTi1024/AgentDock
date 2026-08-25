@@ -60,11 +60,11 @@ const HomePage = memo(() => {
 
   const recentSessions = useMemo(() => sessions.slice(0, 8), [sessions]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (content: string) => {
     // 发送前必须确定 Agent：优先用下拉选择；未选择时尝试从输入里的 @名字 解析（@Agent 快速对话）。
     let target = selected;
-    if (!target && input.includes('@')) {
-      const token = input.slice(input.lastIndexOf('@') + 1).trim().split(/\s+/)[0];
+    if (!target && content.includes('@')) {
+      const token = content.slice(content.lastIndexOf('@') + 1).trim().split(/\s+/)[0];
       if (token) {
         target = agents.find(
           (agent) =>
@@ -73,8 +73,8 @@ const HomePage = memo(() => {
         );
       }
     }
-    if (!target || !input.trim()) return;
-    const prompt = input.trim();
+    if (!target || !content.trim()) return;
+    const prompt = content.trim();
     // 发送即清空输入框（与会话页一致）：导航后首页若被浏览器 bfcache 恢复也不残留旧消息。
     setInput('');
     // 选中/解析出的 Agent 从输入里去掉 @ 前缀（保留正文）。
@@ -97,16 +97,7 @@ const HomePage = memo(() => {
     void sessionHistoryService.createSession(record).catch((reason) => {
       console.warn('[AgentDock] agent session persist failed', reason);
     });
-  }, [agents, input, navigate, selected]);
-
-  const selectMention = useCallback(
-    (mention: MentionAgent) => {
-      // @ 提及只插入 @AgentName 文本（由 ChatInput 完成），不改“发送目标 Agent”；
-      // 目标 Agent 由输入框左下角下拉选择。
-      void mention;
-    },
-    [],
-  );
+  }, [agents, navigate, selected]);
 
   return (
     <Flexbox height="100%" style={{ minWidth: 0 }}>
@@ -117,7 +108,7 @@ const HomePage = memo(() => {
           style={{ marginInline: 'auto', maxWidth: 840, padding: '40px 24px 120px', width: '100%' }}
         >
           <Flexbox align="center" gap={14} paddingBlock={16}>
-            <Avatar avatar="🛩️" shape="square" size={64} />
+            <Avatar avatar={selected?.icon || '🛩️'} shape="square" size={64} />
             <Flexbox align="center" gap={6}>
               <Text as="h1" fontSize={24} weight={600}>
                 {t('home.welcome')}
@@ -142,9 +133,7 @@ const HomePage = memo(() => {
             fab={selected?.fab}
             mentions={agents}
             onChange={setInput}
-            onMentionTrigger={() => undefined}
-            onSelectMention={selectMention}
-            onSend={() => void start()}
+            onSend={(content) => void start(content)}
             onStop={() => undefined}
             onSwitchAgent={(agent) => setSelected(agent)}
             placeholder={t('home.placeholder')}

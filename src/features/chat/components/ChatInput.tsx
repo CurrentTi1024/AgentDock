@@ -1,20 +1,17 @@
-// Adapted from: src/features/ChatInput/Desktop + SendArea + ControlBar (LobeHub canary)
-// 桌面输入区：圆角容器 + 自动高度输入 + 底部发送/停止 + 外部功能行（左工具、右审批模式）。
-import { ActionIcon, Alert, Avatar, Button, Flexbox, Select, Tag, Text, TextArea } from '@lobehub/ui';
+// 输入区：真实迁移 @lobehub/editor（LobeHub ChatInput/InputEditor 同款）。
+// @ 联想菜单、蓝色 mention chip、整块删除、`<mention name id />` markdown 序列化
+// 全部由官方编辑器实现，不再使用 TextArea + 叠加层方案。
+import { ActionIcon, Alert, Avatar, Button, Flexbox, Select, Tag, Text } from '@lobehub/ui';
+import { INSERT_MARKDOWN_COMMAND, INSERT_MENTION_COMMAND, type IEditor } from '@lobehub/editor';
+import { Editor } from '@lobehub/editor/react';
 import { createStaticStyles, cssVar } from 'antd-style';
+import { COMMAND_PRIORITY_HIGH, KEY_DOWN_COMMAND } from 'lexical';
 import { ArrowBigUp, CornerDownLeft, Mic, Paperclip, Send, Square } from 'lucide-react';
-import { type KeyboardEvent, memo, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { type MentionAgent } from '@/api/market/agentMarketService';
 import type { RunStatus } from '@/api/runtime/types';
-import AgentMentionMenu from '@/features/chat/components/AgentMentionMenu';
 import OpStatusTray, { type OpStatusActivity } from '@/features/chat/components/OpStatusTray';
-import {
-  extractMentionToken,
-  removeMentionBeforeCaret,
-  replaceMentionToken,
-  tokenizeMentions,
-} from '@/features/chat/mentions';
 import { useI18n } from '@/i18n';
 
 export type ApprovalMode = 'auto' | 'manual';
@@ -72,53 +69,24 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
       font-size: 10px !important;
     }
   `,
+  editor: css`
+    min-height: 44px;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 0;
+    font-size: 14px;
+    line-height: 1.4;
+  `,
   footer: css`
     padding-block: 8px 2px;
   `,
-  // 真实输入层：文字透明、光标可见，叠加层在其下方渲染 chip。
-  ghostInput: css`
-    position: relative;
-    z-index: 1;
-    color: transparent !important;
-    caret-color: ${cssVar.colorText};
-    background: transparent !important;
-    font-size: 14px !important;
-    line-height: 22px !important;
-  `,
-  inputLayer: css`
-    position: relative;
-    font-size: 14px;
-    line-height: 22px;
-
-    .ant-input {
-      padding: 0 !important;
-      font-size: 14px !important;
-      line-height: 22px !important;
+  // LobeHub mention chip 视觉：扁平填充蓝色（对齐官网截图，不走主题 primary 中性色）。
+  mentionOverride: css`
+    .editor_mention {
+      border: none;
+      color: ${cssVar.blue9};
+      background: ${cssVar.blue1};
     }
-  `,
-  mentionChip: css`
-    display: inline;
-    padding: 1px 5px;
-    /* LobeHub mention chip 使用蓝色系 token（bg blue1 / border blue3 / text blue9），
-       不走主题 primary（当前为中性色），保证与官网 @ 联想一致。 */
-    border: 1px solid ${cssVar.blue3};
-    border-radius: 6px;
-    color: ${cssVar.blue9};
-    background: ${cssVar.blue1};
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
-  `,
-  mentionChipIcon: css`
-    margin-inline-end: 2px;
-  `,
-  mentionOverlay: css`
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    color: ${cssVar.colorText};
-    white-space: pre-wrap;
-    word-break: break-word;
-    pointer-events: none;
   `,
 }));
 
@@ -128,15 +96,13 @@ interface ChatInputProps {
   agentName?: string;
   approvalMode?: ApprovalMode;
   fab?: string;
-  /** 关闭 @ 提及（输入 @ 不再弹出菜单），群聊等无需选 Agent 的场景使用。 */
+  /** 关闭 @ 提及（输入 @ 不再弹出菜单）。 */
   mentionEnabled?: boolean;
   mentions: MentionAgent[];
-  mentionsLoading?: boolean;
   onChange: (value: string) => void;
   onApprovalModeChange?: (mode: ApprovalMode) => void;
-  onMentionTrigger: () => void;
-  onSend: () => void;
-  onSelectMention: (mention: MentionAgent) => void;
+  /** 发送输入区内容（markdown，含 <mention> 标签）。 */
+  onSend: (content: string) => void;
   onStop: () => void;
   onSwitchAgent?: (agent: MentionAgent) => void;
   placeholder?: string;
@@ -145,11 +111,26 @@ interface ChatInputProps {
   sendDisabled?: boolean;
   /** 本轮 run 开始时间，用于状态条计时。 */
   startTime?: number;
-  /** 工具步骤数，>1 时状态条右侧显示步数。 */
   stepCount?: number;
   switchAgents?: MentionAgent[];
   value: string;
 }
+
+const MentionItemLabel = memo<{ mention: MentionAgent }>(({ mention }) => (
+  <Flexbox horizontal align="center" gap={8} style={{ minWidth: 0, overflow: 'hidden' }}>
+    <Avatar avatar={mention.icon} shape="square" size={24} style={{ flex: 'none' }} />
+    <Flexbox style={{ minWidth: 0 }}>
+      <Text ellipsis fontSize={13} weight={500}>
+        {mention.agentFullName}
+      </Text>
+      <Text ellipsis fontSize={11} type="secondary">
+        v{mention.version} · {mention.fab}
+      </Text>
+    </Flexbox>
+  </Flexbox>
+));
+
+MentionItemLabel.displayName = 'MentionItemLabel';
 
 const ChatInput = memo<ChatInputProps>(
   ({
@@ -159,11 +140,8 @@ const ChatInput = memo<ChatInputProps>(
     fab,
     mentionEnabled = true,
     mentions,
-    mentionsLoading = false,
     onChange,
     onApprovalModeChange,
-    onMentionTrigger,
-    onSelectMention,
     onSend,
     onStop,
     onSwitchAgent,
@@ -177,109 +155,150 @@ const ChatInput = memo<ChatInputProps>(
     value,
   }) => {
     const { t } = useI18n();
-    const [mentionOpen, setMentionOpen] = useState(false);
-    const [mentionQuery, setMentionQuery] = useState('');
-    const [activeIndex, setActiveIndex] = useState(0);
-    const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    const overlayRef = useRef<HTMLDivElement>(null);
+    const editorRef = useRef<IEditor | null>(null);
+    // 发送后编辑器缓存的 markdown 可能在下一次 onTextChange 回写，导致输入框“复活”。
+    // 记录最近一次已发送内容，相同内容回写时忽略一次。
+    const lastSentRef = useRef<string>('');
 
-    // 联想列表：按 @ 后输入的后缀过滤（名称/FAB/描述）。
-    const filteredMentions = useMemo(() => {
-      const query = mentionQuery.trim().toLowerCase();
-      if (!query) return mentions;
-      return mentions.filter((mention) =>
-        `${mention.agentFullName} ${mention.fab} ${mention.description}`
-          .toLowerCase()
-          .includes(query),
-      );
-    }, [mentionQuery, mentions]);
+    const getMarkdown = useCallback((editor?: IEditor | null) => {
+      if (!editor) return '';
+      return String(editor.getDocument('markdown') || '').trimEnd();
+    }, []);
 
-    const openMention = (query: string) => {
-      setMentionQuery(query);
-      setActiveIndex(0);
-      setMentionOpen(true);
-      onMentionTrigger();
-    };
-
-    const closeMention = () => {
-      setMentionOpen(false);
-    };
-
-    // 选中后把末尾 @query 替换为 @AgentFullName + 空格，正文与其它 @ 保留。
-    const selectMention = (mention: MentionAgent) => {
-      setMentionOpen(false);
-      onChange(replaceMentionToken(value, mention.agentFullName));
-      onSelectMention(mention);
-    };
-
-    // 叠加层把 @提及渲染成蓝色 chip（真实输入框文字透明，光标仍可见）。
-    const overlaySegments = useMemo(
-      () => tokenizeMentions(value, mentions),
-      [mentions, value],
+    const handleEditorInit = useCallback(
+      (editor: IEditor) => {
+        editorRef.current = editor;
+      },
+      [],
     );
 
-  // 切换 Agent 下拉：选中态显示当前 Agent（头像+名称），无边框紧凑样式。
-  const switchValue = useMemo(() => {
-    if (!switchAgents?.length || !agentName) return undefined;
-    const current = switchAgents.find(
-      (agent) => agent.agentFullName === agentName && agent.fab === fab,
+    const handleTextChange = useCallback(
+      (editor: IEditor) => {
+        const markdown = getMarkdown(editor);
+        if (lastSentRef.current && markdown === lastSentRef.current) {
+          lastSentRef.current = '';
+          return;
+        }
+        onChange(markdown);
+      },
+      [getMarkdown, onChange],
     );
-    return current ? `${current.agentId}@${current.fab}` : undefined;
-  }, [agentName, fab, switchAgents]);
 
-    const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      // @ 联想菜单打开时：方向键移动、Enter/Tab 选中、Escape 关闭。
-      if (mentionOpen && filteredMentions.length > 0) {
-        if (event.key === 'ArrowDown') {
-          event.preventDefault();
-          setActiveIndex((index) => (index + 1) % filteredMentions.length);
-          return;
-        }
-        if (event.key === 'ArrowUp') {
-          event.preventDefault();
-          setActiveIndex(
-            (index) => (index - 1 + filteredMentions.length) % filteredMentions.length,
-          );
-          return;
-        }
-        if ((event.key === 'Enter' || event.key === 'Tab') && !event.nativeEvent.isComposing) {
-          event.preventDefault();
-          selectMention(filteredMentions[activeIndex] ?? filteredMentions[0]);
-          return;
-        }
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          closeMention();
-          return;
-        }
+    // 外部受控 value（发送后清空 / 候选问题 / 恢复草稿）同步进编辑器。
+    // setDocument('markdown') 不受支持，改用 cleanDocument + INSERT_MARKDOWN_COMMAND。
+    useEffect(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const current = getMarkdown(editor);
+      if (value === current) return;
+      editor.cleanDocument();
+      if (value) {
+        editor.dispatchCommand(INSERT_MARKDOWN_COMMAND, { historyState: null, markdown: value });
       }
-      // 光标紧贴完整 @提及 时整块删除（LobeHub chip 删除语义），否则退回逐字删除。
-      if (event.key === 'Backspace' && !event.nativeEvent.isComposing) {
-        const target = event.currentTarget;
-        const start = target.selectionStart ?? 0;
-        const end = target.selectionEnd ?? 0;
-        if (start === end) {
-          const removed = removeMentionBeforeCaret(value, start, mentions);
-          if (removed) {
-            event.preventDefault();
-            onChange(removed.nextValue);
-            requestAnimationFrame(() => {
-              target.setSelectionRange(removed.caret, removed.caret);
-            });
+    }, [getMarkdown, value]);
+
+    // Enter 发送：注册在 COMMAND_PRIORITY_HIGH。
+    // 菜单打开时菜单的 CRITICAL 处理器先消费 Enter（选中）；Lexical 默认换行在 EDITOR
+    // 优先级，晚于我们，因此能可靠拦截发送且不影响菜单选中与 Shift+Enter 换行。
+    useEffect(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      return editor.registerHighCommand(
+        KEY_DOWN_COMMAND,
+        (event) => {
+          if (event.key !== 'Enter' || event.isComposing || event.shiftKey || sendDisabled) {
+            return false;
           }
-        }
-      }
-      // IME 组合中按 Enter 是确认候选词：跳过发送，避免消息已发出后输入法把文字重新写回输入框。
-      if (
-        event.key === 'Enter' &&
-        !event.shiftKey &&
-        !sendDisabled &&
-        !event.nativeEvent.isComposing
-      ) {
-        event.preventDefault();
-        if (!running) onSend();
-      }
-    };
+          const content = getMarkdown(editor);
+          if (!content) return false;
+          lastSentRef.current = content;
+          onSend(content);
+          editor.cleanDocument();
+          requestAnimationFrame(() => editor.focus());
+          event.preventDefault();
+          return true;
+        },
+        COMMAND_PRIORITY_HIGH,
+      );
+    }, [getMarkdown, onSend, sendDisabled]);
+
+    const handleSendContent = useCallback(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const content = getMarkdown(editor);
+      if (!content) return;
+      lastSentRef.current = content;
+      onSend(content);
+      editor.cleanDocument();
+      requestAnimationFrame(() => editor.focus());
+    }, [getMarkdown, onSend]);
+
+    // 当前 Agent（按名称+fab 匹配候选列表）：切换下拉选中态与底部 icon 共用，
+    // 保证切换 Agent 后头像跟随变化，不再硬编码 🛩️。
+    const currentAgent = useMemo(
+      () =>
+        switchAgents?.length && agentName
+          ? switchAgents.find(
+              (agent) => agent.agentFullName === agentName && agent.fab === fab,
+            )
+          : undefined,
+      [agentName, fab, switchAgents],
+    );
+    // 切换 Agent 下拉：选中态显示当前 Agent（头像+名称），无边框紧凑样式。
+    const switchValue = currentAgent ? `${currentAgent.agentId}@${currentAgent.fab}` : undefined;
+
+    // 对齐 LobeHub：items 为函数（挂载即注册 @ trigger，数据就绪后返回列表），
+    // 避免数组形式在 mentions 异步加载完成前导致 mention 插件未挂载。
+    const mentionItems = useMemo(
+      () =>
+        mentions.map((mention) => {
+          const searchText = `${mention.agentFullName} ${mention.fab} ${mention.description}`;
+          return {
+            key: `${mention.agentId}@${mention.fab}`,
+            label: <MentionItemLabel mention={mention} />,
+            metadata: {
+              agentId: mention.agentId,
+              fab: mention.fab,
+              icon: mention.icon,
+              id: `${mention.agentId}@${mention.fab}`,
+              label: mention.agentFullName,
+              searchText,
+              version: mention.version,
+            },
+          };
+        }),
+      [mentions],
+    );
+
+    const mentionItemsFn = useCallback(
+      async (search: { matchingString: string } | null) => {
+        const query = (search?.matchingString || '').trim().toLowerCase();
+        if (!query) return mentionItems;
+        return mentionItems.filter((item) =>
+          String(item.metadata?.searchText ?? item.key).toLowerCase().includes(query),
+        );
+      },
+      [mentionItems],
+    );
+
+    const mentionOption = useMemo(
+      () =>
+        mentionEnabled
+          ? {
+              items: mentionItemsFn,
+              maxLength: 50,
+              markdownWriter: (node: { label: string; metadata?: Record<string, unknown> }) =>
+                `<mention name="${node.label}" id="${String(node.metadata?.id ?? '')}" />`,
+              onSelect: (editor: IEditor, option: { label?: unknown; metadata?: Record<string, unknown> }) => {
+                editor.dispatchCommand(INSERT_MENTION_COMMAND, {
+                  label: String(option.metadata?.label ?? option.label ?? ''),
+                  metadata: option.metadata,
+                });
+              },
+            }
+          : undefined,
+      [mentionEnabled, mentionItemsFn],
+    );
 
     return (
       <Flexbox gap={0}>
@@ -300,131 +319,86 @@ const ChatInput = memo<ChatInputProps>(
             variant="borderless"
           />
         )}
-        {/* 联想菜单必须放在 overflow:hidden 的 composer 之外，否则会被整体裁掉。 */}
-        <Flexbox style={{ position: 'relative' }}>
-          <Flexbox className={styles.composer} gap={4} padding={12}>
-            <div className={styles.inputLayer}>
-              <TextArea
-                autoSize={{ minRows: 2, maxRows: 8 }}
-                className={styles.ghostInput}
-                data-testid="chat-input"
-                onKeyDown={handleKeyDown}
-                onScroll={(event) => {
-                  if (overlayRef.current) {
-                    overlayRef.current.scrollTop = event.currentTarget.scrollTop;
-                  }
-                }}
-                placeholder={placeholder ?? t('chat.placeholder')}
-                value={value}
-                variant="borderless"
-                onChange={(event) => {
-                  const next = event.target.value;
-                  onChange(next);
-                  if (timerRef.current) clearTimeout(timerRef.current);
-                  if (mentionEnabled) {
-                    const token = extractMentionToken(next);
-                    if (token !== null) {
-                      setMentionQuery(token);
-                      setActiveIndex(0);
-                      setMentionOpen(true);
-                      // 输入时只做一次懒加载（页面缓存 mentions 列表），延迟触发避免连打抖动。
-                      timerRef.current = setTimeout(onMentionTrigger, 80);
-                    } else {
-                      setMentionOpen(false);
-                    }
-                  } else {
-                    setMentionOpen(false);
-                  }
-                }}
-              />
-              <div aria-hidden className={styles.mentionOverlay} ref={overlayRef}>
-                {overlaySegments.map((segment, index) =>
-                  segment.type === 'mention' && segment.mention ? (
-                    <span className={styles.mentionChip} key={index}>
-                      <span className={styles.mentionChipIcon}>{segment.mention.icon}</span>
-                      {segment.mention.agentFullName}
-                    </span>
-                  ) : (
-                    <span key={index}>{segment.text}</span>
-                  ),
-                )}
-              </div>
-            </div>
-            <Flexbox horizontal align="center" justify="space-between">
-              <Flexbox horizontal gap={2} style={{ minHeight: 24 }}>
-                {switchAgents && onSwitchAgent && (
-                  <Select
-                    className={styles.compactSelect}
-                    options={switchAgents.map((agent) => ({
-                      label: `${agent.icon} ${agent.agentFullName}`,
-                      value: `${agent.agentId}@${agent.fab}`,
-                    }))}
-                    placeholder={t('agentSidebar.switchAgent')}
-                    popupClassName={styles.compactDropdown}
-                    size="small"
-                    value={switchValue}
-                    variant="borderless"
-                    style={{ maxWidth: 148, minWidth: 92 }}
-                    onChange={(value) => {
-                      const agent = switchAgents.find(
-                        (item) => `${item.agentId}@${item.fab}` === value,
-                      );
-                      if (agent) onSwitchAgent(agent);
-                    }}
-                  />
-                )}
-                <ActionIcon aria-label={t('chat.attach')} disabled icon={Paperclip} title={t('chat.attach')} />
-                <ActionIcon aria-label={t('chat.voice')} disabled icon={Mic} title={t('chat.voice')} />
-              </Flexbox>
-              <Flexbox horizontal align="center" gap={12}>
-                {!running && (
-                  <Flexbox
-                    horizontal
-                    gap={4}
-                    style={{ color: cssVar.colorTextDescription, fontSize: 12 }}
-                  >
-                    <CornerDownLeft size={13} />
-                    {t('chat.input.sendHint')}
-                    <span>/</span>
-                    <ArrowBigUp size={13} />
-                    <CornerDownLeft size={13} />
-                    {t('chat.input.warpHint')}
-                  </Flexbox>
-                )}
-                {running ? (
-                  <Button
-                    data-testid="chat-stop"
-                    icon={Square}
-                    onClick={onStop}
-                    size="small"
-                    type="primary"
-                  >
-                    {t('chat.stop')}
-                  </Button>
-                ) : (
-                  <Button
-                    data-testid="chat-send"
-                    disabled={sendDisabled}
-                    icon={Send}
-                    onClick={onSend}
-                    size="small"
-                    type="primary"
-                  >
-                    {t('chat.send')}
-                  </Button>
-                )}
-              </Flexbox>
+        <Flexbox className={styles.composer} gap={4} padding={12}>
+          <div className={styles.mentionOverride}>
+            <Editor
+              className={styles.editor}
+              content={value}
+              mentionOption={mentionOption}
+              onInit={handleEditorInit}
+              onChange={handleTextChange}
+              onTextChange={handleTextChange}
+              pasteAsPlainText
+              placeholder={placeholder ?? t('chat.placeholder')}
+              type="text"
+              variant="chat"
+            />
+          </div>
+          <Flexbox horizontal align="center" justify="space-between">
+            <Flexbox horizontal gap={2} style={{ minHeight: 24 }}>
+              {switchAgents && onSwitchAgent && (
+                <Select
+                  className={styles.compactSelect}
+                  options={switchAgents.map((agent) => ({
+                    label: `${agent.icon} ${agent.agentFullName}`,
+                    value: `${agent.agentId}@${agent.fab}`,
+                  }))}
+                  placeholder={t('agentSidebar.switchAgent')}
+                  popupClassName={styles.compactDropdown}
+                  size="small"
+                  value={switchValue}
+                  variant="borderless"
+                  style={{ maxWidth: 148, minWidth: 92 }}
+                  onChange={(next) => {
+                    const agent = switchAgents.find(
+                      (item) => `${item.agentId}@${item.fab}` === next,
+                    );
+                    if (agent) onSwitchAgent(agent);
+                  }}
+                />
+              )}
+              <ActionIcon aria-label={t('chat.attach')} disabled icon={Paperclip} title={t('chat.attach')} />
+              <ActionIcon aria-label={t('chat.voice')} disabled icon={Mic} title={t('chat.voice')} />
+            </Flexbox>
+            <Flexbox horizontal align="center" gap={12}>
+              {!running && (
+                <Flexbox
+                  horizontal
+                  gap={4}
+                  style={{ color: cssVar.colorTextDescription, fontSize: 12 }}
+                >
+                  <CornerDownLeft size={13} />
+                  {t('chat.input.sendHint')}
+                  <span>/</span>
+                  <ArrowBigUp size={13} />
+                  <CornerDownLeft size={13} />
+                  {t('chat.input.warpHint')}
+                </Flexbox>
+              )}
+              {running ? (
+                <Button
+                  data-testid="chat-stop"
+                  icon={Square}
+                  onClick={onStop}
+                  size="small"
+                  type="primary"
+                >
+                  {t('chat.stop')}
+                </Button>
+              ) : (
+                <Button
+                  data-testid="chat-send"
+                  disabled={sendDisabled}
+                  icon={Send}
+                  onClick={handleSendContent}
+                  size="small"
+                  type="primary"
+                >
+                  {t('chat.send')}
+                </Button>
+              )}
             </Flexbox>
           </Flexbox>
-          {mentionOpen && (
-            <AgentMentionMenu
-              activeIndex={activeIndex}
-              loading={mentionsLoading}
-              mentions={filteredMentions}
-              onActiveChange={setActiveIndex}
-              onSelect={selectMention}
-            />
-          )}
         </Flexbox>
         <Flexbox
           className={styles.footer}
@@ -436,7 +410,7 @@ const ChatInput = memo<ChatInputProps>(
           <Flexbox horizontal gap={8}>
             {agentName && (
               <>
-                <Avatar avatar="🛩️" shape="square" size={20} />
+                <Avatar avatar={currentAgent?.icon || '🛩️'} shape="square" size={20} />
                 <Text ellipsis fontSize={12} weight={500} style={{ maxWidth: 180 }}>
                   {agentName}
                 </Text>

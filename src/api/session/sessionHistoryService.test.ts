@@ -44,7 +44,7 @@ const buildSingleAgentRun = (sessionId: string, runId: string): { input: RunAgen
   state = reduceRunEvent(state, { eventId: '10', event: { type: 'TEXT_MESSAGE_START', messageId: `assistant-${runId}`, role: 'assistant' } });
   state = reduceRunEvent(state, { eventId: '11', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: `assistant-${runId}`, delta: '分析完成' } });
   state = reduceRunEvent(state, { eventId: '12', event: { type: 'TEXT_MESSAGE_END', messageId: `assistant-${runId}` } });
-  state = reduceRunEvent(state, { eventId: '13', event: { type: 'ACTIVITY_SNAPSHOT', messageId: `surface-${runId}`, activityType: 'a2ui.surface', surfaceId: `surface-${runId}`, content: { catalogId: 'agentdock://catalog' } } });
+  state = reduceRunEvent(state, { eventId: '13', event: { type: 'ACTIVITY_SNAPSHOT', messageId: `surface-${runId}`, activityType: 'a2ui.surface', surfaceId: `surface-${runId}`, content: { catalogId: 'agentdock://catalog', components: [] } } });
   state = reduceRunEvent(state, { eventId: '14', event: { type: 'RUN_FINISHED', threadId: state.threadId, runId } });
   return { input, snapshot: state };
 };
@@ -240,45 +240,6 @@ test('多会话隔离：消息与 checkpoint 不串库', async () => {
   }
 });
 
-test('removeTurn 整轮删除（用户文本 + 回复 + 过程块 + checkpoint）', async () => {
-  await flushRunCheckpoint();
-  const sessionId = 'session-remove-branch';
-  const runId = 'run-remove-branch';
-  const { input, snapshot } = buildSingleAgentRun(sessionId, runId);
-  await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...snapshot, status: 'running' as const });
-  const before = await sessionHistoryService.getMessages(sessionId);
-  const userMessageId = input.messages[0].id;
-  assert.ok(before.some((record) => record.id === `text:${userMessageId}`));
-  assert.ok(before.some((record) => record.kind === 'tool'));
-
-  await sessionHistoryService.removeTurn(sessionId, userMessageId);
-  const after = await sessionHistoryService.getMessages(sessionId);
-  assert.equal(after.some((record) => record.id === `text:${userMessageId}`), false);
-  // 助手回复与过程块（tool/reasoning/step）随该轮一并删除
-  assert.equal(after.some((record) => record.kind === 'text'), false);
-  assert.equal(after.some((record) => record.kind === 'tool'), false);
-  assert.equal(after.some((record) => record.kind === 'reasoning'), false);
-  // checkpoint 不复活已删消息
-  const latest = await sessionHistoryService.getLatestRun(sessionId);
-  assert.equal(latest, undefined);
-});
-
-test('updateMessageContent 同步消息行与 checkpoint 快照', async () => {
-  await flushRunCheckpoint();
-  const sessionId = 'session-edit-content';
-  const runId = 'run-edit-content';
-  const { input, snapshot } = buildSingleAgentRun(sessionId, runId);
-  await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...snapshot, status: 'running' as const });
-  const userMessageId = input.messages[0].id;
-
-  await sessionHistoryService.updateMessageContent(sessionId, userMessageId, '编辑后的新问题');
-  const records = await sessionHistoryService.getMessages(sessionId);
-  const record = records.find((item) => item.id === `text:${userMessageId}`);
-  assert.equal(record?.content, '编辑后的新问题');
-  const checkpoint = await sessionHistoryService.getLatestRun(sessionId);
-  assert.equal(checkpoint?.snapshot.messages[userMessageId].content, '编辑后的新问题');
-});
-
 test('多轮 run 快照累积（MESSAGES_SNAPSHOT）后文本消息顺序保持时间线', async () => {
   await flushRunCheckpoint();
   const sessionId = 'session-multi-run-order';
@@ -442,7 +403,7 @@ test('持久化不落 lc_run-- 占位行：规范 UUID 是唯一权威文本行'
   assert.equal(textIds.some((id) => id.includes('lc_run--')), false);
 });
 
-test('lastMessageAt：随消息落库更新，消息清空后回退 createdAt', async () => {
+test('lastMessageAt：随消息落库更新到最后一条消息时间', async () => {
   await flushRunCheckpoint();
   const sessionId = 'session-last-message-at';
   await sessionHistoryService.createSession({
@@ -465,12 +426,6 @@ test('lastMessageAt：随消息落库更新，消息清空后回退 createdAt', 
     after?.lastMessageAt && new Date(after.lastMessageAt).getTime() > new Date(after.createdAt).getTime(),
     '落库后 lastMessageAt 应更新到最后一条消息时间',
   );
-
-  const messages = await sessionHistoryService.getMessages(sessionId);
-  const textIds = messages.filter((record) => record.kind === 'text').map((record) => record.id);
-  await sessionHistoryService.removeMessages(sessionId, textIds);
-  const cleared = await sessionHistoryService.getSession(sessionId);
-  assert.equal(cleared?.lastMessageAt, cleared?.createdAt, '消息清空后回退 createdAt');
 });
 
 test('v1 → v2 升级：lastMessageAt 从 text 消息回填，空会话回退 createdAt，旧数据保留', async () => {
@@ -749,34 +704,6 @@ test('断线续传：checkpoint 存 latestEventId，restore 取用并构造 resu
   assert.equal(resumeInput.threadId, `thread-${sessionId}`, 'threadId 保留');
 });
 
-test('removeMessages：删除消息时按 raw id 联动清理 running checkpoint（text: 前缀兼容）', async () => {
-  await flushRunCheckpoint();
-  const sessionId = 'session-remove-checkpoint-prefix';
-  await sessionHistoryService.createSession({
-    agentId: 'flight-analysis',
-    agentName: 'FlightAnalysis_Agent',
-    fab: 'F15B',
-    id: sessionId,
-    pinned: false,
-    threadId: `thread-${sessionId}`,
-    title: 'remove-prefix',
-    type: 'agent',
-  });
-  const { input, snapshot } = buildSingleAgentRun(sessionId, 'run-prefix');
-  await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...snapshot, status: 'running' as const });
-  assert.ok(await sessionHistoryService.getLatestRun(sessionId), 'running checkpoint 已落库');
-
-  // ChatPage/GroupChatPage 删除时传 record.id（text: 前缀），快照 key 是裸 rawId。
-  await sessionHistoryService.removeMessages(sessionId, [`text:${input.messages[0].id}`]);
-  assert.equal(
-    await sessionHistoryService.getLatestRun(sessionId),
-    undefined,
-    '含被删消息的 running checkpoint 应被联动删除（防刷新复活）',
-  );
-  const messages = await sessionHistoryService.getMessages(sessionId);
-  assert.equal(messages.some((record) => record.id === `text:${input.messages[0].id}`), false);
-});
-
 test('RUN_ERROR 经 reducer 生成 assistant 错误回复并持久化为历史', async () => {
   await flushRunCheckpoint();
   const sessionId = 'session-run-error-persist';
@@ -875,6 +802,8 @@ test('多轮错误持久化：第二轮带 MESSAGES_SNAPSHOT 时落库顺序 Q1A
   let run1 = createRunState('me-run-1', `thread-${sessionId}`);
   run1 = reduceRunEvent(run1, { eventId: '1', event: { type: 'RUN_STARTED', threadId: run1.threadId, runId: run1.runId } });
   run1 = reduceRunEvent(run1, { eventId: '2', event: { type: 'TEXT_MESSAGE_START', messageId: 'q1', role: 'user' } });
+  // 用户消息内容由 runStore/execute 从 input 种子注入（真实路径）。
+  run1.messages['q1'] = { ...run1.messages['q1'], content: 'Q1' };
   run1 = reduceRunEvent(run1, {
     eventId: '3',
     event: { code: 'BACKEND_ERROR', message: 'err1', runId: run1.runId, threadId: run1.threadId, type: 'RUN_ERROR' },
@@ -895,6 +824,7 @@ test('多轮错误持久化：第二轮带 MESSAGES_SNAPSHOT 时落库顺序 Q1A
       ],
     },
   });
+  run2.messages['q2'] = { ...run2.messages['q2'], content: 'Q2' };
   run2 = reduceRunEvent(run2, {
     eventId: '12',
     event: { code: 'BACKEND_ERROR', message: 'err2', runId: run2.runId, threadId: run2.threadId, type: 'RUN_ERROR' },
@@ -1011,6 +941,53 @@ test('sequence 单调：系统时钟回拨后，新消息仍排在旧消息之�
     ids.indexOf('text:user-clock-run-2') > ids.indexOf('text:assistant-clock-run-1'),
     '回拨后第二轮仍排在第一轮之后',
   );
+});
+
+test('LobeHub 同款占位+增量：空占位行存在，内容到达后同 id upsert 且顺序正确', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-no-empty-placeholder';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'no-empty-placeholder',
+    type: 'agent',
+  });
+  const input: RunAgentInput = {
+    context: [],
+    forwardedProps: { action: 'run', agentId: 'flight-analysis', fab: 'F15B', sessionId },
+    messages: [{ content: 'Q', id: 'q-empty', role: 'user' }],
+    runId: 'empty-run',
+    state: {},
+    threadId: `thread-${sessionId}`,
+    tools: [],
+  };
+  // 中途 flush：Q 有内容，assistant 仅有 TEXT_MESSAGE_START（content 为空）——占位行照常落库。
+  let state = createRunState('empty-run', `thread-${sessionId}`);
+  state = reduceRunEvent(state, { eventId: '1', event: { type: 'RUN_STARTED', threadId: state.threadId, runId: state.runId } });
+  state.messages['q-empty'] = { content: 'Q', id: 'q-empty', role: 'user' };
+  state.messageOrder.push('q-empty');
+  state = reduceRunEvent(state, { eventId: '2', event: { type: 'TEXT_MESSAGE_START', messageId: 'a-empty', role: 'assistant' } });
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...state, status: 'running' as const });
+  let messages = await sessionHistoryService.getMessages(sessionId);
+  const placeholder = messages.find((record) => record.id === 'text:a-empty');
+  assert.ok(placeholder, '空占位行存在（LobeHub 同款：发送即建行）');
+  assert.equal(placeholder?.content, '');
+
+  // 内容到达后再 flush：同一 id upsert，content 覆盖、sequence 不变，仍排在用户之后。
+  state = reduceRunEvent(state, { eventId: '3', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'a-empty', delta: '回复内容' } });
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...state, status: 'running' as const });
+  messages = await sessionHistoryService.getMessages(sessionId);
+  const userRow = messages.find((record) => record.id === 'text:q-empty');
+  const assistantRow = messages.find((record) => record.id === 'text:a-empty');
+  assert.ok(userRow, '用户消息落库');
+  assert.ok(assistantRow, '占位行更新为内容');
+  assert.equal(assistantRow?.content, '回复内容');
+  assert.equal(assistantRow?.sequence, placeholder?.sequence, '占位行 upsert 不改变 sequence');
+  assert.ok(userRow && assistantRow && assistantRow.sequence > userRow.sequence, 'assistant 排在用户之后');
 });
 
 test('listSessions 分页：limit/offset 按 updatedAt 倒序，countSessions 返回总数', async () => {
