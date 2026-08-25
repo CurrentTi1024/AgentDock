@@ -4,6 +4,7 @@ import test from 'node:test';
 import type { MentionAgent } from '../../api/market/agentMarketService.ts';
 import type { SessionRecord } from '../../api/session/sessionHistoryService.ts';
 import {
+  parseAgentChatSessionId,
   resolveAgentSidebarIdentity,
   resolveSessionAgent,
 } from './agentIdentity.ts';
@@ -67,6 +68,22 @@ test('AgentSidebar 已落库会话是权威身份（无 pendingSession 时按 se
   assert.equal(identity?.fab, 'F15B');
 });
 
+test('AgentSidebar 会话 agentName 未回填时按 agentId+fab 从列表补全名称与图标', () => {
+  const identity = resolveAgentSidebarIdentity(agents, {
+    session: sessionRecord({ agentName: undefined, title: '新对话' }),
+  });
+  assert.equal(identity?.agentName, 'CodeReview_Agent-F15B');
+  assert.equal(identity?.icon, '🧑‍💻');
+});
+
+test('parseAgentChatSessionId：/chat/:id 取 id，非会话路由返回 undefined（回归：侧栏在 Routes 外拿不到 useParams）', () => {
+  assert.equal(parseAgentChatSessionId('/chat/session-inbox'), 'session-inbox');
+  assert.equal(parseAgentChatSessionId('/chat/session-abc?agent=x&fab=F15B'), 'session-abc');
+  assert.equal(parseAgentChatSessionId('/chat'), undefined);
+  assert.equal(parseAgentChatSessionId('/group/abc'), undefined);
+  assert.equal(parseAgentChatSessionId('/market/agent'), undefined);
+});
+
 test('AgentSidebar 刷新/直达链接：无 session 时用 URL ?agent=&fab= 匹配列表解析名称', () => {
   const identity = resolveAgentSidebarIdentity(agents, {
     queryAgent: 'code-review',
@@ -74,6 +91,17 @@ test('AgentSidebar 刷新/直达链接：无 session 时用 URL ?agent=&fab= 匹
   });
   assert.equal(identity?.agentName, 'CodeReview_Agent-F15B');
   assert.equal(identity?.icon, '🧑‍💻');
+});
+
+test('AgentSidebar URL 显式指定优先于陈旧会话记录（创建时兜底 flight-analysis 的回归）', () => {
+  const stale = sessionRecord({ agentId: 'flight-analysis', fab: 'F15B' });
+  const identity = resolveAgentSidebarIdentity(agents, {
+    queryAgent: 'code-review',
+    queryFab: 'F15B',
+    session: stale,
+  });
+  assert.equal(identity?.agentName, 'CodeReview_Agent-F15B');
+  assert.equal(identity?.agentId, 'code-review');
 });
 
 test('AgentSidebar 无可解析来源时返回 undefined（不默认「对话」/错误 Agent）', () => {

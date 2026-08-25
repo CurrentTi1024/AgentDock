@@ -277,8 +277,23 @@ export default function ChatPage() {
     if (requested) {
       setSelectedAgent(requested);
       setAgentFallback(requested.agentFullName);
+      // URL 显式指定与会话记录不一致（创建时 selectedAgent 未就绪会兜底 flight-analysis）
+      // 时同步记录，侧边栏按会话解析才能拿到同一 Agent，话题列表过滤也一致。
+      if (
+        session?.id === sessionId &&
+        (session.agentId !== requested.agentId ||
+          session.fab !== requested.fab ||
+          !session.agentName)
+      ) {
+        void sessionHistoryService.updateSession(session.id, {
+          agentId: requested.agentId,
+          agentName: requested.agentFullName,
+          fab: requested.fab,
+          version: requested.version,
+        });
+      }
     }
-  }, [mentions, searchParams]);
+  }, [mentions, searchParams, session, sessionId]);
 
   // 输入框左下角默认选中当前 Agent：URL 未显式指定时按会话记录解析
   // （精确匹配 agentId+fab，绝不误绑列表第一项）；新会话无 agentName 时回填会话与头部显示。

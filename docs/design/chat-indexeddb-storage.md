@@ -645,6 +645,12 @@ canary 已演进为“服务端 DB + 单记录库缓存”，AgentDock 是纯本
 - 新增 `cancelPendingCheckpoint(runId)`：错误兜底后丢弃该 run 未落盘的陈旧 running 快照，防抖 flush 不再写回 running checkpoint。
 - 持久化幂等验证：同一终态错误重复落盘仅保留一行；错误消息 sequence 最大、位于该轮末尾，顺序不乱。
 
+**连续多轮错误压测（吞/重/乱）**
+
+- reducer 层：连续三轮错误、每轮 MESSAGES_SNAPSHOT 累积，断言 messageOrder = Q1A1Q2A2Q3A3、无重复 id、每轮错误内容独立。
+- 持久化层：同一场景落库后断言 6 行文本、顺序与内容一一对应（无吞无重）。
+- 残余边界：同一 run 收到多个不同 eventId 的 RUN_ERROR 时，追加到同一条错误消息（单气泡、非重复行、顺序不变）；终态错误气泡在 run-persisted 刷新后出现（与其他终态一致，≤600ms 瞬态）。
+
 **确认无问题**
 
 - sequence 单调性（随机种子、不取模）与分页游标（页内全局最小 sequence）经压力测试验证：跨页无漏、无重、整体有序。

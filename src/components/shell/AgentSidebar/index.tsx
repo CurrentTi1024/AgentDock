@@ -5,7 +5,7 @@
 // 否则切换瞬间头部闪回旧 Agent（或显示「对话」），话题列表也按错 agentId+fab 过滤。
 import { Flexbox } from '@lobehub/ui';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
 import {
@@ -14,18 +14,23 @@ import {
   type SessionRecord,
 } from '@/api/session/sessionHistoryService';
 import SideBarLayout from '@/components/shell/SideBarLayout';
-import { resolveAgentSidebarIdentity } from '@/features/chat/agentIdentity';
+import {
+  parseAgentChatSessionId,
+  resolveAgentSidebarIdentity,
+} from '@/features/chat/agentIdentity';
 import { useI18n } from '@/i18n';
 
 import Body from './Body';
 import Header from './Header';
 
 const AgentSidebar = memo(() => {
-  const { id } = useParams();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { t } = useI18n();
+  // 侧边栏渲染在 <Routes> 外部，useParams() 拿不到路由参数；
+  // 会话 id 必须从 location.pathname 解析，否则 getSession/话题过滤永远不生效。
+  const id = parseAgentChatSessionId(location.pathname);
   const [session, setSession] = useState<SessionRecord>();
   const [agents, setAgents] = useState<MentionAgent[]>([]);
 

@@ -24,11 +24,20 @@ export interface AgentIdentitySources {
 }
 
 /**
+ * 从 /chat/:id 路由 pathname 解析会话 id。
+ * AgentSidebar 渲染在 <Routes> 外部（AppShell 侧栏），useParams() 拿不到路由参数，
+ * 必须从 location.pathname 解析，否则会话永远加载不到、身份解析回退到「对话」。
+ */
+export const parseAgentChatSessionId = (pathname: string): string | undefined =>
+  pathname.match(/^\/chat\/([^/?#]+)/)?.[1];
+
+/**
  * Agent 会话侧边栏身份解析，优先级：
  * 1. pendingSession：切换 Agent 后新会话尚未落库时立即生效，
  *    避免闪回旧 Agent 或显示默认「对话」；
- * 2. 已落库 session：权威记录（与 pendingSession 是同一 Agent，落库后自然覆盖）；
- * 3. URL ?agent=&fab= 在可提及 Agent 列表中的匹配项（刷新/直达链接）。
+ * 2. URL ?agent=&fab= 在可提及 Agent 列表中的匹配项：显式指定优先，
+ *    避免「创建时 selectedAgent 未就绪、会话记录落成 flight-analysis 兜底」导致显示错 Agent；
+ * 3. 已落库 session：普通会话（无显式指定）的权威记录。
  */
 export const resolveAgentSidebarIdentity = (
   agents: MentionAgent[],
@@ -40,13 +49,6 @@ export const resolveAgentSidebarIdentity = (
       agentId: pendingSession.agentId,
       agentName: pendingSession.agentName || pendingSession.title,
       fab: pendingSession.fab,
-    };
-  }
-  if (session) {
-    return {
-      agentId: session.agentId,
-      agentName: session.agentName || session.title,
-      fab: session.fab,
     };
   }
   if (queryAgent && queryFab) {
@@ -61,6 +63,20 @@ export const resolveAgentSidebarIdentity = (
         icon: match.icon,
       };
     }
+  }
+  if (session) {
+    // agentName 尚未回填时用 agents 列表按 agentId+fab 补全名称与图标，
+    // 避免新会话短暂显示「新对话」/「对话」。
+    const match =
+      session.agentId && session.fab
+        ? agents.find((agent) => agent.agentId === session.agentId && agent.fab === session.fab)
+        : undefined;
+    return {
+      agentId: session.agentId,
+      agentName: match?.agentFullName || session.agentName || session.title,
+      fab: session.fab,
+      icon: match?.icon,
+    };
   }
   return undefined;
 };

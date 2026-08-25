@@ -913,6 +913,65 @@ test('多轮错误持久化：第二轮带 MESSAGES_SNAPSHOT 时落库顺序 Q1A
   assert.equal(texts[3].role, 'assistant');
 });
 
+test('连续三轮错误持久化：落库 Q1A1Q2A2Q3A3，无吞无重', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-multi3-error';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'multi3-error',
+    type: 'agent',
+  });
+  const baseInput: RunAgentInput = {
+    context: [],
+    forwardedProps: { action: 'run', agentId: 'flight-analysis', fab: 'F15B', sessionId },
+    messages: [],
+    runId: '',
+    state: {},
+    threadId: `thread-${sessionId}`,
+    tools: [],
+  };
+  const rounds = [
+    { err: 'err1', q: 'q1', runId: 'm3-run-1' },
+    { err: 'err2', q: 'q2', runId: 'm3-run-2' },
+    { err: 'err3', q: 'q3', runId: 'm3-run-3' },
+  ];
+  let prior: Array<{ content: string; id: string; role: 'assistant' | 'user' }> = [];
+  for (const { err, q, runId } of rounds) {
+    let state = createRunState(runId, `thread-${sessionId}`);
+    state = reduceRunEvent(state, { eventId: `${runId}-1`, event: { type: 'RUN_STARTED', threadId: state.threadId, runId } });
+    if (prior.length) {
+      state = reduceRunEvent(state, { eventId: `${runId}-2`, event: { type: 'MESSAGES_SNAPSHOT', messages: prior } });
+    }
+    state = reduceRunEvent(state, { eventId: `${runId}-3`, event: { type: 'TEXT_MESSAGE_START', messageId: q, role: 'user' } });
+    // 用户消息内容由 runStore/execute 从 input.messages 种子注入（真实路径），补上内容。
+    state.messages[q] = { ...state.messages[q], content: q };
+    state = reduceRunEvent(state, {
+      eventId: `${runId}-4`,
+      event: { code: 'BACKEND_ERROR', message: err, runId, threadId: state.threadId, type: 'RUN_ERROR' },
+    });
+    await sessionHistoryService.saveRunCheckpoint(sessionId, { ...baseInput, runId }, state);
+    prior = [...prior, { content: q, id: q, role: 'user' }, { content: err, id: `error-${runId}`, role: 'assistant' }];
+  }
+  const messages = await sessionHistoryService.getMessages(sessionId);
+  const texts = messages.filter((record) => record.kind === 'text');
+  assert.deepEqual(
+    texts.map((record) => record.id),
+    ['text:q1', 'text:error-m3-run-1', 'text:q2', 'text:error-m3-run-2', 'text:q3', 'text:error-m3-run-3'],
+    '三轮错误落库顺序 Q1A1Q2A2Q3A3',
+  );
+  assert.equal(texts.length, 6, '无重复行');
+  assert.deepEqual(
+    texts.map((record) => record.content),
+    ['q1', 'err1', 'q2', 'err2', 'q3', 'err3'],
+    '内容一一对应，无吞无重',
+  );
+});
+
 test('listSessions 分页：limit/offset 按 updatedAt 倒序，countSessions 返回总数', async () => {
   await sessionDatabase.delete();
   await sessionDatabase.open();
