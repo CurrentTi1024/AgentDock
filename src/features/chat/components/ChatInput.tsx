@@ -9,7 +9,12 @@ import { type MentionAgent } from '@/api/market/agentMarketService';
 import type { RunStatus } from '@/api/runtime/types';
 import AgentMentionMenu from '@/features/chat/components/AgentMentionMenu';
 import OpStatusTray, { type OpStatusActivity } from '@/features/chat/components/OpStatusTray';
-import { extractMentionToken, replaceMentionToken } from '@/features/chat/mentions';
+import {
+  extractMentionToken,
+  removeMentionBeforeCaret,
+  replaceMentionToken,
+  tokenizeMentions,
+} from '@/features/chat/mentions';
 import { useI18n } from '@/i18n';
 
 export type ApprovalMode = 'auto' | 'manual';
@@ -69,6 +74,51 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
   `,
   footer: css`
     padding-block: 8px 2px;
+  `,
+  // 真实输入层：文字透明、光标可见，叠加层在其下方渲染 chip。
+  ghostInput: css`
+    position: relative;
+    z-index: 1;
+    color: transparent !important;
+    caret-color: ${cssVar.colorText};
+    background: transparent !important;
+    font-size: 14px !important;
+    line-height: 22px !important;
+  `,
+  inputLayer: css`
+    position: relative;
+    font-size: 14px;
+    line-height: 22px;
+
+    .ant-input {
+      padding: 0 !important;
+      font-size: 14px !important;
+      line-height: 22px !important;
+    }
+  `,
+  mentionChip: css`
+    display: inline;
+    padding: 1px 5px;
+    /* LobeHub mention chip 使用蓝色系 token（bg blue1 / border blue3 / text blue9），
+       不走主题 primary（当前为中性色），保证与官网 @ 联想一致。 */
+    border: 1px solid ${cssVar.blue3};
+    border-radius: 6px;
+    color: ${cssVar.blue9};
+    background: ${cssVar.blue1};
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  `,
+  mentionChipIcon: css`
+    margin-inline-end: 2px;
+  `,
+  mentionOverlay: css`
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    color: ${cssVar.colorText};
+    white-space: pre-wrap;
+    word-break: break-word;
+    pointer-events: none;
   `,
 }));
 
@@ -131,6 +181,7 @@ const ChatInput = memo<ChatInputProps>(
     const [mentionQuery, setMentionQuery] = useState('');
     const [activeIndex, setActiveIndex] = useState(0);
     const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const overlayRef = useRef<HTMLDivElement>(null);
 
     // 联想列表：按 @ 后输入的后缀过滤（名称/FAB/描述）。
     const filteredMentions = useMemo(() => {
@@ -160,6 +211,12 @@ const ChatInput = memo<ChatInputProps>(
       onChange(replaceMentionToken(value, mention.agentFullName));
       onSelectMention(mention);
     };
+
+    // 叠加层把 @提及渲染成蓝色 chip（真实输入框文字透明，光标仍可见）。
+    const overlaySegments = useMemo(
+      () => tokenizeMentions(value, mentions),
+      [mentions, value],
+    );
 
   // 切换 Agent 下拉：选中态显示当前 Agent（头像+名称），无边框紧凑样式。
   const switchValue = useMemo(() => {
@@ -196,6 +253,22 @@ const ChatInput = memo<ChatInputProps>(
           return;
         }
       }
+      // 光标紧贴完整 @提及 时整块删除（LobeHub chip 删除语义），否则退回逐字删除。
+      if (event.key === 'Backspace' && !event.nativeEvent.isComposing) {
+        const target = event.currentTarget;
+        const start = target.selectionStart ?? 0;
+        const end = target.selectionEnd ?? 0;
+        if (start === end) {
+          const removed = removeMentionBeforeCaret(value, start, mentions);
+          if (removed) {
+            event.preventDefault();
+            onChange(removed.nextValue);
+            requestAnimationFrame(() => {
+              target.setSelectionRange(removed.caret, removed.caret);
+            });
+          }
+        }
+      }
       // IME 组合中按 Enter 是确认候选词：跳过发送，避免消息已发出后输入法把文字重新写回输入框。
       if (
         event.key === 'Enter' &&
@@ -230,33 +303,53 @@ const ChatInput = memo<ChatInputProps>(
         {/* 联想菜单必须放在 overflow:hidden 的 composer 之外，否则会被整体裁掉。 */}
         <Flexbox style={{ position: 'relative' }}>
           <Flexbox className={styles.composer} gap={4} padding={12}>
-            <TextArea
-              autoSize={{ minRows: 2, maxRows: 8 }}
-              data-testid="chat-input"
-              onKeyDown={handleKeyDown}
-              placeholder={placeholder ?? t('chat.placeholder')}
-              value={value}
-              variant="borderless"
-              onChange={(event) => {
-                const next = event.target.value;
-                onChange(next);
-                if (timerRef.current) clearTimeout(timerRef.current);
-                if (mentionEnabled) {
-                  const token = extractMentionToken(next);
-                  if (token !== null) {
-                    setMentionQuery(token);
-                    setActiveIndex(0);
-                    setMentionOpen(true);
-                    // 输入时只做一次懒加载（页面缓存 mentions 列表），延迟触发避免连打抖动。
-                    timerRef.current = setTimeout(onMentionTrigger, 80);
+            <div className={styles.inputLayer}>
+              <TextArea
+                autoSize={{ minRows: 2, maxRows: 8 }}
+                className={styles.ghostInput}
+                data-testid="chat-input"
+                onKeyDown={handleKeyDown}
+                onScroll={(event) => {
+                  if (overlayRef.current) {
+                    overlayRef.current.scrollTop = event.currentTarget.scrollTop;
+                  }
+                }}
+                placeholder={placeholder ?? t('chat.placeholder')}
+                value={value}
+                variant="borderless"
+                onChange={(event) => {
+                  const next = event.target.value;
+                  onChange(next);
+                  if (timerRef.current) clearTimeout(timerRef.current);
+                  if (mentionEnabled) {
+                    const token = extractMentionToken(next);
+                    if (token !== null) {
+                      setMentionQuery(token);
+                      setActiveIndex(0);
+                      setMentionOpen(true);
+                      // 输入时只做一次懒加载（页面缓存 mentions 列表），延迟触发避免连打抖动。
+                      timerRef.current = setTimeout(onMentionTrigger, 80);
+                    } else {
+                      setMentionOpen(false);
+                    }
                   } else {
                     setMentionOpen(false);
                   }
-                } else {
-                  setMentionOpen(false);
-                }
-              }}
-            />
+                }}
+              />
+              <div aria-hidden className={styles.mentionOverlay} ref={overlayRef}>
+                {overlaySegments.map((segment, index) =>
+                  segment.type === 'mention' && segment.mention ? (
+                    <span className={styles.mentionChip} key={index}>
+                      <span className={styles.mentionChipIcon}>{segment.mention.icon}</span>
+                      {segment.mention.agentFullName}
+                    </span>
+                  ) : (
+                    <span key={index}>{segment.text}</span>
+                  ),
+                )}
+              </div>
+            </div>
             <Flexbox horizontal align="center" justify="space-between">
               <Flexbox horizontal gap={2} style={{ minHeight: 24 }}>
                 {switchAgents && onSwitchAgent && (

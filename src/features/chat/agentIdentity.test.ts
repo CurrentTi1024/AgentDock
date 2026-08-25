@@ -4,6 +4,9 @@ import test from 'node:test';
 import type { MentionAgent } from '../../api/market/agentMarketService.ts';
 import type { SessionRecord } from '../../api/session/sessionHistoryService.ts';
 import {
+  buildAgentSessionPath,
+  parseAgentChatSessionId,
+  resolveChatRouteQuery,
   resolveAgentSidebarIdentity,
   resolveSessionAgent,
 } from './agentIdentity.ts';
@@ -67,6 +70,34 @@ test('AgentSidebar 已落库会话是权威身份（无 pendingSession 时按 se
   assert.equal(identity?.fab, 'F15B');
 });
 
+test('AgentSidebar 会话 agentName 未回填时按 agentId+fab 从列表补全名称与图标', () => {
+  const identity = resolveAgentSidebarIdentity(agents, {
+    session: sessionRecord({ agentName: undefined, title: '新对话' }),
+  });
+  assert.equal(identity?.agentName, 'CodeReview_Agent-F15B');
+  assert.equal(identity?.icon, '🧑‍💻');
+});
+
+test('parseAgentChatSessionId：/chat/:id 取 id，非会话路由返回 undefined（回归：侧栏在 Routes 外拿不到 useParams）', () => {
+  assert.equal(parseAgentChatSessionId('/chat/session-inbox'), 'session-inbox');
+  assert.equal(parseAgentChatSessionId('/chat/session-abc?agent=x&fab=F15B'), 'session-abc');
+  assert.equal(parseAgentChatSessionId('/chat'), undefined);
+  assert.equal(parseAgentChatSessionId('/group/abc'), undefined);
+  assert.equal(parseAgentChatSessionId('/market/agent'), undefined);
+});
+
+test('buildAgentSessionPath：会话 URL 始终携带 agentId+fab（缺字段时退化为裸路径）', () => {
+  assert.equal(
+    buildAgentSessionPath('session-1', 'code-review', 'F15B'),
+    '/chat/session-1?agent=code-review&fab=F15B',
+  );
+  assert.equal(
+    buildAgentSessionPath('session-1', 'flight-analysis', 'F18B'),
+    '/chat/session-1?agent=flight-analysis&fab=F18B',
+  );
+  assert.equal(buildAgentSessionPath('session-1', undefined, 'F15B'), '/chat/session-1');
+});
+
 test('AgentSidebar 刷新/直达链接：无 session 时用 URL ?agent=&fab= 匹配列表解析名称', () => {
   const identity = resolveAgentSidebarIdentity(agents, {
     queryAgent: 'code-review',
@@ -74,6 +105,17 @@ test('AgentSidebar 刷新/直达链接：无 session 时用 URL ?agent=&fab= 匹
   });
   assert.equal(identity?.agentName, 'CodeReview_Agent-F15B');
   assert.equal(identity?.icon, '🧑‍💻');
+});
+
+test('AgentSidebar URL 显式指定优先于陈旧会话记录（创建时兜底 flight-analysis 的回归）', () => {
+  const stale = sessionRecord({ agentId: 'flight-analysis', fab: 'F15B' });
+  const identity = resolveAgentSidebarIdentity(agents, {
+    queryAgent: 'code-review',
+    queryFab: 'F15B',
+    session: stale,
+  });
+  assert.equal(identity?.agentName, 'CodeReview_Agent-F15B');
+  assert.equal(identity?.agentId, 'code-review');
 });
 
 test('AgentSidebar 无可解析来源时返回 undefined（不默认「对话」/错误 Agent）', () => {
@@ -101,4 +143,40 @@ test('输入框默认选中：候选列表为空或会话 Agent 不在列表时�
     resolveSessionAgent(agents, sessionRecord({ agentId: 'missing', fab: 'F18B' })),
     undefined,
   );
+});
+
+test('路由守卫：URL 带无权限 agentId+fab 时返回 strip（防手改 URL 越权）', () => {
+  assert.deepEqual(
+    resolveChatRouteQuery(agents, { agent: 'secret-agent', fab: 'F99B' }, sessionRecord()),
+    { type: 'strip' },
+  );
+  assert.deepEqual(
+    resolveChatRouteQuery(agents, { agent: 'code-review', fab: 'F18B' }, sessionRecord()),
+    { type: 'strip' },
+  );
+});
+
+test('路由守卫：URL 参数在可用列表内时保留，不做改动', () => {
+  assert.deepEqual(
+    resolveChatRouteQuery(agents, { agent: 'code-review', fab: 'F15B' }, sessionRecord()),
+    { type: 'keep' },
+  );
+});
+
+test('路由归一化：URL 未带参数时补上会话的 agentId+fab（进入会话 URL 始终携带）', () => {
+  assert.deepEqual(
+    resolveChatRouteQuery(agents, { agent: null, fab: null }, sessionRecord()),
+    { type: 'set', agent: 'code-review', fab: 'F15B' },
+  );
+  // 会话 Agent 已不在可用列表：不补参数（避免把无权限 Agent 写进 URL）
+  assert.deepEqual(
+    resolveChatRouteQuery(agents, { agent: null, fab: null }, sessionRecord({ agentId: 'legacy', fab: 'F99B' })),
+    { type: 'keep' },
+  );
+});
+
+test('路由守卫：候选列表未加载时 keep，由调用方加载完成后重试', () => {
+  assert.deepEqual(resolveChatRouteQuery([], { agent: 'code-review', fab: 'F15B' }), {
+    type: 'keep',
+  });
 });

@@ -320,3 +320,38 @@ test('多轮错误：第二轮 MESSAGES_SNAPSHOT 带入上一轮错误回复时�
   assert.equal(run2.messages['error-run-err-2'].content, 'err2');
   assert.equal(run2.messages['error-run-err-2'].runId, 'run-err-2');
 });
+
+test('连续三轮错误：每轮 MESSAGES_SNAPSHOT 累积，顺序 Q1A1Q2A2Q3A3 不吞不重', () => {
+  const rounds = [
+    { err: 'err1', q: 'q1', runId: 'e-run-1' },
+    { err: 'err2', q: 'q2', runId: 'e-run-2' },
+    { err: 'err3', q: 'q3', runId: 'e-run-3' },
+  ];
+  let prior: Array<{ content: string; id: string; role: 'assistant' | 'user' }> = [];
+  for (const { err, q, runId } of rounds) {
+    let state = createRunState(runId, 'thread-multi3');
+    state = reduceRunEvent(state, { eventId: `${runId}-1`, event: { type: 'RUN_STARTED', threadId: state.threadId, runId } });
+    if (prior.length) {
+      state = reduceRunEvent(state, { eventId: `${runId}-2`, event: { type: 'MESSAGES_SNAPSHOT', messages: prior } });
+    }
+    state = reduceRunEvent(state, { eventId: `${runId}-3`, event: { type: 'TEXT_MESSAGE_START', messageId: q, role: 'user' } });
+    state = reduceRunEvent(state, {
+      eventId: `${runId}-4`,
+      event: { code: 'BACKEND_ERROR', message: err, runId, threadId: state.threadId, type: 'RUN_ERROR' },
+    });
+    const expected = [...prior.map((message) => message.id), q, `error-${runId}`];
+    assert.deepEqual(state.messageOrder, expected, `${runId} 轮消息顺序正确`);
+    assert.equal(state.messages[`error-${runId}`].content, err, '本轮错误内容独立');
+    assert.equal(new Set(state.messageOrder).size, state.messageOrder.length, '无重复消息 id');
+    prior = expected.map((id) => ({
+      content: state.messages[id]?.content ?? '',
+      id,
+      role: id === q ? 'user' : 'assistant',
+    }));
+  }
+  assert.deepEqual(
+    prior.map((message) => message.id),
+    ['q1', 'error-e-run-1', 'q2', 'error-e-run-2', 'q3', 'error-e-run-3'],
+    '三轮错误最终顺序 Q1A1Q2A2Q3A3',
+  );
+});

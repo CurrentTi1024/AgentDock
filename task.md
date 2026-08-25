@@ -37,6 +37,7 @@
 - 修复群聊发送后输入框未清空：`GroupChatPage` 发送输入框内容时先 `setInput('')`（示例消息路径不受影响）。
 - 输入框迁移 LobeHub `@` 联想：Home/单聊/群聊输入框统一支持 `@Agent` 联想（后缀过滤、方向键/Enter/Tab 选中、Escape 关闭、多 @ 保留），发送时解析为 `forwardedProps.mentionAgents[{agentId, fab, agentName?, version?}]`；`@` 选择不再切换会话 Agent（切换走左下角下拉）。Server `fabProxy/FabRoutingAgent` 原样透传 input，无需改动。
 - 修复 `@` 菜单不可见：联想菜单原本渲染在 `overflow: hidden` 的输入框容器内，被整体裁剪；已移到容器外的相对定位包裹层，菜单悬浮于输入框上方可见。
+- 输入框还原 LobeHub 选中后的蓝色 mention chip：真实输入保持纯文本 `@Name`（用于解析 mentionAgents），下层叠加层把已匹配的 @提及渲染为蓝色圆角 chip（`blue1/blue3/blue9` token：暗色 #001740/#003b79/#60b1ff，与官网一致），含 Agent 头像图标，文字/光标交互不受影响。
 
 > 2026-08-20 更新：R3 前三项已完成并通过 Chrome headless + CDP 验证
 > （sortBy 下拉 + 升降序切换、Agent 卡片 skill/mcp 数量标签、

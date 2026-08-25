@@ -22,6 +22,7 @@ import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketS
 import { sessionHistoryService, type SessionRecord } from '@/api/session/sessionHistoryService';
 import NavItem from '@/components/shell/NavItem';
 import SidebarSection from '@/components/shell/SidebarSection';
+import { buildAgentSessionPath } from '@/features/chat/agentIdentity';
 import { useI18n } from '@/i18n';
 import { formatRelativeTime } from '@/lib/relativeTime';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -268,7 +269,13 @@ const Body = () => {
                       </Text>
                     </Flexbox>
                   }
-                  onClick={() => navigate(group ? `/group/${session.id}` : `/chat/${session.id}`)}
+                  onClick={() =>
+                    navigate(
+                      group
+                        ? `/group/${session.id}`
+                        : buildAgentSessionPath(session.id, session.agentId, session.fab),
+                    )
+                  }
                 />
               );
             })

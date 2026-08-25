@@ -11,6 +11,7 @@ import NavHeader from '@/components/shell/NavHeader';
 import { agentMarketService, type MentionAgent } from '@/api/market/agentMarketService';
 import { sessionHistoryService } from '@/api/session/sessionHistoryService';
 import ChatInput from '@/features/chat/components/ChatInput';
+import { buildAgentSessionPath } from '@/features/chat/agentIdentity';
 import { useI18n } from '@/i18n';
 import { formatRelativeTime } from '@/lib/relativeTime';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -178,7 +179,13 @@ const HomePage = memo(() => {
                     gap={12}
                     key={session.id}
                     padding={10}
-                    onClick={() => navigate(group ? `/group/${session.id}` : `/chat/${session.id}`)}
+                    onClick={() =>
+                      navigate(
+                        group
+                          ? `/group/${session.id}`
+                          : buildAgentSessionPath(session.id, session.agentId, session.fab),
+                      )
+                    }
                   >
                     <Avatar avatar={group ? '👥' : agent?.icon || '🤖'} shape="square" size={28} />
                     <Flexbox flex={1} style={{ minWidth: 0 }}>
