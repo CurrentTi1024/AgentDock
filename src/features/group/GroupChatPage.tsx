@@ -270,6 +270,9 @@ const GroupChatPage = () => {
       if (record.id.startsWith('lc_run--')) continue;
       const rawTextId = record.id.replace(/^text:/, '');
       if (record.kind !== 'text' || liveTextIds.has(rawTextId) || deletedKeys.has(record.id)) continue;
+      // 空占位隐藏：assistant 行无内容且无过程块（如 START 后即停止/刷新）不渲染空气泡；
+      // 有工具/推理块的空气泡保留（块需要 assistant 文本作宿主）。
+      if (record.role === 'assistant' && !record.content && !(record.runId && (blocksByRun.get(record.runId)?.length ?? 0) > 0)) continue;
       const blocks = record.role === 'assistant' && record.runId
         ? (blocksByRun.get(record.runId) ?? [])
         : [];

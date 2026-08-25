@@ -984,6 +984,9 @@ export const renderStoredBlocks = (
   const nodes: React.ReactNode[] = [];
   const stepRecords: SessionMessageRecord[] = [];
   const process = createProcessCollector(false);
+  // 旧数据防御：同一逻辑 surface 可能以多个记录键落库（a2ui.surface 活动键 + render_a2ui
+  // 工具键），按逻辑 surfaceId 去重，只渲染一次。
+  const seenSurfaces = new Set<string>();
   const visibleBlocks =
     options.deletedKeys?.size
       ? blocks.filter((record) => !options.deletedKeys!.has(record.id))
@@ -1100,13 +1103,16 @@ export const renderStoredBlocks = (
       flushSteps();
       if (options.showSurfaces === false) continue;
       const surfaceId = typeof payload.surfaceId === 'string' ? payload.surfaceId : record.id;
+      const logicalId = findLogicalSurfaceId(payload) || surfaceId;
+      if (seenSurfaces.has(logicalId)) continue;
+      seenSurfaces.add(logicalId);
+      // A2UI Surface 是纯正文内容：不加边框/背景/左竖线，直接内联渲染。
       nodes.push(
-        <div className={styles.surfaceBody} data-testid="a2ui-surface-body" key={record.id}>
-          <StoredA2uiSurface
-            onAction={(actionName) => handlers.onSurfaceAction(actionName, surfaceId)}
-            payload={{ ...payload, surfaceId }}
-          />
-        </div>,
+        <StoredA2uiSurface
+          key={record.id}
+          onAction={(actionName) => handlers.onSurfaceAction(actionName, surfaceId)}
+          payload={{ ...payload, surfaceId }}
+        />,
       );
     }
   }
@@ -1126,6 +1132,7 @@ export const renderRunBlocks = (
   if (!run) return null;
   const blocks: React.ReactNode[] = [];
   const stepBuffer: RuntimeStep[] = [];
+  const seenSurfaces = new Set<string>();
   const process = createProcessCollector(run.status === 'running' || run.status === 'paused');
   const pushStepsIntoProcess = () => {
     if (!stepBuffer.length) return;
@@ -1177,11 +1184,15 @@ export const renderRunBlocks = (
     flushSteps();
     if (options.showSurfaces !== false) {
       for (const [surfaceId, payload] of Object.entries(run.surfaces || {})) {
-        if (typeof payload === 'object' && payload !== null) blocks.push(
-          <div className={styles.surfaceBody} data-testid="a2ui-surface-body" key={`surface-${surfaceId}`}>
-            <A2uiStoredSurface onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId }} />
-          </div>,
-        );
+        if (typeof payload === 'object' && payload !== null) {
+          const logicalId = findLogicalSurfaceId(payload) || surfaceId;
+          if (!seenSurfaces.has(logicalId)) {
+            seenSurfaces.add(logicalId);
+            blocks.push(
+              <A2uiStoredSurface key={`surface-${surfaceId}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId }} />,
+            );
+          }
+        }
       }
     }
   } else {
@@ -1269,11 +1280,16 @@ export const renderRunBlocks = (
         flushSteps();
         if (options.showSurfaces === false) continue;
         const payload = run.surfaces?.[ref.id];
-        if (typeof payload === 'object' && payload !== null) blocks.push(
-          <div className={styles.surfaceBody} data-testid="a2ui-surface-body" key={`surface-${ref.id}`}>
-            <A2uiStoredSurface onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId: ref.id }} />
-          </div>,
-        );
+        if (typeof payload === 'object' && payload !== null) {
+          const logicalId = findLogicalSurfaceId(payload) || ref.id;
+          if (!seenSurfaces.has(logicalId)) {
+            seenSurfaces.add(logicalId);
+            // A2UI Surface 纯内联渲染（无包装，避免双左竖线/外框观感）。
+            blocks.push(
+              <A2uiStoredSurface key={`surface-${ref.id}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId: ref.id }} />,
+            );
+          }
+        }
       }
     }
     flushSteps();

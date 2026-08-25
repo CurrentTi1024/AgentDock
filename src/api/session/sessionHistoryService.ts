@@ -1,10 +1,14 @@
 import Dexie, { type EntityTable } from 'dexie';
-import { findLogicalSurfaceId } from '@/api/runtime/runReducer';
 import type { RunAgentInput, RuntimeMessage, RuntimeRunState } from '@/api/runtime/types';
+import { findLogicalSurfaceId } from '../runtime/runReducer.ts';
 export interface SessionRecord { agentId?: string; agentName?: string; createdAt: string; deletedMessageIds?: string[]; fab: string; group?: unknown; id: string; lastMessageAt?: string; pinned: boolean; threadId: string; title: string; type: 'agent' | 'group'; updatedAt: string; version?: string }
 export type SessionMessageKind = 'activity' | 'reasoning' | 'step' | 'surface' | 'text' | 'tool';
 export interface SessionMessageRecord { content?: string; createdAt: string; id: string; kind: SessionMessageKind; payload?: Record<string, unknown>; role?: RuntimeMessage['role']; runId?: string; sequence: number; sessionId: string; eventId?: string }
 export interface RunCheckpointRecord { input: RunAgentInput; latestEventId?: string; runId: string; sessionId: string; snapshot: RuntimeRunState; status: RuntimeRunState['status']; threadId: string; updatedAt: string }
+/** 已删消息墓碑上限：防数组无限膨胀（长会话频繁编辑/重新生成时）。超限时淘汰最旧条目。 */
+const MAX_TOMBSTONE_IDS = 1000;
+const mergeTombstones = (existing: string[] | undefined, added: Iterable<string>): string[] =>
+  [...new Set([...(existing ?? []), ...added])].slice(-MAX_TOMBSTONE_IDS);
 export interface MessagesPage {
   hasMore: boolean;
   nextBeforeSequence?: number;
@@ -350,7 +354,7 @@ export const sessionHistoryService = {
       // persistRunSnapshot 依据 deletedMessageIds 跳过，避免普通删除后被复活。
       if (idsToRemove.size) {
         const session = await db.sessions.get(sessionId);
-        const merged = [...new Set([...(session?.deletedMessageIds ?? []), ...idsToRemove])];
+        const merged = mergeTombstones(session?.deletedMessageIds, idsToRemove);
         await db.sessions.update(sessionId, { deletedMessageIds: merged });
       }
       const checkpoints = await db.checkpoints.where('sessionId').equals(sessionId).toArray();
@@ -383,7 +387,7 @@ export const sessionHistoryService = {
       await db.checkpoints.where('sessionId').equals(sessionId).and((checkpoint) => checkpoint.runId === target.runId).delete();
       if (turnRecords.length) {
         const session = await db.sessions.get(sessionId);
-        const merged = [...new Set([...(session?.deletedMessageIds ?? []), ...turnRecords.map((record) => record.id)])];
+        const merged = mergeTombstones(session?.deletedMessageIds, turnRecords.map((record) => record.id));
         await db.sessions.update(sessionId, { deletedMessageIds: merged });
       }
     });

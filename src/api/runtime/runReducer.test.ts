@@ -19,6 +19,38 @@ test('collects render_a2ui tool arguments as a surface', () => {
   assert.deepEqual(state.surfaces['surface-1'], { surfaceId: 'surface-1', components: [] });
 });
 
+test('a2ui.surface 活动与 render_a2ui 工具共用逻辑 surfaceId，不重复创建 surface', () => {
+  // 工具先到：创建 components 版 surface
+  let state = createRunState('run-2b', 'thread-2b');
+  state = reduceRunEvent(state, { eventId: '1', event: { type: 'TOOL_CALL_START', toolCallId: 'tool-2', toolCallName: 'render_a2ui' } });
+  state = reduceRunEvent(state, { eventId: '2', event: { type: 'TOOL_CALL_ARGS', toolCallId: 'tool-2', delta: '{"surfaceId":"dashboard","components":[]}' } });
+  state = reduceRunEvent(state, { eventId: '3', event: { type: 'TOOL_CALL_END', toolCallId: 'tool-2' } });
+  assert.deepEqual(Object.keys(state.surfaces), ['dashboard']);
+  // 活动后到：ops 版覆盖 components 版，键不变、orderedBlocks 不重复
+  state = reduceRunEvent(state, {
+    eventId: '4',
+    event: {
+      type: 'ACTIVITY_SNAPSHOT',
+      messageId: 'a2ui-surface-call',
+      activityType: 'a2ui.surface',
+      surfaceId: 'a2ui-surface-call',
+      content: { a2ui_operations: [{ version: 'v0.9', createSurface: { surfaceId: 'dashboard', catalogId: 'catalog' } }] },
+    },
+  });
+  assert.deepEqual(Object.keys(state.surfaces), ['dashboard']);
+  assert.ok((state.surfaces['dashboard'] as { a2ui_operations?: unknown }).a2ui_operations);
+  assert.equal(state.orderedBlocks.filter((block) => block.kind === 'surface').length, 1);
+  // 反序：活动先到，工具后到时不覆盖 ops 版也不新增块
+  state = createRunState('run-2c', 'thread-2c');
+  state = reduceRunEvent(state, { eventId: '1', event: { type: 'ACTIVITY_SNAPSHOT', messageId: 'a2ui-1', activityType: 'a2ui.surface', surfaceId: 'a2ui-1', content: { a2ui_operations: [{ version: 'v0.9', createSurface: { surfaceId: 'dash', catalogId: 'catalog' } }] } } });
+  state = reduceRunEvent(state, { eventId: '2', event: { type: 'TOOL_CALL_START', toolCallId: 'tool-3', toolCallName: 'render_a2ui' } });
+  state = reduceRunEvent(state, { eventId: '3', event: { type: 'TOOL_CALL_ARGS', toolCallId: 'tool-3', delta: '{"surfaceId":"dash","components":[]}' } });
+  state = reduceRunEvent(state, { eventId: '4', event: { type: 'TOOL_CALL_END', toolCallId: 'tool-3' } });
+  assert.deepEqual(Object.keys(state.surfaces), ['dash']);
+  assert.ok((state.surfaces['dash'] as { a2ui_operations?: unknown }).a2ui_operations);
+  assert.equal(state.orderedBlocks.filter((block) => block.kind === 'surface').length, 1);
+});
+
 test('tracks workflow step lifecycle from STEP events', () => {
   let state = createRunState('run-3', 'thread-3');
   state = reduceRunEvent(state, { eventId: '1', event: { type: 'STEP_STARTED', stepId: 'plan', stepName: '规划' } });

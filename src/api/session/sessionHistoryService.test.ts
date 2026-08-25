@@ -1063,6 +1063,36 @@ test('LobeHub 同款占位+增量：空占位行存在，内容到达后同 id u
   assert.ok(userRow && assistantRow && assistantRow.sequence > userRow.sequence, 'assistant 排在用户之后');
 });
 
+test('墓碑数组有上限：超限淘汰最旧条目，不无限膨胀', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-tombstone-cap';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'tombstone-cap',
+    type: 'agent',
+  });
+  // 预置接近上限的旧墓碑。
+  await sessionDatabase.sessions.update(sessionId, {
+    deletedMessageIds: Array.from({ length: 999 }, (_, index) => `text:old-${index}`),
+  });
+  const { input, snapshot } = buildSingleAgentRun(sessionId, 'tomb-run');
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...snapshot, status: 'running' as const });
+  await sessionHistoryService.removeTurn(sessionId, input.messages[0].id);
+
+  const session = await sessionHistoryService.getSession(sessionId);
+  assert.ok(session?.deletedMessageIds, '删除后应写入墓碑');
+  assert.ok(session.deletedMessageIds!.length <= 1000, '墓碑数组不超过上限');
+  assert.ok(
+    session.deletedMessageIds!.some((id) => id.startsWith('text:user-tomb-run')),
+    '新删除的轮次墓碑保留',
+  );
+});
+
 test('listSessions 分页：limit/offset 按 updatedAt 倒序，countSessions 返回总数', async () => {
   await sessionDatabase.delete();
   await sessionDatabase.open();

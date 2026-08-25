@@ -1,10 +1,9 @@
 // AgentDock conversation page — LobeHub ConversationArea + ChatItem + ChatInput adaptation.
 import { ActionIcon, Button, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
-import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { LoadingDots } from '@lobehub/ui/chat';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { FileBarChart, X } from 'lucide-react';
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { resolveChatAgentId } from '@/features/chat/agentDetail';
@@ -63,37 +62,10 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
        输入区内部的 ChatInput 容器单独恢复 pointer-events。 */
     pointer-events: none;
   `,
-  surfaceBody: css`
-    margin-block-start: 4px;
-    padding: 8px;
-    border-inline-start: 3px solid ${token.colorPrimary};
-    border-radius: ${token.borderRadiusLG}px;
-    background: ${token.colorFillQuaternary};
-  `,
 }));
 
 // 连续同角色消息的时间间隔超过该值才插入「历史消息」分割线（LobeHub History divider）。
 const HISTORY_DIVIDER_MS = 30 * 60 * 1000;
-
-// 官方 runtime 的活动消息渲染依赖 CopilotKit Provider，仅在 http 模式下挂载。
-interface OfficialActivityMessage {
-  role: 'activity';
-  content: Record<string, unknown>;
-  id: string;
-  activityType: string;
-}
-
-const OfficialActivityMessages = memo<{ agent: { messages?: unknown[] } }>(({ agent }) => {
-  const { renderActivityMessage } = useRenderActivityMessage();
-  const activityMessages = (agent.messages || []).filter(
-    (message): message is OfficialActivityMessage =>
-      (message as { role?: string }).role === 'activity',
-  );
-  if (activityMessages.length === 0) return null;
-  return <>{activityMessages.map((message) => renderActivityMessage(message))}</>;
-});
-
-OfficialActivityMessages.displayName = 'OfficialActivityMessages';
 
 export default function ChatPage() {
   const { t } = useI18n();
@@ -474,6 +446,9 @@ export default function ChatPage() {
       if (record.id.startsWith('lc_run--')) continue;
       const rawTextId = record.id.replace(/^text:/, '');
       if (record.kind !== 'text' || liveTextIds.has(rawTextId) || deletedKeys.has(record.id)) continue;
+      // 空占位隐藏：assistant 行无内容且无过程块（如 START 后即停止/刷新）不渲染空气泡；
+      // 有工具/推理块的空气泡保留（块需要 assistant 文本作宿主）。
+      if (record.role === 'assistant' && !record.content && !(record.runId && (blocksByRun.get(record.runId)?.length ?? 0) > 0)) continue;
       const blocks = record.role === 'assistant' && record.runId
         ? (blocksByRun.get(record.runId) ?? [])
         : [];
@@ -815,11 +790,6 @@ export default function ChatPage() {
                 >
                   {blocks}
                   {running && !answer && !blocks && <LoadingDots />}
-                  {runtimeAgent ? (
-                    <div className={styles.surfaceBody} data-testid="a2ui-surface-body">
-                      <OfficialActivityMessages agent={runtimeAgent as { messages?: unknown[] }} />
-                    </div>
-                  ) : null}
                   {!running && answer && (
                     <Flexbox horizontal gap={8}>
                       <ActionIcon

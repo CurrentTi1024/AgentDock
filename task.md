@@ -530,3 +530,7 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   全套 72/72 通过；`pnpm run typecheck`、`pnpm run build` 通过；无头 Chrome + CDP 实测：
   `/chat/session-inbox` 自动补 `?agent=flight-analysis&fab=F15B`，`?agent=evil&fab=F99B` 被守卫
   移除并回退默认 Agent，`?agent=code-review&fab=F15B` 原样保留且侧边栏/话题/输入框全部一致。
+- **补充（icon 跟随 Agent）**：`resolveAgentIcon` 按 agentId+fab 从 mentionAgents 解析头像，
+  聊天头部（ChatHeader）、欢迎卡片（Welcome）、输入框底部（ChatInput 按 currentAgent 匹配）、
+  首页头部（HomePage 随 selected）不再硬编码 🛩️，切换 Agent 后头像统一跟随；新增 2 个回归用例
+  （75/75 通过），无头 Chrome 实测 code-review 会话四个头像全部为 🧑‍💻。
