@@ -63,7 +63,7 @@ export const finalizeReasoningMeta = (state: RuntimeRunState): RuntimeRunState =
 };
 export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent): RuntimeRunState {
   if (input.eventId && previous.processedEventIds.includes(input.eventId)) return previous;
-  const next = structuredClone(previous); const event = input.event; const id = String(event.messageId || ''); const toolId = String(event.toolCallId || ''); next.rawEvents.push(event); if (next.rawEvents.length > 1000) next.rawEvents.shift();
+  const next = structuredClone(previous); const event = input.event; const id = String(event.messageId || ''); const toolId = String(event.toolCallId || ''); next.rawEvents.push(event); if (next.rawEvents.length > 100) next.rawEvents.shift();
   if (input.eventId) { next.latestEventId = input.eventId; next.processedEventIds.push(input.eventId); if (next.processedEventIds.length > 5000) next.processedEventIds.shift(); }
   switch (event.type) {
     case 'RUN_STARTED': next.status = 'running'; break;

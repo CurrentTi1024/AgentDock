@@ -123,6 +123,10 @@ const useOfficialConversation = (
   const { copilotkit } = useCopilotKit();
   const [httpRun, setHttpRun] = useState<RuntimeRunState>();
   const runRef = useRef<RuntimeRunState | undefined>(undefined);
+  // 流式高频事件（TOOL_CALL_ARGS 大参数分片、reasoning chunk 等）只同步推进 reducer，
+  // React 渲染用 50ms 合并节流，避免每个 chunk 全量重渲染聊天树把主线程打满（页面冻结
+  // 后用户看到“thinking 突然消失”的跳变）；终态立即刷新，保证 live→历史切换即时。
+  const renderTimerRef = useRef<number | undefined>(undefined);
   const inputRef = useRef<RunAgentInput | undefined>(undefined);
   // legacy HITL wire（CUSTOM on_interrupt）没有官方 pendingInterrupts，
   // 记录真实 interrupt id 供 resume[] 续跑。
@@ -135,12 +139,31 @@ const useOfficialConversation = (
     const current = runRef.current ?? createRunState(String(event.runId || crypto.randomUUID()), threadId);
     const next = reduceRunEvent(current, toStreamedEvent(event));
     runRef.current = next;
-    setHttpRun(next);
     const input = inputRef.current;
     if (input) scheduleRunCheckpoint(optionsRef.current.sessionId, input, next);
-    if (next.status === 'success' || next.status === 'error' || next.status === 'cancelled') {
+    const terminal =
+      next.status === 'success' || next.status === 'error' || next.status === 'cancelled';
+    if (terminal) {
+      if (renderTimerRef.current !== undefined) {
+        window.clearTimeout(renderTimerRef.current);
+        renderTimerRef.current = undefined;
+      }
+      setHttpRun(next);
       void flushRunCheckpoint();
+      return;
     }
+    if (renderTimerRef.current === undefined) {
+      renderTimerRef.current = window.setTimeout(() => {
+        renderTimerRef.current = undefined;
+        setHttpRun(runRef.current);
+      }, 50);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (renderTimerRef.current !== undefined) window.clearTimeout(renderTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
