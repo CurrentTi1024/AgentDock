@@ -26,6 +26,7 @@ import {
   HistoryDivider,
   renderRunBlocks,
   renderStoredBlocks,
+  stripRunErrorText,
   type StoredTextMessage,
 } from '@/features/chat/components/MessageBlocks';
 import { useAgentDockConversation } from '@/features/chat/useAgentDockConversation';
@@ -186,7 +187,20 @@ const GroupChatPage = () => {
   const currentUserMessage = liveMessages
     .filter((message) => message.role === 'user')
     .at(-1)?.content;
+  // RUN_ERROR：剥离消息末尾的错误文本，由 agentDock.error 活动渲染错误卡。
+  const displayAnswer = stripRunErrorText(answer || '', run?.error?.message);
   const surface = Object.entries(run?.surfaces || {}).at(-1);
+  // 错误重试：重新发送该轮最后一条用户消息。
+  const regenerateError = useCallback(
+    (runId?: string) => {
+      const prompt = runId
+        ? history.find((record) => record.runId === runId && record.role === 'user')?.content
+        : currentUserMessage;
+      if (prompt) void sendMessage(prompt);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [currentUserMessage, history],
+  );
 
   // LobeHub OpStatusTray 的 activity 等价物：只认真实工具调用（排除 A2UI 内部工具）。
   const opStatusActivity: OpStatusActivity = useMemo(() => {
@@ -320,6 +334,7 @@ const GroupChatPage = () => {
         sourceComponentId: 'open',
         surfaceId: surface[0],
       }),
+    onRegenerateError: () => regenerateError(),
   }, { deletedKeys, showReasoning });
 
   const hasAnyMessage = storedMessages.length > 0 || (isActiveRun && Boolean(answer || running || run?.status));
@@ -513,6 +528,18 @@ const GroupChatPage = () => {
                 ? new Date(record.createdAt).getTime() - new Date(previous.createdAt).getTime()
                 : 0;
               const originalContent = record.content || '';
+              // RUN_ERROR 历史：run 内有 agentDock.error 活动时剥离末尾错误文本，由错误卡展示。
+              const errorActivity = storedBlocks.find(
+                (block) =>
+                  block.kind === 'activity' &&
+                  block.payload?.activityType === 'agentDock.error',
+              );
+              const displayContent = stripRunErrorText(
+                originalContent,
+                typeof errorActivity?.payload?.message === 'string'
+                  ? errorActivity.payload.message
+                  : undefined,
+              );
               return (
                 <Fragment key={record.id}>
                   {gap > HISTORY_DIVIDER_MS && <HistoryDivider label={t('chat.history')} />}
@@ -526,7 +553,7 @@ const GroupChatPage = () => {
                           onRestoreToInput={(content) => setInput(content)}
                         />
                       }
-                      content={record.content}
+                      content={displayContent}
                       id={record.id}
                       name={t('chat.you')}
                       role="user"
@@ -588,6 +615,7 @@ const GroupChatPage = () => {
                             sourceComponentId: 'open',
                             surfaceId,
                           }),
+                        onRegenerateError: (runId) => regenerateError(runId),
                       }, { deletedKeys, narration, showReasoning })}
                     </ChatItem>
                   )}
@@ -645,7 +673,7 @@ const GroupChatPage = () => {
                       />
                     )
                   }
-                  content={answer}
+                  content={displayAnswer}
                   id="current-group-assistant"
                   loading={running}
                   name={session?.title || t('nav.group')}

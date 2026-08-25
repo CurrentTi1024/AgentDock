@@ -98,6 +98,16 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
           eventId: input.eventId,
         };
         if (!next.messageOrder.includes(targetId)) next.messageOrder.push(targetId);
+        // 投影为可持久化的错误活动（agentDock.error）：历史渲染据此显示 LobeHub 错误卡，
+        // 并用于剥离消息内容末尾追加的错误文本，避免 Alert 与正文重复。
+        const errorActivityId = `error-${next.runId}`;
+        next.activities[errorActivityId] = {
+          activityType: 'agentDock.error',
+          code: String(event.code || ''),
+          message: errorText,
+          messageId: errorActivityId,
+        };
+        pushOrderedBlock(next, 'activity', errorActivityId);
       }
       return finalizeReasoningMeta(next);
     }

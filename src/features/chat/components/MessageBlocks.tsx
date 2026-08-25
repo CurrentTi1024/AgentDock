@@ -15,6 +15,7 @@ import type { SessionMessageRecord } from '@/api/session/sessionHistoryService';
 import NeuralNetworkLoading from '@/components/NeuralNetworkLoading';
 import Thinking from '@/features/chat/components/lobehub/Thinking';
 import { ToolInspector } from '@/features/chat/components/lobehub/ToolInspector';
+import ErrorAlert from '@/features/chat/components/lobehub/ErrorAlert';
 
 /** A2UI 内部工具：surface 结果即用户可见输出，调用过程不展示、不计数。 */
 const A2UI_TOOL_NAMES = new Set(['generate_a2ui', 'render_a2ui']);
@@ -152,6 +153,13 @@ const formatDuration = (startedAt?: number, finishedAt?: number) => {
 const formatProcessDuration = (startedAt?: number, finishedAt?: number) => {
   const seconds = formatDuration(startedAt, finishedAt);
   return seconds !== undefined ? `${seconds}s` : undefined;
+};
+
+/** 剥离 reducer 追加到消息末尾的错误文本（`\n\n{message}`），避免与错误 Alert 重复显示。 */
+export const stripRunErrorText = (content: string, errorMessage?: string): string => {
+  if (!errorMessage) return content;
+  const suffix = `\n\n${errorMessage}`;
+  return content.endsWith(suffix) ? content.slice(0, -suffix.length) : content;
 };
 
 /** LobeHub Accordion 展开箭头：展开朝下，收起旋转 -90°（朝右），带 0.2s 过渡。 */
@@ -969,6 +977,7 @@ export const renderStoredBlocks = (
     onApproveHitl: (requestId: string, payload?: Record<string, unknown>) => void;
     onRejectHitl: (requestId: string) => void;
     onSurfaceAction: (actionName: string, surfaceId: string) => void;
+    onRegenerateError?: (runId?: string) => void;
   },
   options: { deletedKeys?: Set<string>; narration?: string[]; showReasoning?: boolean; showSurfaces?: boolean } = {},
 ): React.ReactNode[] => {
@@ -1057,6 +1066,22 @@ export const renderStoredBlocks = (
         flushSteps();
         continue;
       }
+      if (payload.activityType === 'agentDock.error') {
+        flushSteps();
+        nodes.push(
+          <ErrorAlert
+            code={typeof payload.code === 'string' ? payload.code : undefined}
+            key={record.id}
+            message={String(payload.message || 'Run failed')}
+            onRegenerate={
+              handlers.onRegenerateError
+                ? () => handlers.onRegenerateError?.(record.runId)
+                : undefined
+            }
+          />,
+        );
+        continue;
+      }
       const requestId = typeof payload.requestId === 'string' ? payload.requestId : '';
       if (requestId) {
         // HITL 属于过程本身（LobeHub 干预在 workflow 内部）：
@@ -1117,6 +1142,7 @@ export const renderRunBlocks = (
     onApproveHitl: (requestId: string, payload?: Record<string, unknown>) => void;
     onRejectHitl: (requestId: string) => void;
     onSurfaceAction: (actionName: string) => void;
+    onRegenerateError?: () => void;
   },
   options: { deletedKeys?: Set<string>; showReasoning?: boolean; showSurfaces?: boolean } = {},
 ) => {
@@ -1219,6 +1245,18 @@ export const renderRunBlocks = (
         const value = activity as { activityType?: string; description?: string; requestId?: string; [key: string]: unknown };
         if (value.activityType === 'a2ui.surface' || value.activityType === 'a2ui-surface' || value.activityType === 'agentDock.artifact') {
           flushSteps();
+          continue;
+        }
+        if (value.activityType === 'agentDock.error') {
+          flushSteps();
+          blocks.push(
+            <ErrorAlert
+              code={typeof value.code === 'string' ? value.code : undefined}
+              key={`error-${ref.id}`}
+              message={String(value.message || 'Run failed')}
+              onRegenerate={handlers.onRegenerateError ? () => handlers.onRegenerateError?.() : undefined}
+            />,
+          );
           continue;
         }
         if (value.requestId) {

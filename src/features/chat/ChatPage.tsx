@@ -27,6 +27,7 @@ import {
   HistoryDivider,
   renderStoredBlocks,
   renderRunBlocks,
+  stripRunErrorText,
   type StoredTextMessage,
 } from '@/features/chat/components/MessageBlocks';
 import { messageFeedbackService } from '@/api/conversation/messageFeedbackService';
@@ -178,7 +179,20 @@ export default function ChatPage() {
   const currentUserMessage = liveMessages
     .filter((message) => message.role === 'user')
     .at(-1)?.content;
+  // RUN_ERROR：错误文本被 reducer 追加到助手消息末尾用于持久化；展示时剥离，
+  // 由 blocks 里的 agentDock.error 活动渲染 LobeHub 错误卡（Alert + 重新生成）。
+  const displayAnswer = stripRunErrorText(answer || '', run?.error?.message);
   const surface = Object.entries(run?.surfaces || {}).at(-1);
+  // 错误重试：重新发送该轮最后一条用户消息（live 用当前消息，历史按 runId 回溯）。
+  const regenerateError = useCallback(
+    (runId?: string) => {
+      const prompt = runId
+        ? history.find((record) => record.runId === runId && record.role === 'user')?.content
+        : currentUserMessage;
+      if (prompt) void send(prompt);
+    },
+    [currentUserMessage, history, send],
+  );
 
   // LobeHub OpStatusTray 的 activity 等价物：有工具在跑→调用工具中；有流式推理→思考中；否则生成中。
   const opStatusActivity: OpStatusActivity = useMemo(() => {
@@ -509,6 +523,7 @@ export default function ChatPage() {
         sourceComponentId: 'action-button',
         surfaceId: surface[0],
       }),
+    onRegenerateError: () => regenerateError(),
   }, { deletedKeys, showReasoning, showSurfaces: true });
 
   const lastLiveMessageId = Object.keys(run?.messages || {}).at(-1) || '';
@@ -583,6 +598,19 @@ export default function ChatPage() {
                 ? new Date(record.createdAt).getTime() - new Date(previous.createdAt).getTime()
                 : 0;
               const originalContent = record.content || '';
+              // RUN_ERROR 历史：run 内有 agentDock.error 活动时，剥离消息末尾的错误文本，
+              // 由 renderStoredBlocks 渲染错误卡，避免 Alert 与正文重复。
+              const errorActivity = storedBlocks.find(
+                (block) =>
+                  block.kind === 'activity' &&
+                  block.payload?.activityType === 'agentDock.error',
+              );
+              const displayContent = stripRunErrorText(
+                originalContent,
+                typeof errorActivity?.payload?.message === 'string'
+                  ? errorActivity.payload.message
+                  : undefined,
+              );
               return (
                 <Fragment key={record.id}>
                   {gap > HISTORY_DIVIDER_MS && <HistoryDivider label={t('chat.history')} />}
@@ -596,7 +624,7 @@ export default function ChatPage() {
                           onRestoreToInput={(content) => setInput(content)}
                         />
                       }
-                      content={record.content}
+                      content={displayContent}
                       id={record.id}
                       name={t('chat.you')}
                       role="user"
@@ -654,6 +682,7 @@ export default function ChatPage() {
                             sourceComponentId: 'action-button',
                             surfaceId,
                           }),
+                        onRegenerateError: (runId) => regenerateError(runId),
                       }, { deletedKeys, narration, showReasoning, showSurfaces: true })}
                     </ChatItem>
                   )}
@@ -707,7 +736,7 @@ export default function ChatPage() {
                       />
                     )
                   }
-                  content={answer}
+                  content={displayAnswer}
                   id="current-assistant"
                   loading={running}
                   name={agent}

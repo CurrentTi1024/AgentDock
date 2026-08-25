@@ -326,6 +326,42 @@ test('RUN_ERROR：无部分回复时新建 error-<runId> assistant 消息（可�
   assert.equal(state.messageOrder.at(-1), 'error-run-error-2');
 });
 
+test('RUN_ERROR：同时投影 agentDock.error 活动（供 LobeHub 错误卡渲染与持久化）', () => {
+  let state = createRunState('run-error-2b', 'thread-error-2b');
+  state = reduceRunEvent(state, {
+    eventId: '1',
+    event: {
+      code: 'NETWORK_ERROR',
+      message: 'connection lost',
+      runId: 'run-error-2b',
+      threadId: 'thread-error-2b',
+      type: 'RUN_ERROR',
+    },
+  });
+  const activity = state.activities['error-run-error-2b'];
+  assert.equal(activity?.activityType, 'agentDock.error');
+  assert.equal(activity?.message, 'connection lost');
+  assert.equal(activity?.code, 'NETWORK_ERROR');
+  assert.ok(
+    state.orderedBlocks.some(
+      (block) => block.kind === 'activity' && block.id === 'error-run-error-2b',
+    ),
+    '错误活动进入 orderedBlocks，历史渲染可识别',
+  );
+  // 用户主动取消（CANCELLED）不伪造错误活动
+  state = reduceRunEvent(createRunState('run-error-2c', 'thread-error-2c'), {
+    eventId: '1',
+    event: {
+      code: 'CANCELLED',
+      message: 'cancelled',
+      runId: 'run-error-2c',
+      threadId: 'thread-error-2c',
+      type: 'RUN_ERROR',
+    },
+  });
+  assert.equal(Object.keys(state.activities).length, 0);
+});
+
 test('RUN_ERROR CANCELLED（用户主动取消）：不伪造 assistant 回复', () => {
   const state = reduceRunEvent(createRunState('run-error-3', 'thread-error-3'), {
     eventId: '1',
