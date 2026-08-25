@@ -203,3 +203,63 @@ test('ACTIVITY_SNAPSHOT stores activityType alongside content for live rendering
   assert.equal(state.activities['task-10'].status, 'completed');
   assert.deepEqual(state.orderedBlocks, [{ id: 'task-10', kind: 'activity' }]);
 });
+
+test('RUN_ERROR：真实错误生成 assistant 错误回复（最后一个 chunk）并置 error 元信息', () => {
+  let state = createRunState('run-error-1', 'thread-error-1');
+  state = reduceRunEvent(state, {
+    eventId: '1',
+    event: { type: 'TEXT_MESSAGE_START', messageId: 'assistant-partial', role: 'assistant' },
+  });
+  state = reduceRunEvent(state, {
+    eventId: '2',
+    event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'assistant-partial', delta: '分析中' },
+  });
+  state = reduceRunEvent(state, {
+    eventId: '3',
+    event: {
+      code: 'FAB_UPSTREAM_ERROR',
+      message: 'upstream exploded',
+      runId: 'run-error-1',
+      threadId: 'thread-error-1',
+      type: 'RUN_ERROR',
+    },
+  });
+  assert.equal(state.status, 'error');
+  assert.deepEqual(state.error, { code: 'FAB_UPSTREAM_ERROR', message: 'upstream exploded' });
+  // 已有部分回复时，错误文本追加为该 assistant 消息的最后一个 chunk。
+  assert.equal(state.messages['assistant-partial'].content, '分析中\n\nupstream exploded');
+  assert.equal(state.messageOrder.at(-1), 'assistant-partial');
+});
+
+test('RUN_ERROR：无部分回复时新建 error-<runId> assistant 消息（可持久化为历史）', () => {
+  let state = createRunState('run-error-2', 'thread-error-2');
+  state = reduceRunEvent(state, {
+    eventId: '1',
+    event: {
+      code: 'NETWORK_ERROR',
+      message: 'connection lost',
+      runId: 'run-error-2',
+      threadId: 'thread-error-2',
+      type: 'RUN_ERROR',
+    },
+  });
+  assert.equal(state.status, 'error');
+  assert.equal(state.messages['error-run-error-2'].content, 'connection lost');
+  assert.equal(state.messages['error-run-error-2'].role, 'assistant');
+  assert.equal(state.messageOrder.at(-1), 'error-run-error-2');
+});
+
+test('RUN_ERROR CANCELLED（用户主动取消）：不伪造 assistant 回复', () => {
+  const state = reduceRunEvent(createRunState('run-error-3', 'thread-error-3'), {
+    eventId: '1',
+    event: {
+      code: 'CANCELLED',
+      message: 'Run cancelled by user.',
+      runId: 'run-error-3',
+      threadId: 'thread-error-3',
+      type: 'RUN_ERROR',
+    },
+  });
+  assert.equal(state.status, 'cancelled');
+  assert.equal(Object.keys(state.messages).length, 0, '取消不生成 assistant 消息');
+});

@@ -776,6 +776,46 @@ test('removeMessages：删除消息时按 raw id 联动清理 running checkpoint
   assert.equal(messages.some((record) => record.id === `text:${input.messages[0].id}`), false);
 });
 
+test('RUN_ERROR 经 reducer 生成 assistant 错误回复并持久化为历史', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-run-error-persist';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'run-error-persist',
+    type: 'agent',
+  });
+  const { input } = buildSingleAgentRun(sessionId, 'run-error-persist');
+  // 模拟 runtime 捕获上游错误后注入 RUN_ERROR（无正常回复）。
+  let state = createRunState('run-error-persist', `thread-${sessionId}`);
+  state = reduceRunEvent(state, {
+    eventId: '1',
+    event: { type: 'RUN_STARTED', threadId: state.threadId, runId: state.runId },
+  });
+  state = reduceRunEvent(state, {
+    eventId: '2',
+    event: {
+      code: 'FAB_UPSTREAM_ERROR',
+      message: 'upstream exploded',
+      runId: state.runId,
+      threadId: state.threadId,
+      type: 'RUN_ERROR',
+    },
+  });
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input, state);
+
+  const messages = await sessionHistoryService.getMessages(sessionId);
+  const errorRow = messages.find((record) => record.id === 'text:error-run-error-persist');
+  assert.ok(errorRow, '错误回复作为消息行落库');
+  assert.equal(errorRow?.role, 'assistant');
+  assert.equal(errorRow?.content, 'upstream exploded');
+  assert.equal(await sessionHistoryService.getLatestRun(sessionId), undefined, '终态不落 checkpoint');
+});
+
 test('listSessions 分页：limit/offset 按 updatedAt 倒序，countSessions 返回总数', async () => {
   await sessionDatabase.delete();
   await sessionDatabase.open();

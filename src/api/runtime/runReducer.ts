@@ -40,7 +40,34 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
   switch (event.type) {
     case 'RUN_STARTED': next.status = 'running'; break;
     case 'RUN_FINISHED': next.status = 'success'; break;
-    case 'RUN_ERROR': next.status = event.code === 'CANCELLED' ? 'cancelled' : 'error'; next.error = { code: String(event.code || ''), message: String(event.message || 'Run failed') }; break;
+    case 'RUN_ERROR': {
+      next.status = event.code === 'CANCELLED' ? 'cancelled' : 'error';
+      next.error = { code: String(event.code || ''), message: String(event.message || 'Run failed') };
+      // 真实错误（非用户主动取消）作为本轮 assistant 的“最后一个 chunk”：
+      // 已有部分回复则追加在末尾，没有则新建 error-<runId> 消息。
+      // 这样错误既在界面上成为可见的 assistant 回复，也会随 persistRunSnapshot
+      // 作为 assistant 文本持久化到历史，刷新后不丢失。
+      if (event.code !== 'CANCELLED') {
+        const errorText = String(event.message || event.code || 'Run failed');
+        let targetId = '';
+        for (let index = next.messageOrder.length - 1; index >= 0; index -= 1) {
+          const messageId = next.messageOrder[index];
+          if (next.messages[messageId]?.role === 'assistant') {
+            targetId = messageId;
+            break;
+          }
+        }
+        if (!targetId) targetId = `error-${next.runId}`;
+        const existing = next.messages[targetId];
+        next.messages[targetId] = {
+          ...(existing ?? { content: '', id: targetId, role: 'assistant' }),
+          content: existing?.content ? `${existing.content}\n\n${errorText}` : errorText,
+          eventId: input.eventId,
+        };
+        if (!next.messageOrder.includes(targetId)) next.messageOrder.push(targetId);
+      }
+      break;
+    }
     case 'TEXT_MESSAGE_START': if (!id) break; next.messages[id] = { id, role: String(event.role || 'assistant') as RuntimeMessage['role'], content: '', eventId: input.eventId }; appendMessageId(next, id); break;
     case 'TEXT_MESSAGE_CONTENT': if (!id) break; next.messages[id] ||= { id, role: 'assistant', content: '' }; appendMessageId(next, id); next.messages[id].content += String(event.delta || ''); if (input.eventId) next.messages[id].eventId = input.eventId; break;
     case 'TEXT_MESSAGE_CHUNK': if (!id) break; next.messages[id] ||= { id, role: 'assistant', content: '' }; appendMessageId(next, id); next.messages[id].content += String(event.delta || event.content || ''); if (input.eventId) next.messages[id].eventId = input.eventId; break;

@@ -342,6 +342,15 @@ eventId 必须**字符串可排序**（序号定宽补零，如 `{epoch_ms}-{seq
 - 前端“同会话并发 run 门禁”：上一轮未结束（running/paused）时忽略新发送。
 - 重放安全：`processedEventIds` 精确去重 + 后端按游标只补缺失事件。
 
+### 8.6 错误兜底：RUN_ERROR → assistant 回复（不挂 runtime、不丢历史）
+
+无论错误来自**上游 Orchestration**还是 **Runtime 内部 run**，统一按“结构化 RUN_ERROR → 界面可见的 assistant 回复 → 持久化到历史”处理：
+
+1. **Runtime 侧主动捕获**（`FabRoutingAgent`）：缺 FAB 配置、上游请求失败/流中断、内部 run 报错，一律合成 `RUN_ERROR` AG-UI 事件（code + message）而不是抛异常/断流——前端不再收到 network error，也不会让 runtime 挂掉；重复 run 守卫同样返回结构化 RUN_ERROR。
+2. **reducer 生成 assistant 回复**：`RUN_ERROR`（真实错误，非 CANCELLED）把错误文本作为该轮 assistant 的**最后一个 chunk**——已有部分回复则追加在末尾，没有则新建 `error-<runId>` 消息；同时置 `status/error` 元信息。用户主动取消（CANCELLED）不伪造回复。
+3. **持久化**：该错误消息是普通 assistant 文本，随 `persistRunSnapshot` 落库，刷新后作为该轮 assistant 的回答存在于历史；可随 `removeTurn` 整轮删除。
+4. **兜底路径统一**：`runStore.execute`（mock/direct）catch 不再只改状态，改为经 reducer 注入 RUN_ERROR；官方路径 `runAgent` catch 本就 applyEvent RUN_ERROR，两条路径行为一致。
+
 ---
 
 ## 9. 分页与懒加载机制
