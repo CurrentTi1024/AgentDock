@@ -280,3 +280,43 @@ test('RUN_ERROR CANCELLED（用户主动取消）：不伪造 assistant 回复',
   assert.equal(state.status, 'cancelled');
   assert.equal(Object.keys(state.messages).length, 0, '取消不生成 assistant 消息');
 });
+
+test('多轮错误：第二轮 MESSAGES_SNAPSHOT 带入上一轮错误回复时，不串轮、顺序 Q1A1Q2A2', () => {
+  // 第一轮：Q1 + 错误 A1（error-run-err-1）
+  let run1 = createRunState('run-err-1', 'thread-multi-err');
+  run1 = reduceRunEvent(run1, { eventId: '1', event: { type: 'RUN_STARTED', threadId: run1.threadId, runId: run1.runId } });
+  run1 = reduceRunEvent(run1, { eventId: '2', event: { type: 'TEXT_MESSAGE_START', messageId: 'q1', role: 'user' } });
+  run1 = reduceRunEvent(run1, {
+    eventId: '3',
+    event: { code: 'BACKEND_ERROR', message: 'err1', runId: run1.runId, threadId: run1.threadId, type: 'RUN_ERROR' },
+  });
+  assert.equal(run1.messages['error-run-err-1'].content, 'err1');
+  assert.deepEqual(run1.messageOrder, ['q1', 'error-run-err-1']);
+
+  // 第二轮：MESSAGES_SNAPSHOT 携带 [Q1, A1(err1), Q2]，随后本轮 RUN_ERROR
+  let run2 = createRunState('run-err-2', 'thread-multi-err');
+  run2 = reduceRunEvent(run2, { eventId: '10', event: { type: 'RUN_STARTED', threadId: run2.threadId, runId: run2.runId } });
+  run2 = reduceRunEvent(run2, {
+    eventId: '11',
+    event: {
+      type: 'MESSAGES_SNAPSHOT',
+      messages: [
+        { id: 'q1', role: 'user', content: 'Q1' },
+        { id: 'error-run-err-1', role: 'assistant', content: 'err1' },
+        { id: 'q2', role: 'user', content: 'Q2' },
+      ],
+    },
+  });
+  run2 = reduceRunEvent(run2, {
+    eventId: '12',
+    event: { code: 'BACKEND_ERROR', message: 'err2', runId: run2.runId, threadId: run2.threadId, type: 'RUN_ERROR' },
+  });
+  assert.deepEqual(
+    run2.messageOrder,
+    ['q1', 'error-run-err-1', 'q2', 'error-run-err-2'],
+    '顺序必须 Q1 A1 Q2 A2',
+  );
+  assert.equal(run2.messages['error-run-err-1'].content, 'err1', '第一轮错误内容不被第二轮污染');
+  assert.equal(run2.messages['error-run-err-2'].content, 'err2');
+  assert.equal(run2.messages['error-run-err-2'].runId, 'run-err-2');
+});

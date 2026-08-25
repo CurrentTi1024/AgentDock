@@ -15,11 +15,12 @@ interface AgentSidebarHeaderProps {
   agentName: string;
   agents: MentionAgent[];
   fab: string;
+  icon?: string;
   onSwitchAgent: (agent: MentionAgent) => void;
 }
 
 const AgentSidebarHeader = memo<AgentSidebarHeaderProps>(
-  ({ agentName, agents, fab, onSwitchAgent }) => {
+  ({ agentName, agents, fab, icon, onSwitchAgent }) => {
     const { t } = useI18n();
     const navigate = useNavigate();
     return (
@@ -48,7 +49,7 @@ const AgentSidebarHeader = memo<AgentSidebarHeaderProps>(
                 padding={2}
                 style={{ cursor: 'pointer', minWidth: 32, overflow: 'hidden' }}
               >
-                <Avatar avatar="🛩️" shape="square" size={28} />
+                <Avatar avatar={icon || '🛩️'} shape="square" size={28} />
                 <Text ellipsis fontSize={14} weight={500} style={{ maxWidth: 160 }}>
                   {agentName}
                 </Text>

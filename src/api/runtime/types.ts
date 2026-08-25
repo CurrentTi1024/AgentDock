@@ -1,5 +1,5 @@
 export type RunAction = 'a2uiAction' | 'hitlResponse' | 'resume' | 'run' | 'stop';
-export interface RuntimeMessage { content: string; id: string; role: 'assistant' | 'system' | 'tool' | 'user'; eventId?: string }
+export interface RuntimeMessage { content: string; id: string; role: 'assistant' | 'system' | 'tool' | 'user'; eventId?: string; runId?: string }
 /** LobeHub 任务/编排类消息角色（来自 MESSAGES_SNAPSHOT 自定义 role 或自定义 activity）。 */
 export type LobeTaskRole = 'assistantGroup' | 'groupTasks' | 'supervisor' | 'task' | 'tasks';
 export const LOBE_TASK_ROLES: readonly LobeTaskRole[] = ['assistantGroup', 'groupTasks', 'supervisor', 'task', 'tasks'];

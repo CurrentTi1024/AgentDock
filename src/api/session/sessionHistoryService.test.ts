@@ -849,6 +849,70 @@ test('cancelPendingCheckpoint：错误兜底后丢弃未落盘快照，flush 不
   );
 });
 
+test('多轮错误持久化：第二轮带 MESSAGES_SNAPSHOT 时落库顺序 Q1A1Q2A2 且不串轮', async () => {
+  await flushRunCheckpoint();
+  const sessionId = 'session-multi-error-order';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'multi-error-order',
+    type: 'agent',
+  });
+  const baseInput: RunAgentInput = {
+    context: [],
+    forwardedProps: { action: 'run', agentId: 'flight-analysis', fab: 'F15B', sessionId },
+    messages: [],
+    runId: '',
+    state: {},
+    threadId: `thread-${sessionId}`,
+    tools: [],
+  };
+  // 第一轮：Q1 + 错误 A1
+  let run1 = createRunState('me-run-1', `thread-${sessionId}`);
+  run1 = reduceRunEvent(run1, { eventId: '1', event: { type: 'RUN_STARTED', threadId: run1.threadId, runId: run1.runId } });
+  run1 = reduceRunEvent(run1, { eventId: '2', event: { type: 'TEXT_MESSAGE_START', messageId: 'q1', role: 'user' } });
+  run1 = reduceRunEvent(run1, {
+    eventId: '3',
+    event: { code: 'BACKEND_ERROR', message: 'err1', runId: run1.runId, threadId: run1.threadId, type: 'RUN_ERROR' },
+  });
+  await sessionHistoryService.saveRunCheckpoint(sessionId, { ...baseInput, runId: 'me-run-1' }, run1);
+
+  // 第二轮：快照携带 [Q1, A1(err1), Q2]，随后本轮 RUN_ERROR
+  let run2 = createRunState('me-run-2', `thread-${sessionId}`);
+  run2 = reduceRunEvent(run2, { eventId: '10', event: { type: 'RUN_STARTED', threadId: run2.threadId, runId: run2.runId } });
+  run2 = reduceRunEvent(run2, {
+    eventId: '11',
+    event: {
+      type: 'MESSAGES_SNAPSHOT',
+      messages: [
+        { id: 'q1', role: 'user', content: 'Q1' },
+        { id: 'error-me-run-1', role: 'assistant', content: 'err1' },
+        { id: 'q2', role: 'user', content: 'Q2' },
+      ],
+    },
+  });
+  run2 = reduceRunEvent(run2, {
+    eventId: '12',
+    event: { code: 'BACKEND_ERROR', message: 'err2', runId: run2.runId, threadId: run2.threadId, type: 'RUN_ERROR' },
+  });
+  await sessionHistoryService.saveRunCheckpoint(sessionId, { ...baseInput, runId: 'me-run-2' }, run2);
+
+  const messages = await sessionHistoryService.getMessages(sessionId);
+  const texts = messages.filter((record) => record.kind === 'text');
+  assert.deepEqual(
+    texts.map((record) => record.id),
+    ['text:q1', 'text:error-me-run-1', 'text:q2', 'text:error-me-run-2'],
+    '落库顺序必须 Q1 A1 Q2 A2',
+  );
+  assert.equal(texts[1].content, 'err1', 'A1 内容不被第二轮污染');
+  assert.equal(texts[3].content, 'err2');
+  assert.equal(texts[3].role, 'assistant');
+});
+
 test('listSessions 分页：limit/offset 按 updatedAt 倒序，countSessions 返回总数', async () => {
   await sessionDatabase.delete();
   await sessionDatabase.open();

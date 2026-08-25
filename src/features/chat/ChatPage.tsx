@@ -8,6 +8,7 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { resolveChatAgentId } from '@/features/chat/agentDetail';
+import { resolveSessionAgent } from '@/features/chat/agentIdentity';
 import ChatHeader from '@/features/chat/components/ChatHeader';
 import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
@@ -108,8 +109,12 @@ export default function ChatPage() {
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
   const [mentionsLoading, setMentionsLoading] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<MentionAgent>();
-  const [agent, setAgent] = useState('FlightAnalysis_Agent-F15B');
+  // 头部/输入框显示的 Agent 名。用「selectedAgent（URL/会话解析）→ session.agentName → 兜底」
+  // 的响应式派生，避免多个 effect 异步写 agent 状态互相覆盖（ensureSession 的 .then 竞态
+  // 曾把回填后的显示名打回「新对话-F15B」）。
+  const [agentFallback, setAgentFallback] = useState('FlightAnalysis_Agent-F15B');
   const [session, setSession] = useState<SessionRecord>();
+  const agent = selectedAgent?.agentFullName || session?.agentName || agentFallback;
   const [history, setHistory] = useState<SessionMessageRecord[]>([]);
   // 会话内消息懒加载：首屏最近一页，加载更早按文本所属 run 整轮追加。
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
@@ -219,6 +224,8 @@ export default function ChatPage() {
   const opStepCount = useMemo(() => Object.values(run?.steps || {}).length, [run]);
 
   // @ 触发时经 Service 拉取可提及 Agent（mock 模式返回 mock 数据），只拉一次并缓存。
+  // 挂载即预取：输入框左下角「切换 Agent」下拉需要候选列表才能默认选中当前 Agent，
+  // 且会话绑定（selectedAgent）也要在 mentions 就绪后才能解析。
   const mentionsLoadedRef = useRef(false);
   const mentionsInFlightRef = useRef(false);
   const mentionsRef = useRef<MentionAgent[]>([]);
@@ -231,12 +238,15 @@ export default function ChatPage() {
       mentionsRef.current = items;
       setMentions(items);
       mentionsLoadedRef.current = true;
-      setSelectedAgent((current) => current ?? items[0]);
     } finally {
       mentionsInFlightRef.current = false;
       setMentionsLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    void ensureMentions();
+  }, [ensureMentions]);
 
   const handleInputChange = useCallback(
     (next: string) => {
@@ -266,9 +276,27 @@ export default function ChatPage() {
     );
     if (requested) {
       setSelectedAgent(requested);
-      setAgent(requested.agentFullName);
+      setAgentFallback(requested.agentFullName);
     }
   }, [mentions, searchParams]);
+
+  // 输入框左下角默认选中当前 Agent：URL 未显式指定时按会话记录解析
+  // （精确匹配 agentId+fab，绝不误绑列表第一项）；新会话无 agentName 时回填会话与头部显示。
+  useEffect(() => {
+    if (!mentions.length || !session || session.id !== sessionId) return;
+    if (searchParams.get('agent') && searchParams.get('fab')) return;
+    const resolved = resolveSessionAgent(mentions, session);
+    if (!resolved) return;
+    setSelectedAgent((current) => current ?? resolved);
+    if (!session.agentName || session.agentId !== resolved.agentId || session.fab !== resolved.fab) {
+      void sessionHistoryService.updateSession(session.id, {
+        agentId: resolved.agentId,
+        agentName: resolved.agentFullName,
+        fab: resolved.fab,
+        version: resolved.version,
+      });
+    }
+  }, [mentions, searchParams, session]);
 
   const ensureSession = useCallback(async (): Promise<SessionRecord> => {
     // 路由切换会复用同一组件实例，不能信任内存里旧会话的 session state。
@@ -302,7 +330,7 @@ export default function ChatPage() {
   useEffect(() => {
     void ensureSession().then((value) => {
       // agentName 通常是 agentFullName（已含 FAB），不要再拼一次 -fab，避免双后缀。
-      setAgent(value.agentName || `${value.title}-${value.fab}`.replace(/\s+/g, ''));
+      setAgentFallback(value.agentName || `${value.title}-${value.fab}`.replace(/\s+/g, ''));
     });
     void loadInitialHistory();
     void restore();
