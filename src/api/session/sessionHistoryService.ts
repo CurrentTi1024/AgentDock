@@ -356,7 +356,7 @@ export const sessionHistoryService = {
     // LobeHub 同款：占位创建 + 流式增量更新——每条 flush 都把当前快照投影到 messages 行
     // （空/部分内容也落行，后续 flush 用同一 id upsert 覆盖）。这样：
     // - 刷新/断线时 DB 里始终有该消息（部分内容可恢复）；
-    // - 文本行保持“先于其过程块”的顺序（空占位也占据文本位置），removeMessages 整块删除不失效。
+    // - 文本行保持“先于其过程块”的顺序（空占位也占据文本位置），历史按轮次不可变。
     await this.persistRunSnapshot(sessionId, snapshot);
     await db.sessions.update(sessionId, { updatedAt });
     notifySessionsChanged();
