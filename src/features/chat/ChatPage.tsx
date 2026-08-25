@@ -8,7 +8,11 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { resolveChatAgentId } from '@/features/chat/agentDetail';
-import { resolveChatRouteQuery, resolveSessionAgent } from '@/features/chat/agentIdentity';
+import {
+  resolveAgentIcon,
+  resolveChatRouteQuery,
+  resolveSessionAgent,
+} from '@/features/chat/agentIdentity';
 import ChatHeader from '@/features/chat/components/ChatHeader';
 import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
@@ -167,6 +171,7 @@ export default function ChatPage() {
 
   const fab = selectedAgent?.fab || session?.fab || agent.split('-').at(-1) || 'F15B';
   const agentId = resolveChatAgentId(selectedAgent?.agentId, session?.agentId);
+  const agentIcon = resolveAgentIcon(mentions, agentId, fab);
   const {
     agent: runtimeAgent,
     refreshAgentContext,
@@ -388,7 +393,7 @@ export default function ChatPage() {
   const sendMessageWith = async (prompt: string) => {
     if (!prompt || running) return;
     // 解析 @Agent 提及：先确保候选列表已加载（直接手输 @ 也可能没触发过联想菜单）。
-    if (prompt.includes('@')) await ensureMentions();
+    if (prompt.includes('@') || prompt.includes('<mention')) await ensureMentions();
     const mentionAgents = parseMentionedAgents(prompt, mentionsRef.current).filter(
       (mention) =>
         !(mention.agentId === (selectedAgent?.agentId || session?.agentId) && mention.fab === fab),
@@ -420,17 +425,11 @@ export default function ChatPage() {
     navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
   }, [location.pathname, location.search, location.state, navigate, session, sendMessageWith]);
 
-  const sendMessage = async () => {
-    const prompt = input;
+  const handleSend = (content: string) => {
+    const prompt = content.trim();
     if (!prompt || running) return;
     setInput('');
-    await sendMessageWith(prompt);
-  };
-
-  const selectMention = (mention: MentionAgent) => {
-    // @ 提及只负责插入 @AgentName 文本（由 ChatInput 完成），不切换当前会话 Agent；
-    // 切换 Agent 走输入框左下角下拉或会话侧栏头部。
-    void mention;
+    void sendMessageWith(prompt);
   };
 
   const switchAgent = useCallback(
@@ -635,6 +634,7 @@ export default function ChatPage() {
           agentName={agent}
           artifactOpen={artifactOpen}
           fab={fab}
+          icon={agentIcon}
           status={run?.status}
           onToggleArtifact={() => setArtifactOpen((open) => !open)}
         />
@@ -650,7 +650,11 @@ export default function ChatPage() {
             }}
           >
             {!hasAnyMessage && (
-              <Welcome agentName={agent} onSuggestion={(suggestion) => setInput(t(suggestion))} />
+              <Welcome
+                agentIcon={agentIcon}
+                agentName={agent}
+                onSuggestion={(suggestion) => setInput(t(suggestion))}
+              />
             )}
             {displayUnits.map(({ blocks: storedBlocks, narration, record }, index) => {
               const previous = index > 0 ? displayUnits[index - 1].record : undefined;
@@ -847,14 +851,11 @@ export default function ChatPage() {
               approvalMode={approvalMode}
               fab={fab}
               mentions={mentions}
-              mentionsLoading={mentionsLoading}
               running={running}
               value={input}
               onChange={handleInputChange}
               onApprovalModeChange={setApprovalMode}
-              onMentionTrigger={() => void ensureMentions()}
-              onSelectMention={selectMention}
-              onSend={() => void sendMessage()}
+              onSend={handleSend}
               onStop={() => void stop()}
               onSwitchAgent={(agent) => switchAgent(agent)}
               runStatus={run?.status}

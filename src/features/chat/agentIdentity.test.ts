@@ -7,6 +7,7 @@ import {
   buildAgentSessionPath,
   parseAgentChatSessionId,
   resolveChatRouteQuery,
+  resolveAgentIcon,
   resolveAgentSidebarIdentity,
   resolveSessionAgent,
 } from './agentIdentity.ts';
@@ -96,6 +97,13 @@ test('buildAgentSessionPath：会话 URL 始终携带 agentId+fab（缺字段时
     '/chat/session-1?agent=flight-analysis&fab=F18B',
   );
   assert.equal(buildAgentSessionPath('session-1', undefined, 'F15B'), '/chat/session-1');
+});
+
+test('resolveAgentIcon：按 agentId+fab 返回图标，未知 Agent 返回 undefined（切换 Agent 后 icon 跟随）', () => {
+  assert.equal(resolveAgentIcon(agents, 'code-review', 'F15B'), '🧑‍💻');
+  assert.equal(resolveAgentIcon(agents, 'flight-analysis', 'F15B'), '🛩️');
+  assert.equal(resolveAgentIcon(agents, 'unknown', 'F99B'), undefined);
+  assert.equal(resolveAgentIcon(agents, undefined, 'F15B'), undefined);
 });
 
 test('AgentSidebar 刷新/直达链接：无 session 时用 URL ?agent=&fab= 匹配列表解析名称', () => {

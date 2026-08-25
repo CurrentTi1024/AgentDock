@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
+import { findLogicalSurfaceId } from '@/api/runtime/runReducer';
 import type { RunAgentInput, RuntimeMessage, RuntimeRunState } from '@/api/runtime/types';
 export interface SessionRecord { agentId?: string; agentName?: string; createdAt: string; deletedMessageIds?: string[]; fab: string; group?: unknown; id: string; lastMessageAt?: string; pinned: boolean; threadId: string; title: string; type: 'agent' | 'group'; updatedAt: string; version?: string }
 export type SessionMessageKind = 'activity' | 'reasoning' | 'step' | 'surface' | 'text' | 'tool';
@@ -454,6 +455,10 @@ export const sessionHistoryService = {
         .and((record) => record.runId === snapshot.runId)
         .delete();
     }
+    // LobeHub 同款：占位创建 + 流式增量更新——每条 flush 都把当前快照投影到 messages 行
+    // （空/部分内容也落行，后续 flush 用同一 id upsert 覆盖）。这样：
+    // - 刷新/断线时 DB 里始终有该消息（部分内容可恢复）；
+    // - 文本行保持“先于其过程块”的顺序（空占位也占据文本位置），removeMessages 整块删除不失效。
     await this.persistRunSnapshot(sessionId, snapshot);
     await db.sessions.update(sessionId, { updatedAt });
     notifySessionsChanged();
@@ -498,9 +503,6 @@ export const sessionHistoryService = {
       // 只持久化用户与助手文本；system/developer 上下文消息（如 A2UI catalog）
       // 不进入可见历史，避免以 assistant 气泡误渲染。
       if (message.role !== 'user' && message.role !== 'assistant') continue;
-      // 流式中间态不落“空占位”：TEXT_MESSAGE_START 后内容尚未到达时 content 为空，
-      // 若此时恰逢中途 flush 会把空行持久化，刷新后出现空白气泡；有内容后按序落库即可。
-      if (!message.content) continue;
       // 文本消息记录自己最后一次更新时的 eventId；其余类型记录 run 当前游标。
       push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, eventId: message.eventId ?? snapshot.latestEventId });
     }
@@ -512,7 +514,6 @@ export const sessionHistoryService = {
       if (!message || !message.id) continue;
       if (message.role !== 'user' && message.role !== 'assistant') continue;
       if (String(message.id).startsWith('lc_run--')) continue;
-      if (!message.content) continue;
       push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, eventId: message.eventId ?? snapshot.latestEventId });
     }
     for (const [id, content] of Object.entries(snapshot.reasoning || {})) push('reasoning', id, { content, runId: snapshot.runId, eventId: snapshot.latestEventId });
@@ -522,7 +523,12 @@ export const sessionHistoryService = {
       const payload = (activity && typeof activity === 'object') ? (activity as Record<string, unknown>) : {};
       const activityType = String(payload.activityType || '');
       push('activity', id, { payload: { ...payload, activityType, messageId: id }, runId: snapshot.runId, eventId: snapshot.latestEventId });
-      if (activityType === 'a2ui.surface') push('surface', String(payload.surfaceId || id), { payload: { ...payload, surfaceId: payload.surfaceId || id }, runId: snapshot.runId, eventId: snapshot.latestEventId });
+      if (activityType === 'a2ui.surface') {
+        // 与 snapshot.surfaces 共用“逻辑 surfaceId”键：a2ui.surface 活动与 render_a2ui
+        // 工具的 components 版是同一界面，必须去重，否则历史出现重复 surface / JSON 回退卡。
+        const surfaceId = findLogicalSurfaceId(payload) || String(payload.surfaceId || id);
+        push('surface', surfaceId, { payload: { ...payload, surfaceId }, runId: snapshot.runId, eventId: snapshot.latestEventId });
+      }
     }
     for (const [surfaceId, surface] of Object.entries(snapshot.surfaces || {})) {
       const payload = (surface && typeof surface === 'object') ? (surface as Record<string, unknown>) : {};

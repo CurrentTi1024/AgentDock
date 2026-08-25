@@ -346,9 +346,9 @@ const GroupChatPage = () => {
   };
 
   // 发送输入框内容后立即清空输入框（与单聊一致）；示例消息走 sendMessage 不清空。
-  const sendInputMessage = () => {
-    if (!input.trim() || !session) return;
-    const prompt = input;
+  const handleSend = (content: string) => {
+    const prompt = content.trim();
+    if (!prompt || !session) return;
     setInput('');
     void sendMessage(prompt);
   };
@@ -736,9 +736,7 @@ const GroupChatPage = () => {
               running={running}
               value={input}
               onChange={setInput}
-              onMentionTrigger={() => undefined}
-              onSelectMention={() => undefined}
-              onSend={sendInputMessage}
+              onSend={handleSend}
               onStop={() => void stop()}
               runStatus={run?.status}
               startTime={runStartedAt}

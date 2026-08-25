@@ -1016,7 +1016,7 @@ test('sequence 单调：系统时钟回拨后，新消息仍排在旧消息之�
   );
 });
 
-test('流式中间态：A 尚无内容时不落空占位，有内容后按序落库', async () => {
+test('LobeHub 同款占位+增量：空占位行存在，内容到达后同 id upsert 且顺序正确', async () => {
   await flushRunCheckpoint();
   const sessionId = 'session-no-empty-placeholder';
   await sessionHistoryService.createSession({
@@ -1038,26 +1038,28 @@ test('流式中间态：A 尚无内容时不落空占位，有内容后按序落
     threadId: `thread-${sessionId}`,
     tools: [],
   };
-  // 中途 flush：Q 有内容，assistant 仅有 TEXT_MESSAGE_START（content 为空）。
+  // 中途 flush：Q 有内容，assistant 仅有 TEXT_MESSAGE_START（content 为空）——占位行照常落库。
   let state = createRunState('empty-run', `thread-${sessionId}`);
   state = reduceRunEvent(state, { eventId: '1', event: { type: 'RUN_STARTED', threadId: state.threadId, runId: state.runId } });
   state.messages['q-empty'] = { content: 'Q', id: 'q-empty', role: 'user' };
   state.messageOrder.push('q-empty');
   state = reduceRunEvent(state, { eventId: '2', event: { type: 'TEXT_MESSAGE_START', messageId: 'a-empty', role: 'assistant' } });
   await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...state, status: 'running' as const });
-
   let messages = await sessionHistoryService.getMessages(sessionId);
-  assert.equal(messages.some((record) => record.id === 'text:a-empty'), false, '空内容不落占位行');
-  assert.ok(messages.some((record) => record.id === 'text:q-empty'), '用户消息已落库');
+  const placeholder = messages.find((record) => record.id === 'text:a-empty');
+  assert.ok(placeholder, '空占位行存在（LobeHub 同款：发送即建行）');
+  assert.equal(placeholder?.content, '');
 
-  // 内容到达后再 flush：assistant 行出现，且排在用户行之后。
+  // 内容到达后再 flush：同一 id upsert，content 覆盖、sequence 不变，仍排在用户之后。
   state = reduceRunEvent(state, { eventId: '3', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'a-empty', delta: '回复内容' } });
   await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...state, status: 'running' as const });
   messages = await sessionHistoryService.getMessages(sessionId);
-  const assistantRow = messages.find((record) => record.id === 'text:a-empty');
-  assert.ok(assistantRow, '有内容后落库');
-  assert.equal(assistantRow?.content, '回复内容');
   const userRow = messages.find((record) => record.id === 'text:q-empty');
+  const assistantRow = messages.find((record) => record.id === 'text:a-empty');
+  assert.ok(userRow, '用户消息落库');
+  assert.ok(assistantRow, '占位行更新为内容');
+  assert.equal(assistantRow?.content, '回复内容');
+  assert.equal(assistantRow?.sequence, placeholder?.sequence, '占位行 upsert 不改变 sequence');
   assert.ok(userRow && assistantRow && assistantRow.sequence > userRow.sequence, 'assistant 排在用户之后');
 });
 
