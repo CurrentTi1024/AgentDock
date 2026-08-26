@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': 'Временно объединяйте несколько агентов, выбирайте режим оркестрации и начинайте совместную работу.',
   'workspace.group.hitlDesc': 'Продолжите с тем же runId, чтобы выполнить и подвести итог после подтверждения.',
   'workspace.group.hitlTitle': 'Супервизор-агент запрашивает доступ к данным',
-  'workspace.group.members': '3 агента',
+  'workspace.group.members': '{count} агента',
   'workspace.group.mode': 'Режим оркестрации',
   'workspace.group.modeHint': 'Режимы поступают из agentGroupService; страница не зашивает их.',
   'workspace.group.name': 'Группа проверки полётов',

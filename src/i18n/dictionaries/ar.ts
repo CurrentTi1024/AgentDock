@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': 'اجمع عدة وكلاء مؤقتاً واختر وضع التنسيق وابدأ التعاون.',
   'workspace.group.hitlDesc': 'تابع بنفس runId للتنفيذ والتلخيص بعد التأكيد.',
   'workspace.group.hitlTitle': 'يطلب الوكيل المشرف الوصول إلى البيانات',
-  'workspace.group.members': '3 وكلاء',
+  'workspace.group.members': '{count} وكلاء',
   'workspace.group.mode': 'وضع التنسيق',
   'workspace.group.modeHint': 'تأتي الأوضاع من agentGroupService؛ لا تقوم الصفحة بتثبيتها.',
   'workspace.group.name': 'مجموعة مراجعة الرحلة',

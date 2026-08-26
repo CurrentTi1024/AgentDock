@@ -1,7 +1,7 @@
 # LobeHub 信息粒度组件渲染矩阵（fully copy LobeHub）
 
-> 状态：P0 渲染缺口已补齐（2026-08-19），剩余为 P1/P2 视觉打磨
-> 基线：`/private/tmp/lobehub-canary`
+> 状态：Chat 顶层消息角色和 HITL 组件已完成源码级迁移（2026-08-27）
+> 基线：`/Users/chenguo/lobehub` canary commit `920880679a7138282e13f18303a6183f63ef677a`
 > 落地方式：AG-UI/A2UI 事件统一经投影层转成 LobeHub ViewModel 后再喂给下列组件（不做事件 Adapter），详见 `09-agui-lobehub-rendering-adapter.md`。
 
 ## 1. 目的
@@ -12,20 +12,23 @@
 
 | 信息粒度 | LobeHub 上游组件 | AgentDock 当前组件 | 状态 | 缺口 |
 |---|---|---|---|---|
-| 消息外壳（头像/名称/时间/操作区） | `Conversation/ChatItem` | 官方 `@lobehub/ui/chat` ChatItem 包装 | ✅ 已迁移 | 与 LobeHub 本体同款原语：bubble 卡片、头像+标题+hover 时间、hover 操作栏、加载动画 |
-| 用户消息气泡 | ChatItem 用户分支 | 官方 ChatItem `placement=right` bubble | ✅ | 右对齐气泡、无头像/标题（LobeHub 个人模式），hover 显示操作 |
+| 消息外壳（头像/名称/时间/操作区） | `Conversation/ChatItem` | 仓库内 ChatItem DOM/style 的 props 化迁移 | ✅ 源码级 | 28px 头像、标题/相对时间、hover action、loading、bubble 均来自当前 canary 结构 |
+| 用户消息气泡 | ChatItem 用户分支 | 本地 ChatItem `role=user` | ✅ | 右对齐 bubble、个人模式默认无头像/标题，hover 显示操作 |
 | 助手 Markdown 文本 | `Conversation/Markdown`（LobeHub 管线） | 官方 `@lobehub/ui` Markdown（`variant="chat"`） | ✅ | 代码高亮/mermaid/流式动画原生支持 |
 | 流式光标 | LobeHub typing indicator | `▍` 字符 + LoadingDots 空态 | ✅ 简化 | 空内容时显示 LobeHub LoadingDots；正文流式时保留光标 |
 | 消息动作栏 | `MessageActionBar`（copy/regenerate/delete/feedback） | `MessageActions`（hover 显示） | ✅ 已补齐 | 用户/助手消息均支持点赞/点踩/复制/重新生成/删除，动作走回调 props |
 | Reasoning/思考 | `Messages/Reasoning` + ProcessFold | `ReasoningBlock` | ✅ 已补齐 | 流式态（思考中…）、耗时、加密值展示已由 `RuntimeReasoningMeta` 投影；折叠动画可继续打磨 |
 | Tool Call | `Messages/Tool` + Tool Inspector（参数/结果/耗时/状态） | `ToolCallBlock` | ✅ 已补齐 | `startedAt/finishedAt/apiName/resultMsgId` 由投影层记录，卡片显示耗时与错误态；参数高亮/工具图标注册可继续打磨 |
 | Task/Workflow 步骤 | `Messages/Task`、`ProcessFold`、`WorkflowCollapse` | `WorkflowStepsBlock` | ✅ | 折叠动画可打磨 |
-| Agent Delegation / Supervisor / Tasks / GroupTasks | `AssistantGroup` / activity | `ActivityBlock` | ✅ 已补齐 | `agentDock.supervisor/tasks/groupTasks/agentDelegation/assistantGroup` 统一投影为 activity 卡片（Crown/Layers/Users/ListTodo 图标 + i18n 文案）；完整 delegation 详情 P2 |
-| HITL 审批 | `Intervention`（approve/reject/edit/input/select/form） | `HitlBlock`（approve/reject + requestId） | ⚠️ | 其余 mode 待后端 wire 冻结后逐项启用 |
+| AssistantGroup / Supervisor | `Messages/AssistantGroup` | `SpecialMessages/PayloadAssistantGroup` | ✅ 源码级 | children/reasoning/tools/final answer 保序；Supervisor 增加专用标识 |
+| Task / Tasks / GroupTasks | `Messages/Task|Tasks|GroupTasks` | `SpecialMessages` 专用组件 | ✅ 源码级 | 原生 role 和结构化 payload 不再降级为 Activity |
+| AgentCouncil / CompressedGroup / Verify / TaskCallback | 同名 `Messages/*` | `SpecialMessages` 专用组件 | ✅ 源码级 | 覆盖上游 MessageItem 的全部顶层 role |
+| AgentDock 自定义 Activity | 无直接上游 role | `ActivityBlock` | ✅ 保留 | FAB/旧编排 wire 兼容；原生 role 优先走专用组件 |
+| HITL 审批 | `Intervention`（approve/reject/edit/input/select/form） | `ProcessBlocks/HitlBlock` | ✅ | 六种模式已实现并按 requestId 回传 |
 | A2UI Surface | A2UI Renderer | 官方 renderer（http）+ `A2uiStoredSurface`（恢复/Mock） | ✅ | 动态 schema 联调验证 |
 | 错误卡片 | LobeHub error message | `ErrorBlock` | ✅ 已补齐 | 展示 error code + message；重试按钮 P2 |
 | 状态快照/State | LobeHub debug 面板 | 无 UI | P2 | 可加诊断折叠块 |
-| Activity/Task 摘要 | LobeHub activity selectors | 通用 activity 渲染器 | ✅ | `CUSTOM_EVENT` 与 `MESSAGES_SNAPSHOT` 任务类 role 均投影为 activity 卡片；未知类型进 rawEvents 不白屏 |
+| Activity/Task 摘要 | LobeHub message role + activity selectors | 原生 role 走 `SpecialMessages`；仅自定义 wire 走 `ActivityBlock` | ✅ | MESSAGES_SNAPSHOT 不再把任务角色降级；未知类型进 rawEvents 不白屏 |
 | 欢迎页 | `AgentHome` | `Welcome` | ✅ | 建议按钮只 setInput 不自动发送（当前行为） |
 | 会话历史列表 | `HomeSidebar/Body` | `HomeSidebar` | ✅ | 已接 sessionHistoryService |
 | 市场列表卡片 | `community/(list)/{agent,skill,mcp}/Item` | `MarketItem` | ✅ | 结构已迁移；日期 locale P1 |

@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': 'Combineer tijdelijk meerdere agents, kies een orchestratiemodus en werk samen.',
   'workspace.group.hitlDesc': 'Ga verder met dezelfde runId om na bevestiging uit te voeren en samen te vatten.',
   'workspace.group.hitlTitle': 'Supervisor-agent vraagt toegang tot gegevens aan',
-  'workspace.group.members': '3 agents',
+  'workspace.group.members': '{count} agents',
   'workspace.group.mode': 'Orchestratiemodus',
   'workspace.group.modeHint': 'De modi komen van agentGroupService; de pagina codeert ze nooit hard.',
   'workspace.group.name': 'Vluchtreviewgroep',

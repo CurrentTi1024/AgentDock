@@ -1,8 +1,8 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { RunAgentInput, RuntimeMessage, RuntimeRunState } from '@/api/runtime/types';
+import { LOBE_VISIBLE_MESSAGE_ROLES, type RunAgentInput, type RuntimeMessage, type RuntimeRunState } from '../runtime/types.ts';
 import { findLogicalSurfaceId } from '../runtime/runReducer.ts';
 export interface SessionRecord { agentId?: string; agentName?: string; createdAt: string; deletedMessageIds?: string[]; fab: string; group?: unknown; id: string; lastMessageAt?: string; pinned: boolean; threadId: string; title: string; type: 'agent' | 'group'; updatedAt: string; version?: string }
-export type SessionMessageKind = 'activity' | 'reasoning' | 'step' | 'surface' | 'text' | 'tool';
+export type SessionMessageKind = 'activity' | 'narration' | 'reasoning' | 'step' | 'surface' | 'text' | 'tool';
 export interface SessionMessageRecord { content?: string; createdAt: string; id: string; kind: SessionMessageKind; payload?: Record<string, unknown>; role?: RuntimeMessage['role']; runId?: string; sequence: number; sessionId: string; eventId?: string }
 export interface RunCheckpointRecord { input: RunAgentInput; latestEventId?: string; runId: string; sessionId: string; snapshot: RuntimeRunState; status: RuntimeRunState['status']; threadId: string; updatedAt: string }
 export interface MessagesPage {
@@ -396,38 +396,63 @@ export const sessionHistoryService = {
         sessionId,
       });
     };
-    // 时间线顺序以协议的权威顺序（messageOrder，来自 MESSAGES_SNAPSHOT 数组）为准，
-    // 新消息按其首次出现位置分配序号；旧 checkpoint 无 messageOrder 时回退 map 迭代序。
+    // 顶层消息时间线以 messageOrder 为准。当前 run 若产生多段 assistant 文本，
+    // 只把最后一段作为最终答案，前面的段落按 orderedBlocks 转成 narration，
+    // 与 reasoning/tool/step 保持真实到达顺序（LobeHub AssistantGroup 语义）。
     const messageIds = snapshot.messageOrder?.length
       ? snapshot.messageOrder
       : Object.keys(snapshot.messages);
+    const currentAssistantIds = messageIds.filter((messageId) => {
+      const message = snapshot.messages[messageId];
+      return message?.role === 'assistant' && message.runId === snapshot.runId;
+    });
+    const hasOrderedTextBlocks = snapshot.orderedBlocks.some((block) => block.kind === 'text');
+    const intermediateAssistantIds = new Set(
+      hasOrderedTextBlocks && currentAssistantIds.length > 1
+        ? currentAssistantIds.slice(0, -1)
+        : [],
+    );
+    const obsoleteIntermediateTextKeys: string[] = [];
+    const pushMessage = (message: RuntimeMessage) => {
+      if (!message.id || String(message.id).startsWith('lc_run--')) return;
+      if (!LOBE_VISIBLE_MESSAGE_ROLES.includes(message.role as never)) return;
+      if (intermediateAssistantIds.has(message.id)) {
+        obsoleteIntermediateTextKeys.push(`text:${message.id}`);
+        return;
+      }
+      const {
+        content: _content,
+        createdAt: _createdAt,
+        eventId: _eventId,
+        id: _id,
+        role: _role,
+        runId: _runId,
+        ...messagePayload
+      } = message;
+      push('text', message.id, {
+        content: message.content,
+        eventId: message.eventId ?? snapshot.latestEventId,
+        payload: Object.keys(messagePayload).length ? messagePayload : undefined,
+        role: message.role,
+        runId: snapshot.runId,
+      });
+    };
     for (const messageId of messageIds) {
       const message = snapshot.messages[messageId];
-      if (!message || !message.id) continue;
-      // 流式占位 id（lc_run--）不落库：快照规范 UUID 才是唯一权威行，
-      // 避免同一回复以两个 id 各渲染一次（“我”+全文两个气泡）。
-      if (String(message.id).startsWith('lc_run--')) continue;
-      // 只持久化用户与助手文本；system/developer 上下文消息（如 A2UI catalog）
-      // 不进入可见历史，避免以 assistant 气泡误渲染。
-      if (message.role !== 'user' && message.role !== 'assistant') continue;
-      // 文本消息记录自己最后一次更新时的 eventId；其余类型记录 run 当前游标。
-      push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, eventId: message.eventId ?? snapshot.latestEventId });
+      if (message) pushMessage(message);
     }
     // 兜底：messageOrder 未覆盖但存在于 messages 的消息（老状态/漏调用）追加到末尾，保证不丢。
     const ordered = new Set(messageIds);
     for (const messageId of Object.keys(snapshot.messages)) {
       if (ordered.has(messageId)) continue;
       const message = snapshot.messages[messageId];
-      if (!message || !message.id) continue;
-      if (message.role !== 'user' && message.role !== 'assistant') continue;
-      if (String(message.id).startsWith('lc_run--')) continue;
-      push('text', message.id, { content: message.content, role: message.role, runId: snapshot.runId, eventId: message.eventId ?? snapshot.latestEventId });
+      if (message) pushMessage(message);
     }
-    for (const [id, content] of Object.entries(snapshot.reasoning || {})) push('reasoning', id, { content, runId: snapshot.runId, eventId: snapshot.latestEventId });
-    for (const [id, call] of Object.entries(snapshot.toolCalls || {})) push('tool', id, { content: call.args, payload: { apiName: call.apiName, args: call.args, finishedAt: call.finishedAt, name: call.name, result: call.result, resultMsgId: call.resultMsgId, startedAt: call.startedAt, status: call.status }, runId: snapshot.runId, eventId: snapshot.latestEventId });
-    for (const [id, step] of Object.entries(snapshot.steps || {})) push('step', id, { payload: { finishedAt: step.finishedAt, name: step.name, startedAt: step.startedAt, status: step.status }, runId: snapshot.runId, eventId: snapshot.latestEventId });
-    for (const [id, activity] of Object.entries(snapshot.activities || {})) {
+
+    const persistedBlocks = new Set<string>();
+    const persistActivity = (id: string, activity: unknown) => {
       const payload = (activity && typeof activity === 'object') ? (activity as Record<string, unknown>) : {};
+      if (payload.diagnosticOnly === true) return;
       const activityType = String(payload.activityType || '');
       push('activity', id, { payload: { ...payload, activityType, messageId: id }, runId: snapshot.runId, eventId: snapshot.latestEventId });
       if (activityType === 'a2ui.surface') {
@@ -436,17 +461,63 @@ export const sessionHistoryService = {
           !Array.isArray(payload.a2ui_operations) &&
           !Array.isArray(payload.components)
         ) {
-          continue;
+          return;
         }
         // 与 snapshot.surfaces 共用“逻辑 surfaceId”键：a2ui.surface 活动与 render_a2ui
         // 工具的 components 版是同一界面，必须去重，否则历史出现重复 surface / JSON 回退卡。
         const surfaceId = findLogicalSurfaceId(payload) || String(payload.surfaceId || id);
         push('surface', surfaceId, { payload: { ...payload, surfaceId }, runId: snapshot.runId, eventId: snapshot.latestEventId });
       }
-    }
-    for (const [surfaceId, surface] of Object.entries(snapshot.surfaces || {})) {
+    };
+    const persistSurface = (surfaceId: string, surface: unknown) => {
       const payload = (surface && typeof surface === 'object') ? (surface as Record<string, unknown>) : {};
       push('surface', surfaceId, { payload: { ...payload, surfaceId }, runId: snapshot.runId, eventId: snapshot.latestEventId });
+    };
+    const persistBlock = (kind: RuntimeRunState['orderedBlocks'][number]['kind'], id: string) => {
+      const key = `${kind}:${id}`;
+      if (persistedBlocks.has(key)) return;
+      persistedBlocks.add(key);
+      switch (kind) {
+        case 'text': {
+          if (!intermediateAssistantIds.has(id)) return;
+          const message = snapshot.messages[id];
+          if (message?.content) {
+            push('narration', id, { content: message.content, runId: snapshot.runId, eventId: message.eventId ?? snapshot.latestEventId });
+          }
+          return;
+        }
+        case 'reasoning': {
+          const content = snapshot.reasoning[id];
+          if (content !== undefined) push('reasoning', id, { content, runId: snapshot.runId, eventId: snapshot.latestEventId });
+          return;
+        }
+        case 'tool': {
+          const call = snapshot.toolCalls[id];
+          if (call) push('tool', id, { content: call.args, payload: { apiName: call.apiName, args: call.args, finishedAt: call.finishedAt, name: call.name, result: call.result, resultMsgId: call.resultMsgId, startedAt: call.startedAt, status: call.status }, runId: snapshot.runId, eventId: snapshot.latestEventId });
+          return;
+        }
+        case 'step': {
+          const step = snapshot.steps[id];
+          if (step) push('step', id, { payload: { finishedAt: step.finishedAt, name: step.name, startedAt: step.startedAt, status: step.status }, runId: snapshot.runId, eventId: snapshot.latestEventId });
+          return;
+        }
+        case 'activity':
+          persistActivity(id, snapshot.activities[id]);
+          return;
+        case 'surface':
+          persistSurface(id, snapshot.surfaces[id]);
+          return;
+      }
+    };
+    for (const block of snapshot.orderedBlocks) persistBlock(block.kind, block.id);
+    for (const id of Object.keys(snapshot.reasoning || {})) persistBlock('reasoning', id);
+    for (const id of Object.keys(snapshot.toolCalls || {})) persistBlock('tool', id);
+    for (const id of Object.keys(snapshot.steps || {})) persistBlock('step', id);
+    for (const id of Object.keys(snapshot.activities || {})) persistBlock('activity', id);
+    for (const id of Object.keys(snapshot.surfaces || {})) persistBlock('surface', id);
+
+    if (obsoleteIntermediateTextKeys.length) {
+      await db.messages.bulkDelete(obsoleteIntermediateTextKeys);
     }
     if (records.length) await db.messages.bulkPut(records);
     // 维护 lastMessageAt：取“现有行 + 本次写入行”的 text 最大 createdAt

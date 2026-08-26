@@ -1,21 +1,26 @@
 // Adapted from: src/features/Conversation/Messages + Tool/AssistantGroup (LobeHub canary)
-import { ActionIcon, Block, Button, Flexbox, Icon, Tag, Text, TextArea } from '@lobehub/ui';
+import { Button, Flexbox, Icon, Text } from '@lobehub/ui';
 import { useRenderActivityMessage } from '@copilotkit/react-core/v2';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { Check, CheckCircle2, ChevronDown, Crown, Layers, ListTodo, Play, Users, Wrench, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { CheckCircle2, Play } from 'lucide-react';
+import { useMemo } from 'react';
 
-import { Markdown } from '@/features/chat/components/Markdown';
 import { useI18n } from '@/i18n';
 import { getChatServiceMode } from '@/api/core/serviceMode';
 import { findLogicalSurfaceId } from '@/api/runtime/runReducer';
-import type { RuntimeReasoningMeta, RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
+import type { RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
 import type { SessionMessageRecord } from '@/api/session/sessionHistoryService';
-import NeuralNetworkLoading from '@/components/NeuralNetworkLoading';
-import Thinking from '@/features/chat/components/lobehub/Thinking';
-import { ToolInspector } from '@/features/chat/components/lobehub/ToolInspector';
 import ErrorAlert from '@/features/chat/components/lobehub/ErrorAlert';
+import {
+  ActivityBlock,
+  formatProcessDuration,
+  HitlBlock,
+  NarrationBlock,
+  ProcessFold,
+  ReasoningBlock,
+  ToolCallBlock,
+  WorkflowStepsBlock,
+} from '@/features/chat/components/lobehub/ProcessBlocks';
 
 /** A2UI 内部工具：surface 结果即用户可见输出，调用过程不展示、不计数。 */
 const A2UI_TOOL_NAMES = new Set(['generate_a2ui', 'render_a2ui']);
@@ -27,110 +32,11 @@ const isA2uiTool = (apiName?: string) => !!apiName && A2UI_TOOL_NAMES.has(apiNam
 const hasSurfaceContent = (payload: Record<string, unknown>): boolean =>
   Array.isArray(payload.a2ui_operations) || Array.isArray(payload.components);
 
-const styles = createStaticStyles(({ css, cssVar: token }) => ({
-  block: css`
-    overflow: hidden;
-    border: 1px solid ${token.colorBorderSecondary};
-    border-radius: ${token.borderRadiusLG}px;
-    background: ${token.colorFillQuaternary};
-  `,
-  content: css`
-    padding: 10px 12px;
-    border-block-start: 1px solid ${token.colorBorderSecondary};
-    color: ${token.colorTextSecondary};
-    font-size: 12px;
-    line-height: 1.7;
-    white-space: pre-wrap;
-  `,
-  contentScroll: css`
-    max-height: min(40vh, 320px);
-    overflow: auto;
-    padding-block-end: 8px;
-    padding-inline: 8px;
-    color: ${token.colorTextDescription};
-
-    article * {
-      color: ${token.colorTextDescription};
-    }
-  `,
-  header: css`
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 12px;
-    cursor: pointer;
-  `,
-  shinyText: css`
-    color: color-mix(in srgb, ${token.colorText} 45%, transparent);
-
-    background: linear-gradient(
-      120deg,
-      color-mix(in srgb, ${token.colorTextBase} 0%, transparent) 40%,
-      ${token.colorTextSecondary} 50%,
-      color-mix(in srgb, ${token.colorTextBase} 0%, transparent) 60%
-    );
-    background-clip: text;
-    background-size: 200% 100%;
-
-    animation: message-blocks-shine 1.5s linear infinite;
-
-    @keyframes message-blocks-shine {
-      0% {
-        background-position: 100%;
-      }
-
-      100% {
-        background-position: -100%;
-      }
-    }
-  `,
+const styles = createStaticStyles(({ css }) => ({
   // A2UI Surface 属于消息正文（不是过程/思考）：LobeHub 中 A2UI 就是纯内联组件，
   // 不加边框/背景/左竖线，只留一点上下间距，避免再被误认为 thinking 的一部分。
   surfaceBody: css`
     margin-block-start: 4px;
-  `,
-  // LobeHub ProcessFold：borderless Accordion 行（“共执行 N 步 · 点击查看完整记录”），
-  // 无整卡边框/背景；展开态才显示过程块，二级单个块再各自折叠。
-  processFold: css`
-    margin-block-start: 4px;
-  `,
-  processFoldHeader: css`
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 24px;
-    padding-block: 4px;
-    cursor: pointer;
-    user-select: none;
-    width: fit-content;
-  `,
-  // LobeHub ProcessingState.progress：3px 渐变进度条 + 扫光动画。
-  workflowProgress: css`
-    position: relative;
-    overflow: hidden;
-    height: 3px;
-    margin-block: 2px;
-    border-radius: 2px;
-    background: ${token.colorFillSecondary};
-  `,
-  workflowProgressShimmer: css`
-    position: absolute;
-    inset-block-start: 0;
-    inset-inline-start: 0;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, ${token.colorPrimaryBgHover}, transparent);
-    animation: message-blocks-progress-shimmer 2s infinite;
-
-    @keyframes message-blocks-progress-shimmer {
-      0% {
-        transform: translateX(-100%);
-      }
-
-      100% {
-        transform: translateX(100%);
-      }
-    }
   `,
 }));
 
@@ -145,43 +51,12 @@ export const HistoryDivider = ({ label }: { label: string }) => (
   </Flexbox>
 );
 
-const formatDuration = (startedAt?: number, finishedAt?: number) => {
-  if (!startedAt || !finishedAt) return undefined;
-  const seconds = Math.max(0, Math.round((finishedAt - startedAt) / 100) / 10);
-  return seconds;
-};
-const formatProcessDuration = (startedAt?: number, finishedAt?: number) => {
-  const seconds = formatDuration(startedAt, finishedAt);
-  return seconds !== undefined ? `${seconds}s` : undefined;
-};
-
 /** 剥离 reducer 追加到消息末尾的错误文本（`\n\n{message}`），避免与错误 Alert 重复显示。 */
 export const stripRunErrorText = (content: string, errorMessage?: string): string => {
   if (!errorMessage) return content;
   const suffix = `\n\n${errorMessage}`;
   return content.endsWith(suffix) ? content.slice(0, -suffix.length) : content;
 };
-
-/** LobeHub Accordion 展开箭头：展开朝下，收起旋转 -90°（朝右），带 0.2s 过渡。 */
-const CollapseArrow = ({ open, size = 14 }: { open: boolean; size?: number }) => (
-  <Icon
-    color={cssVar.colorTextTertiary}
-    icon={ChevronDown}
-    size={size}
-    style={{
-      flex: 'none',
-      transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
-      transition: 'transform 0.2s',
-    }}
-  />
-);
-
-/** 运行中 3px 渐变进度条 + 扫光动画（对齐 LobeHub ProcessingState.progress）。 */
-const WorkflowProgressBar = () => (
-  <div className={styles.workflowProgress}>
-    <div className={styles.workflowProgressShimmer} />
-  </div>
-);
 
 /** 收集一轮 run 的过程块（思考/工具/步骤），完成后折叠为 ProcessFold 汇总行。 */
 const createProcessCollector = (streaming: boolean) => {
@@ -235,549 +110,6 @@ const createProcessCollector = (streaming: boolean) => {
     state.hasWork = false;
   };
   return { flush, state, track };
-};
-
-// LobeHub Thinking（完整移植见 lobehub/Thinking.tsx）：思考中自动展开、完成后自动收起。
-export const ReasoningBlock = ({ id, meta, text }: { id: string; meta?: RuntimeReasoningMeta; text: string }) => {
-  const streaming = Boolean(meta?.streaming);
-  const duration = formatDuration(meta?.startedAt, meta?.finishedAt);
-  return (
-    <Thinking
-      content={text}
-      duration={duration !== undefined ? duration * 1000 : undefined}
-      encrypted={meta?.encrypted}
-      key={id}
-      thinking={streaming}
-    />
-  );
-};
-
-// LobeHub ProcessFold：一轮 run 的思考+工具+步骤在完成后折叠为一行
-// “共执行 N 步 · 点击查看完整记录”，运行中展开；一级=过程汇总，二级=单个块。
-export const ProcessFold = ({
-  children,
-  durationText,
-  stepCount,
-  streaming,
-}: {
-  children: React.ReactNode;
-  durationText?: string;
-  stepCount: number;
-  streaming: boolean;
-}) => {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(streaming);
-  useEffect(() => {
-    setOpen(streaming);
-  }, [streaming]);
-  return (
-    <div className={styles.processFold}>
-      <div
-        className={styles.processFoldHeader}
-        onClick={() => setOpen((value) => !value)}
-        title={durationText ? t('chat.process.duration', { duration: durationText }) : undefined}
-      >
-        <CollapseArrow open={open} />
-        <Text style={{ fontSize: 12 }} type="secondary">
-          {streaming
-            ? t('chat.process.streaming')
-            : t('chat.process.done', { count: stepCount })}
-        </Text>
-      </div>
-      {open && (
-        <Flexbox gap={8} paddingBlock={8}>
-          {children}
-        </Flexbox>
-      )}
-    </div>
-  );
-};
-
-// LobeHub ExecutionTime：执行中 100ms 刷新耗时（ms / s / min+s）。
-const formatElapsedTime = (ms: number): string => {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  const totalSeconds = Math.floor(seconds);
-  const minutes = Math.floor(totalSeconds / 60);
-  const remainingSeconds = totalSeconds % 60;
-  return `${minutes}min${remainingSeconds}s`;
-};
-
-export const ToolCallBlock = ({ call }: { call: RuntimeToolCall }) => {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const [resultOpen, setResultOpen] = useState(false);
-  // 参数格式化：合法 JSON 缩进展示，否则原文。
-  let formattedArgs = call.args;
-  try {
-    formattedArgs = JSON.stringify(JSON.parse(call.args), null, 2);
-  } catch {
-    // keep raw args
-  }
-  const formattedResult =
-    call.result === undefined
-      ? undefined
-      : typeof call.result === 'string'
-        ? call.result
-        : JSON.stringify(call.result, null, 2);
-  return (
-    <div className={styles.block}>
-      <div className={styles.header} onClick={() => setOpen((value) => !value)}>
-        <ToolInspector
-          apiName={call.apiName}
-          args={call.args}
-          finishedAt={call.finishedAt}
-          identifier={call.name}
-          result={call.result}
-          resultMsgId={call.resultMsgId}
-          startedAt={call.startedAt}
-          status={call.status}
-        />
-        <CollapseArrow open={open} />
-      </div>
-      {open && (
-        <div className={styles.content}>
-          <Flexbox gap={4}>
-            <Text weight={500}>{t('chat.toolArgs')}</Text>
-            <pre
-              style={{
-                margin: 0,
-                overflowX: 'auto',
-                background: cssVar.colorFillQuaternary,
-                borderRadius: 8,
-                padding: 8,
-                fontSize: 12,
-              }}
-            >
-              {formattedArgs || t('chat.toolNoArgs')}
-            </pre>
-          </Flexbox>
-          {formattedResult !== undefined && (
-            <Flexbox gap={4}>
-              <div
-                className={styles.header}
-                onClick={() => setResultOpen((value) => !value)}
-                style={{ padding: '6px 8px' }}
-              >
-                <Text weight={500}>{t('chat.toolResult')}</Text>
-                <Tag color="success" size="small">
-                  {t('chat.toolStatus.completed')}
-                </Tag>
-                <CollapseArrow open={resultOpen} size={12} />
-              </div>
-              {resultOpen && (
-                <pre
-                  style={{
-                    margin: 0,
-                    overflowX: 'auto',
-                    background: cssVar.colorFillQuaternary,
-                    borderRadius: 8,
-                    padding: 8,
-                    fontSize: 12,
-                  }}
-                >
-                  {formattedResult}
-                </pre>
-              )}
-            </Flexbox>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// LobeHub WorkflowCollapse / ProcessingState 迁移：
-// - 运行中自动展开 + 3px shimmer 进度条 + 当前耗时；
-// - 完成后自动收起，头部右侧箭头随状态旋转（展开朝下 / 收起朝右）；
-// - 展开列表每行：状态图标（运行=神经网络动画 / 完成=Check / 失败=X）+ 名称 + 耗时 + 状态标签；
-// - 完成后页脚：分隔线 + 步数/耗时汇总。
-export const WorkflowStepsBlock = ({ steps, streaming }: { steps: RuntimeStep[]; streaming?: boolean }) => {
-  const { t } = useI18n();
-  // 展开状态跟随 run 的流式状态（LobeHub：整个 run 期间工作流保持展开，
-  // 步骤完成但正文仍在生成时也不收起；run 结束/历史渲染才收起）。
-  // 未传 streaming（历史渲染）时回退为按步骤状态判断。
-  const isStreaming = streaming ?? steps.some((step) => step.status === 'running');
-  const completed = steps.filter((step) => step.status === 'completed').length;
-  const [open, setOpen] = useState(isStreaming);
-  // 运行中自动展开，完成后自动收起；用户可点击重新展开。
-  useEffect(() => {
-    setOpen(isStreaming);
-  }, [isStreaming]);
-  const startedAt = steps.reduce(
-    (min, step) => (step.startedAt && (!min || step.startedAt < min) ? step.startedAt : min),
-    undefined as number | undefined,
-  );
-  const finishedAt = steps.reduce(
-    (max, step) => (step.finishedAt && (!max || step.finishedAt > max) ? step.finishedAt : max),
-    undefined as number | undefined,
-  );
-  const durationText = formatProcessDuration(startedAt, finishedAt);
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (!isStreaming || !startedAt) return;
-    const update = () => setElapsed(Math.max(0, Date.now() - startedAt));
-    update();
-    const id = window.setInterval(update, 1000);
-    return () => window.clearInterval(id);
-  }, [isStreaming, startedAt]);
-  return (
-    <div className={styles.block}>
-      <div className={styles.header} onClick={() => setOpen((value) => !value)}>
-        {isStreaming ? (
-          <NeuralNetworkLoading size={16} />
-        ) : (
-          <Icon
-            color={
-              steps.some((step) => step.status === 'error')
-                ? cssVar.colorError
-                : cssVar.colorSuccess
-            }
-            icon={steps.some((step) => step.status === 'error') ? X : CheckCircle2}
-            size={15}
-          />
-        )}
-        <Text fontSize={12} weight={500} style={{ flex: 1, minWidth: 0 }}>
-          {t('chat.steps', { completed, total: steps.length })}
-        </Text>
-        {isStreaming ? (
-          <Text fontSize={12} type="secondary">
-            {t('chat.process.streaming')} · {formatElapsedTime(elapsed)}
-          </Text>
-        ) : durationText ? (
-          <Text fontSize={12} type="secondary">
-            {t('chat.process.duration', { duration: durationText })}
-          </Text>
-        ) : null}
-        <CollapseArrow open={open} />
-      </div>
-      {isStreaming && <WorkflowProgressBar />}
-      {open && (
-        <Flexbox
-          gap={2}
-          padding={10}
-          style={{ borderBlockStart: `1px solid ${cssVar.colorBorderSecondary}` }}
-        >
-          {steps.map((step) => {
-            const running = step.status === 'running';
-            const failed = step.status === 'error';
-            const stepDuration = formatProcessDuration(step.startedAt, step.finishedAt);
-            return (
-              <Flexbox horizontal align="center" gap={8} key={step.id} paddingBlock={4}>
-                {running ? (
-                  <NeuralNetworkLoading size={14} />
-                ) : (
-                  <Icon
-                    color={failed ? cssVar.colorError : cssVar.colorSuccess}
-                    icon={failed ? X : Check}
-                    size={14}
-                  />
-                )}
-                <Text fontSize={12} ellipsis style={{ flex: 1 }}>
-                  {step.name || step.id}
-                </Text>
-                {stepDuration && (
-                  <Text fontSize={12} type="secondary">
-                    {stepDuration}
-                  </Text>
-                )}
-                <Tag
-                  color={failed ? 'error' : running ? 'processing' : 'success'}
-                  size="small"
-                >
-                  {running
-                    ? t('chat.toolStatus.running')
-                    : failed
-                      ? t('chat.error.title')
-                      : t('chat.toolStatus.completed')}
-                </Tag>
-              </Flexbox>
-            );
-          })}
-          {!isStreaming && steps.length > 0 && (
-            <Flexbox
-              horizontal
-              align="center"
-              justify="space-between"
-              paddingBlock={6}
-              style={{ borderBlockStart: `1px solid ${cssVar.colorBorderSecondary}` }}
-            >
-              <Text fontSize={12} type="secondary">
-                {t('chat.steps', { completed, total: steps.length })}
-              </Text>
-              {durationText && (
-                <Text fontSize={12} type="secondary">
-                  {t('chat.process.duration', { duration: durationText })}
-                </Text>
-              )}
-            </Flexbox>
-          )}
-        </Flexbox>
-      )}
-    </div>
-  );
-};
-
-// 一轮 run 内的中间助手文本（最终答案之前的叙述）收进过程折叠，展开可见。
-export const NarrationBlock = ({ text }: { text: string }) => (
-  <div className={styles.block}>
-    <div className={styles.content}>
-      <Markdown content={text} />
-    </div>
-  </div>
-);
-
-const ACTIVITY_TYPE_META: Record<string, { icon: typeof ListTodo; labelKey: string }> = {
-  'agentDock.agentDelegation': { icon: Users, labelKey: 'chat.activity.agentDelegation' },
-  'agentDock.assistantGroup': { icon: Layers, labelKey: 'chat.activity.assistantGroup' },
-  'agentDock.groupTasks': { icon: Layers, labelKey: 'chat.activity.groupTasks' },
-  'agentDock.supervisor': { icon: Crown, labelKey: 'chat.activity.supervisor' },
-  'agentDock.task': { icon: ListTodo, labelKey: 'chat.activity.task' },
-  'agentDock.tasks': { icon: ListTodo, labelKey: 'chat.activity.tasks' },
-};
-
-export const ActivityBlock = ({ activity }: { activity: { activityType?: string; description?: string; title?: string; [key: string]: unknown } }) => {
-  const { t } = useI18n();
-  const navigate = useNavigate();
-  const typeMeta = ACTIVITY_TYPE_META[String(activity.activityType || '')];
-  const IconComponent = typeMeta?.icon ?? ListTodo;
-  const isDelegation = activity.activityType === 'agentDock.agentDelegation';
-  const members = Array.isArray(activity.members)
-    ? (activity.members as Array<{ agentId?: string; agentFullName?: string; icon?: string; fab?: string }>)
-    : [];
-  const skills = Array.isArray(activity.skills)
-    ? (activity.skills as Array<{ name?: string; id?: string }>)
-    : [];
-  const [callInfoOpen, setCallInfoOpen] = useState(false);
-  return (
-    <Block gap={10} padding={14} variant="outlined">
-      <Flexbox horizontal align="center" gap={9}>
-        <Icon color={cssVar.colorInfo} icon={IconComponent} />
-        <Text weight={500}>
-          {typeMeta ? t(typeMeta.labelKey) : t('chat.activity.task')}
-        </Text>
-      </Flexbox>
-      {(activity.description || activity.title) && <Text type="secondary">{activity.description || activity.title}</Text>}
-      {isDelegation && members.length > 0 && (
-        <Flexbox gap={4}>
-          <Flexbox horizontal align="center" gap={6}>
-            <Crown size={12} />
-            <Text fontSize={12} weight={500}>
-              {t('chat.activity.supervisor')}
-            </Text>
-          </Flexbox>
-          {members.map((member) => (
-            <Flexbox
-              horizontal
-              align="center"
-              gap={8}
-              key={`${member.agentId}@${member.fab}`}
-              paddingBlock={2}
-              paddingInline={4}
-            >
-              <Text fontSize={13}>{member.icon || '🤖'}</Text>
-              <Text ellipsis fontSize={13} style={{ flex: 1 }}>
-                {member.agentFullName || member.agentId}
-              </Text>
-              {member.fab && <Tag size="small">{member.fab}</Tag>}
-            </Flexbox>
-          ))}
-        </Flexbox>
-      )}
-      {skills.length > 0 && (
-        <Flexbox horizontal gap={6} wrap="wrap">
-          {skills.map((skill) => (
-            <Tag color="blue" key={skill.id || skill.name}>
-              🧩 {skill.name}
-            </Tag>
-          ))}
-        </Flexbox>
-      )}
-      {(isDelegation || skills.length > 0) && (
-        <Flexbox horizontal gap={6}>
-          {skills.length > 0 && (
-            <Button size="small" onClick={() => navigate('/market/skill')}>
-              {t('chat.activity.viewSkill')}
-            </Button>
-          )}
-          <Button size="small" type="text" onClick={() => setCallInfoOpen((value) => !value)}>
-            {t('chat.activity.callInfo')}
-          </Button>
-        </Flexbox>
-      )}
-      {callInfoOpen && (
-        <pre
-          style={{
-            margin: 0,
-            overflowX: 'auto',
-            background: cssVar.colorFillQuaternary,
-            borderRadius: 8,
-            padding: 8,
-            fontSize: 11,
-          }}
-        >
-          {JSON.stringify(activity, null, 2)}
-        </pre>
-      )}
-    </Block>
-  );
-};
-
-export interface HitlBlockProps {
-  description?: string;
-  fields?: Array<{ key: string; label: string; type?: string }>;
-  mode?: string;
-  onApprove: (requestId: string, payload?: Record<string, unknown>) => void;
-  onReject: (requestId: string) => void;
-  options?: string[];
-  requestArgs?: string;
-  requestId: string;
-}
-
-export const HitlBlock = ({
-  description,
-  fields,
-  mode = 'toolAuthorization',
-  onApprove,
-  onReject,
-  options = [],
-  requestArgs,
-  requestId,
-}: HitlBlockProps) => {
-  const { t } = useI18n();
-  const [editedArgs, setEditedArgs] = useState(requestArgs || '');
-  const [textInput, setTextInput] = useState('');
-  const [single, setSingle] = useState<string>();
-  const [multi, setMulti] = useState<string[]>([]);
-  const [formValues, setFormValues] = useState<Record<string, string>>({});
-
-  const toggleMulti = (option: string) =>
-    setMulti((current) =>
-      current.includes(option) ? current.filter((item) => item !== option) : [...current, option],
-    );
-
-  const approveWith = (payload?: Record<string, unknown>) => onApprove(requestId, payload);
-
-  const renderControl = () => {
-    switch (mode) {
-      case 'editArguments':
-        return (
-          <TextArea
-            autoSize={{ minRows: 2, maxRows: 6 }}
-            value={editedArgs}
-            onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setEditedArgs(event.target.value)}
-          />
-        );
-      case 'textInput':
-        return (
-          <TextArea
-            autoSize={{ minRows: 1, maxRows: 3 }}
-            value={textInput}
-            onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setTextInput(event.target.value)}
-          />
-        );
-      case 'singleSelect':
-        return (
-          <Flexbox gap={4}>
-            {options.map((option) => (
-              <label key={option} style={{ cursor: 'pointer' }}>
-                <input
-                  checked={single === option}
-                  name={`hitl-${requestId}`}
-                  type="radio"
-                  onChange={() => setSingle(option)}
-                />{' '}
-                <Text fontSize={13}>{option}</Text>
-              </label>
-            ))}
-          </Flexbox>
-        );
-      case 'multiSelect':
-        return (
-          <Flexbox gap={4}>
-            {options.map((option) => (
-              <label key={option} style={{ cursor: 'pointer' }}>
-                <input
-                  checked={multi.includes(option)}
-                  type="checkbox"
-                  onChange={() => toggleMulti(option)}
-                />{' '}
-                <Text fontSize={13}>{option}</Text>
-              </label>
-            ))}
-          </Flexbox>
-        );
-      case 'form':
-        return (
-          <Flexbox gap={8}>
-            {(fields || []).map((field) => (
-              <Flexbox gap={4} key={field.key}>
-                <Text fontSize={12} weight={500}>
-                  {field.label}
-                </Text>
-                <TextArea
-                  autoSize={{ minRows: 1, maxRows: 3 }}
-                  value={formValues[field.key] || ''}
-                  onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
-                    setFormValues((current) => ({ ...current, [field.key]: event.target.value }))
-                  }
-                />
-              </Flexbox>
-            ))}
-          </Flexbox>
-        );
-      default:
-        return null;
-    }
-  };
-
-  const modePayload = (): Record<string, unknown> | undefined => {
-    switch (mode) {
-      case 'editArguments':
-        try {
-          return { editedArguments: JSON.parse(editedArgs) };
-        } catch {
-          return { editedArguments: editedArgs };
-        }
-      case 'textInput':
-        return { input: textInput };
-      case 'singleSelect':
-        return single ? { input: single } : undefined;
-      case 'multiSelect':
-        return multi.length ? { selectedValues: multi } : undefined;
-      case 'form':
-        return { formValues };
-      default:
-        return undefined;
-    }
-  };
-
-  return (
-    <Block gap={12} padding={16} variant="outlined">
-      <Flexbox horizontal align="center" gap={9}>
-        <Icon color={cssVar.colorWarning} icon={Play} />
-        <Text weight={500}>{t('chat.hitl.title')}</Text>
-        <Tag color="warning" size="small">
-          HITL
-        </Tag>
-      </Flexbox>
-      <Text type="secondary">{description || t('chat.hitl.fallback')}</Text>
-      {renderControl()}
-      <Flexbox horizontal gap={8}>
-        <Button
-          size="small"
-          type="primary"
-          onClick={() => approveWith(modePayload())}
-        >
-          {t('chat.hitl.approve')}
-        </Button>
-        <Button size="small" onClick={() => onReject(requestId)}>
-          {t('chat.hitl.reject')}
-        </Button>
-      </Flexbox>
-    </Block>
-  );
 };
 
 export const A2uiSurfaceBlock = ({
@@ -1045,6 +377,14 @@ export const renderStoredBlocks = (
       }
       continue;
     }
+    if (record.kind === 'narration') {
+      pushStepsIntoProcess();
+      if (record.content?.trim()) {
+        process.state.nodes.push(<NarrationBlock key={record.id} text={record.content} />);
+        process.state.hasWork = true;
+      }
+      continue;
+    }
     const payload = (record.payload || {}) as Record<string, unknown>;
     if (record.kind === 'reasoning') {
       if (options.showReasoning !== false) {
@@ -1185,6 +525,9 @@ export const renderRunBlocks = (
     process.flush(blocks);
   };
   const ordered = run.orderedBlocks?.length ? run.orderedBlocks : [];
+  const finalAssistantId = [...(run.messageOrder || [])]
+    .reverse()
+    .find((messageId) => run.messages[messageId]?.role === 'assistant');
   const visibleOrdered = options.deletedKeys?.size
     ? ordered.filter((ref) => !options.deletedKeys!.has(`${ref.kind}:${ref.id}`))
     : ordered;
@@ -1234,7 +577,20 @@ export const renderRunBlocks = (
     }
   } else {
     for (const ref of visibleOrdered) {
-      if (ref.kind === 'reasoning') {
+      if (ref.kind === 'text') {
+        const message = run.messages?.[ref.id];
+        if (
+          message?.role === 'assistant' &&
+          ref.id !== finalAssistantId &&
+          message.content?.trim()
+        ) {
+          pushStepsIntoProcess();
+          process.state.nodes.push(
+            <NarrationBlock key={`narration-${ref.id}`} text={message.content} />,
+          );
+          process.state.hasWork = true;
+        }
+      } else if (ref.kind === 'reasoning') {
         if (options.showReasoning === false) continue;
         const text = run.reasoning?.[ref.id];
         if (text !== undefined) {
@@ -1265,6 +621,9 @@ export const renderRunBlocks = (
         const activity = run.activities?.[ref.id];
         if (!activity || typeof activity !== 'object') continue;
         const value = activity as { activityType?: string; description?: string; requestId?: string; [key: string]: unknown };
+        // MESSAGES_SNAPSHOT 的 task/supervisor 等角色已经由 SpecialMessage 走原生组件展示；
+        // reducer 仅保留 diagnosticOnly activity 供诊断，不能再塞进 assistant workflow 重复显示。
+        if (value.diagnosticOnly === true) continue;
         if (value.activityType === 'a2ui.surface' || value.activityType === 'a2ui-surface' || value.activityType === 'agentDock.artifact') {
           flushSteps();
           continue;

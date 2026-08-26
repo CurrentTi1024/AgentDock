@@ -2,7 +2,7 @@
 // @ 联想菜单、蓝色 mention chip、整块删除、`<mention name id />` markdown 序列化
 // 全部由官方编辑器实现，不再使用 TextArea + 叠加层方案。
 import { ActionIcon, Alert, Avatar, Button, Flexbox, Select, Tag, Text } from '@lobehub/ui';
-import { INSERT_MARKDOWN_COMMAND, INSERT_MENTION_COMMAND, type IEditor } from '@lobehub/editor';
+import { INSERT_MENTION_COMMAND, type IEditor } from '@lobehub/editor';
 import { Editor } from '@lobehub/editor/react';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { COMMAND_PRIORITY_HIGH, KEY_DOWN_COMMAND } from 'lexical';
@@ -12,6 +12,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type MentionAgent } from '@/api/market/agentMarketService';
 import type { RunStatus } from '@/api/runtime/types';
 import OpStatusTray, { type OpStatusActivity } from '@/features/chat/components/OpStatusTray';
+import {
+  chatDraftStorageKey,
+  shouldApplyExternalEditorValue,
+  shouldClearSubmittedEditor,
+  shouldSubmitEditorKey,
+} from '@/features/chat/components/chatInputSync';
 import { matchMentionAgent } from '@/features/chat/agentIdentity';
 import { useI18n } from '@/i18n';
 
@@ -83,6 +89,12 @@ const styles = createStaticStyles(({ css, cssVar: token }) => ({
   `,
   // LobeHub mention chip 视觉：扁平填充蓝色（对齐官网截图，不走主题 primary 中性色）。
   mentionOverride: css`
+    /* @lobehub/editor 的 contenteditable 直属容器默认是 flex。Chrome 会在点击
+       编辑器外部时错误重定位 selection；改为 block 是上游警告给出的修复方式。 */
+    & > div {
+      display: block !important;
+    }
+
     .editor_mention {
       border: none;
       color: ${cssVar.blue9};
@@ -97,6 +109,8 @@ interface ChatInputProps {
   agentId?: string;
   agentName?: string;
   approvalMode?: ApprovalMode;
+  /** LobeHub draftKey 等价物：按会话隔离未发送草稿。 */
+  draftKey?: string;
   fab?: string;
   /** 关闭 @ 提及（输入 @ 不再弹出菜单）。 */
   mentionEnabled?: boolean;
@@ -104,7 +118,7 @@ interface ChatInputProps {
   onChange: (value: string) => void;
   onApprovalModeChange?: (mode: ApprovalMode) => void;
   /** 发送输入区内容（markdown，含 <mention> 标签）。 */
-  onSend: (content: string) => void;
+  onSend: (content: string) => boolean | void | Promise<boolean | void>;
   onStop: () => void;
   onSwitchAgent?: (agent: MentionAgent) => void;
   placeholder?: string;
@@ -140,6 +154,7 @@ const ChatInput = memo<ChatInputProps>(
     agentId,
     agentName,
     approvalMode = 'manual',
+    draftKey,
     fab,
     mentionEnabled = true,
     mentions,
@@ -159,6 +174,9 @@ const ChatInput = memo<ChatInputProps>(
   }) => {
     const { t } = useI18n();
     const editorRef = useRef<IEditor | null>(null);
+    const focusedRef = useRef(false);
+    const lastReportedValueRef = useRef('');
+    const submittingRef = useRef(false);
     const [editorReady, setEditorReady] = useState(false);
     // 发送后编辑器缓存的 markdown 可能在下一次 onTextChange 回写，导致输入框“复活”。
     // 记录最近一次已发送内容，相同内容回写时忽略一次。
@@ -169,12 +187,25 @@ const ChatInput = memo<ChatInputProps>(
       return String(editor.getDocument('markdown') || '').trimEnd();
     }, []);
 
+    const replaceDocument = useCallback((editor: IEditor, markdown: string) => {
+      editor.setDocument('markdown', markdown);
+      lastReportedValueRef.current = markdown;
+    }, []);
+
     const handleEditorInit = useCallback(
       (editor: IEditor) => {
         editorRef.current = editor;
+        const restoredDraft = draftKey
+          ? window.localStorage.getItem(chatDraftStorageKey(draftKey)) || ''
+          : '';
+        const initialValue = value || restoredDraft;
+        if (initialValue) {
+          replaceDocument(editor, initialValue);
+          if (!value && restoredDraft) onChange(restoredDraft);
+        }
         setEditorReady(true);
       },
-      [],
+      [draftKey, onChange, replaceDocument, value],
     );
 
     const handleTextChange = useCallback(
@@ -184,23 +215,59 @@ const ChatInput = memo<ChatInputProps>(
           lastSentRef.current = '';
           return;
         }
+        lastReportedValueRef.current = markdown;
+        if (draftKey) {
+          const key = chatDraftStorageKey(draftKey);
+          if (markdown) window.localStorage.setItem(key, markdown);
+          else window.localStorage.removeItem(key);
+        }
         onChange(markdown);
       },
-      [getMarkdown, onChange],
+      [draftKey, getMarkdown, onChange],
     );
 
-    // 外部受控 value 同步：仅处理非空外部内容（候选问题 / 恢复草稿）。
-    // 发送清空由 send handler 直接 cleanDocument；这里不做破坏性清空，
-    // 避免 onChange 偶发回传空串时把用户正在输入的编辑器内容 wipe 掉。
+    // 外部 value 只负责显式填充（候选问题 / 恢复消息）。输入期以 Lexical
+    // 文档为权威源，拒绝父组件防抖后的陈旧回声，避免重置 selection 导致光标跳走。
     useEffect(() => {
-      if (!value) return;
       const editor = editorRef.current;
       if (!editor) return;
       const current = getMarkdown(editor);
-      if (value === current) return;
-      editor.cleanDocument();
-      editor.dispatchCommand(INSERT_MARKDOWN_COMMAND, { historyState: null, markdown: value });
-    }, [getMarkdown, value]);
+      if (
+        !shouldApplyExternalEditorValue({
+          currentValue: current,
+          externalValue: value,
+          focused: focusedRef.current,
+          lastReportedValue: lastReportedValueRef.current,
+        })
+      ) return;
+      replaceDocument(editor, value);
+      requestAnimationFrame(() => editor.focus());
+    }, [getMarkdown, replaceDocument, value]);
+
+    const clearDraft = useCallback(() => {
+      lastReportedValueRef.current = '';
+      if (draftKey) window.localStorage.removeItem(chatDraftStorageKey(draftKey));
+      onChange('');
+    }, [draftKey, onChange]);
+
+    const submitContent = useCallback(async (editor: IEditor, content: string) => {
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      try {
+        const accepted = (await onSend(content)) !== false;
+        const current = getMarkdown(editor);
+        if (!shouldClearSubmittedEditor({ accepted, currentValue: current, submittedValue: content })) return;
+        lastSentRef.current = content;
+        clearDraft();
+        editor.cleanDocument();
+        requestAnimationFrame(() => editor.focus());
+      } catch (error) {
+        // 会话准备或持久化失败时保留编辑器与 localStorage 草稿，让用户可以直接重试。
+        console.error('[AgentDock] send preparation failed', error);
+      } finally {
+        submittingRef.current = false;
+      }
+    }, [clearDraft, getMarkdown, onSend]);
 
     // Enter 发送：注册在 COMMAND_PRIORITY_HIGH。
     // 菜单打开时菜单的 CRITICAL 处理器先消费 Enter（选中）；Lexical 默认换行在 EDITOR
@@ -212,7 +279,12 @@ const ChatInput = memo<ChatInputProps>(
       return editor.registerHighCommand(
         KEY_DOWN_COMMAND,
         (event) => {
-          if (event.key !== 'Enter' || event.isComposing || event.shiftKey || sendDisabled) {
+          if (!shouldSubmitEditorKey({
+            blocked: sendDisabled || running,
+            composing: event.isComposing,
+            key: event.key,
+            shiftKey: event.shiftKey,
+          })) {
             return false;
           }
           let content = '';
@@ -222,27 +294,21 @@ const ChatInput = memo<ChatInputProps>(
             console.error('[AgentDock] serialize markdown failed', error);
           }
           if (!content) return false;
-          lastSentRef.current = content;
-          onSend(content);
-          editor.cleanDocument();
-          requestAnimationFrame(() => editor.focus());
           event.preventDefault();
+          void submitContent(editor, content);
           return true;
         },
         COMMAND_PRIORITY_HIGH,
       );
-    }, [editorReady, getMarkdown, onSend, sendDisabled]);
+    }, [editorReady, getMarkdown, running, sendDisabled, submitContent]);
 
     const handleSendContent = useCallback(() => {
       const editor = editorRef.current;
       if (!editor) return;
       const content = getMarkdown(editor);
       if (!content) return;
-      lastSentRef.current = content;
-      onSend(content);
-      editor.cleanDocument();
-      requestAnimationFrame(() => editor.focus());
-    }, [getMarkdown, onSend]);
+      void submitContent(editor, content);
+    }, [getMarkdown, submitContent]);
 
     // 当前 Agent：与侧边栏/聊天头部同用 agentId+fab 匹配候选列表
     // （名称格式不一致时回退 name+fab），切换下拉选中态与底部 icon 共用，
@@ -330,11 +396,19 @@ const ChatInput = memo<ChatInputProps>(
           <div className={styles.mentionOverride}>
             <Editor
               className={styles.editor}
-              content={value}
+              content=""
+              debounceWait={50}
               mentionOption={mentionOption}
               onInit={handleEditorInit}
               onChange={handleTextChange}
-              onTextChange={handleTextChange}
+              onBlur={() => {
+                focusedRef.current = false;
+                const editor = editorRef.current;
+                if (editor) handleTextChange(editor);
+              }}
+              onFocus={() => {
+                focusedRef.current = true;
+              }}
               pasteAsPlainText
               placeholder={placeholder ?? t('chat.placeholder')}
               type="text"
@@ -346,12 +420,12 @@ const ChatInput = memo<ChatInputProps>(
               {switchAgents && onSwitchAgent && (
                 <Select
                   className={styles.compactSelect}
+                  classNames={{ popup: { root: styles.compactDropdown } }}
                   options={switchAgents.map((agent) => ({
                     label: `${agent.icon} ${agent.agentFullName}`,
                     value: `${agent.agentId}@${agent.fab}`,
                   }))}
                   placeholder={t('agentSidebar.switchAgent')}
-                  popupClassName={styles.compactDropdown}
                   size="small"
                   value={switchValue}
                   variant="borderless"
@@ -435,13 +509,13 @@ const ChatInput = memo<ChatInputProps>(
               </Text>
               <Select
                 className={styles.compactSelect}
+                classNames={{ popup: { root: styles.compactDropdown } }}
                 data-testid="approval-mode"
                 options={[
                   { label: t('chat.approval.manual'), value: 'manual' },
                   { label: t('chat.approval.auto'), value: 'auto' },
                 ]}
                 size="small"
-                popupClassName={styles.compactDropdown}
                 value={approvalMode}
                 onChange={(mode) => onApprovalModeChange(mode as ApprovalMode)}
               />

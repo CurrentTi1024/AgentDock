@@ -144,6 +144,93 @@ test('单 Agent 运行结束 flush 后：messages 落库、sessions 时间戳更
   assert.ok(new Date(after!.updatedAt).getTime() >= new Date(before!.updatedAt).getTime(), 'sessions.updatedAt 应随落库更新');
 });
 
+test('LobeHub 扩展消息角色与结构化 payload 原样落库（不降级为 activity）', async () => {
+  const sessionId = 'session-lobehub-message-roles';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'LobeHub 消息角色',
+    type: 'agent',
+  });
+  let snapshot = createRunState('run-lobehub-message-roles', `thread-${sessionId}`);
+  snapshot = reduceRunEvent(snapshot, {
+    eventId: '1',
+    event: {
+      messages: [
+        { content: '开始', id: 'user-role', role: 'user' },
+        {
+          content: '',
+          id: 'tasks-role',
+          role: 'tasks',
+          tasks: [
+            {
+              content: '读取完成',
+              id: 'nested-task',
+              metadata: { taskTitle: '读取飞行数据' },
+              role: 'task',
+              taskDetail: { status: 'completed', totalSteps: 2, totalToolCalls: 1 },
+            },
+          ],
+        },
+        { content: '汇总结论', id: 'supervisor-role', metadata: { isSupervisor: true }, role: 'supervisor' },
+      ],
+      type: 'MESSAGES_SNAPSHOT',
+    },
+  });
+  snapshot.status = 'success';
+  await sessionHistoryService.persistRunSnapshot(sessionId, snapshot);
+
+  const rows = await sessionHistoryService.getMessages(sessionId);
+  const tasks = rows.find((record) => record.id === 'text:tasks-role');
+  const supervisor = rows.find((record) => record.id === 'text:supervisor-role');
+  assert.equal(tasks?.role, 'tasks');
+  assert.equal(Array.isArray(tasks?.payload?.tasks), true);
+  assert.equal(supervisor?.role, 'supervisor');
+  assert.deepEqual(supervisor?.payload?.metadata, { isSupervisor: true });
+  assert.equal(
+    rows.some((record) => record.kind === 'activity' && record.id.includes('tasks-role')),
+    false,
+    'diagnosticOnly activity 不得落库造成重复显示',
+  );
+});
+
+test('AssistantGroup 中间文本按 narration 落库，并与工具保持事件顺序', async () => {
+  const sessionId = 'session-assistant-group-order';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'AssistantGroup 顺序',
+    type: 'agent',
+  });
+  let snapshot = createRunState('run-assistant-group-order', `thread-${sessionId}`);
+  snapshot.messages['user-order'] = { content: '查天气', id: 'user-order', role: 'user' };
+  snapshot.messageOrder.push('user-order');
+  snapshot = reduceRunEvent(snapshot, { eventId: '1', event: { type: 'TEXT_MESSAGE_START', messageId: 'intro-order', role: 'assistant' } });
+  snapshot = reduceRunEvent(snapshot, { eventId: '2', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'intro-order', delta: '我先搜索页面。' } });
+  snapshot = reduceRunEvent(snapshot, { eventId: '3', event: { type: 'TOOL_CALL_START', toolCallId: 'tool-order', toolCallName: 'browser.search' } });
+  snapshot = reduceRunEvent(snapshot, { eventId: '4', event: { type: 'TOOL_CALL_END', toolCallId: 'tool-order' } });
+  snapshot = reduceRunEvent(snapshot, { eventId: '5', event: { type: 'TEXT_MESSAGE_START', messageId: 'final-order', role: 'assistant' } });
+  snapshot = reduceRunEvent(snapshot, { eventId: '6', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'final-order', delta: '搜索完成。' } });
+  snapshot.status = 'success';
+  await sessionHistoryService.persistRunSnapshot(sessionId, snapshot);
+
+  const rows = await sessionHistoryService.getMessages(sessionId);
+  assert.equal(rows.some((record) => record.id === 'text:intro-order'), false);
+  assert.equal(rows.find((record) => record.id === 'text:final-order')?.content, '搜索完成。');
+  assert.deepEqual(
+    rows.filter((record) => record.kind !== 'text').map((record) => record.kind),
+    ['narration', 'tool'],
+  );
+});
+
 test('流式防抖：空闲 350ms 后自动落盘，无需手动 flush', async () => {
   const sessionId = 'session-persist-debounce';
   const runId = 'run-debounce';

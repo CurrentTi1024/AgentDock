@@ -1,26 +1,79 @@
-// Adapted from: src/features/Conversation/ChatItem + Messages/{User,Assistant} (LobeHub canary)
-// 包装官方 @lobehub/ui/chat ChatItem：视觉与交互（bubble 卡片、hover 操作栏、标题/时间、
-// 加载动画）与 LobeHub 一致；数据由投影层以 props 注入，不绑定任何 store。
-import { ChatItem as LobeChatItem, type ChatItemProps as LobeChatItemProps } from '@lobehub/ui/chat';
-import { Flexbox } from '@lobehub/ui';
-import type { MetaData } from '@lobehub/ui/chat';
-import { type ComponentType, type ReactNode } from 'react';
-import { memo } from 'react';
+// Ported from LobeHub canary 9208806:
+// src/features/Conversation/ChatItem/{ChatItem,style,type}.tsx and components/{Avatar,Title,Actions,MessageContent}.tsx
+// Store-bound behavior was replaced with props; DOM structure and visual states intentionally follow upstream.
+import { Avatar, Flexbox, Text } from '@lobehub/ui';
+import { createStaticStyles, cx } from 'antd-style';
+import { type MouseEventHandler, type ReactNode, memo } from 'react';
 
 import { Markdown } from '@/features/chat/components/Markdown';
+import { useI18n } from '@/i18n';
+import { formatRelativeTime } from '@/lib/relativeTime';
+
+const styles = createStaticStyles(({ css, cssVar }) => ({
+  bubble: css`
+    padding-block: 8px;
+    padding-inline: 12px;
+    border-radius: ${cssVar.borderRadiusLG};
+    background-color: ${cssVar.colorFillTertiary};
+  `,
+  container: css`
+    position: relative;
+    max-width: 100%;
+
+    time,
+    div[role='menubar'] {
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 200ms ${cssVar.motionEaseOut};
+    }
+
+    time {
+      display: inline-block;
+      white-space: nowrap;
+    }
+
+    div[role='menubar'] {
+      display: flex;
+    }
+
+    &:has([data-popup-open]) div[role='menubar'],
+    &:hover time,
+    &:hover div[role='menubar'] {
+      pointer-events: unset;
+      opacity: 1;
+    }
+  `,
+  disabled: css`
+    user-select: none;
+    color: ${cssVar.colorTextSecondary};
+  `,
+  message: css`
+    position: relative;
+    overflow: hidden;
+    max-width: 100%;
+  `,
+}));
 
 export interface ChatItemProps {
+  aboveMessage?: ReactNode;
+  actionAddon?: ReactNode;
   actions?: ReactNode;
+  afterActions?: ReactNode;
   avatar?: string | ReactNode;
+  avatarBackground?: string;
+  belowMessage?: ReactNode;
   children?: ReactNode;
+  className?: string;
   content?: string;
+  customAvatarRender?: (node: ReactNode) => ReactNode;
+  disabled?: boolean;
   editing?: boolean;
   id: string;
   loading?: boolean;
   messageExtra?: ReactNode;
   name: string;
-  onDoubleClick?: () => void;
   onChange?: (value: string) => void;
+  onDoubleClick?: MouseEventHandler<HTMLDivElement>;
   onEditingChange?: (editing: boolean) => void;
   role: 'assistant' | 'user';
   showAvatar?: boolean;
@@ -29,77 +82,126 @@ export interface ChatItemProps {
   titleAddon?: ReactNode;
 }
 
-const toEpoch = (time?: number) => (typeof time === 'number' && Number.isFinite(time) ? time : undefined);
-
-// 官方 ChatItem 的类型声明省略了 children（运行时 MessageContent 支持），这里显式补上。
-const LobeChatItemWithChildren = LobeChatItem as unknown as ComponentType<
-  LobeChatItemProps & { children?: ReactNode }
->;
-
 const ChatItem = memo<ChatItemProps>(
   ({
+    aboveMessage,
+    actionAddon,
     actions,
+    afterActions,
     avatar,
+    avatarBackground,
+    belowMessage,
     children,
+    className,
     content,
-    editing,
+    customAvatarRender,
+    disabled,
     id,
     loading,
     messageExtra,
     name,
     onDoubleClick,
-    onChange,
-    onEditingChange,
     role,
     showAvatar,
     showTitle,
     time,
     titleAddon,
   }) => {
+    const { locale } = useI18n();
     const isUser = role === 'user';
-    // 用户气泡显示本人头像（右侧）；agent 使用 docs 变体（无外边框），动作栏独立成行。
-    const avatarValue = avatar ?? (isUser ? 'LC' : '🤖');
-    const meta: MetaData =
-      typeof avatarValue === 'string'
-        ? { avatar: avatarValue, title: name }
-        : { title: name };
+    const shouldShowAvatar = showAvatar ?? !isUser;
+    const shouldShowTitle = showTitle ?? !isUser;
+    const avatarNode = (
+      <Avatar
+        animation={loading}
+        avatar={avatar ?? (isUser ? 'LC' : '🤖')}
+        background={avatarBackground}
+        shape="square"
+        size={28}
+        title={name}
+      />
+    );
+    const timeText = time
+      ? formatRelativeTime(new Date(time).toISOString(), locale)
+      : undefined;
+    const hasContent = typeof content === 'string' && content.trim().length > 0;
+
     return (
-      <LobeChatItemWithChildren
-        actions={actions}
-        actionsWrapWidth={isUser ? 10_000 : undefined}
-        avatar={meta}
-        editing={editing}
-        id={id}
-        loading={loading}
-        message={content === undefined ? undefined : content}
-        messageExtra={messageExtra}
-        onChange={onChange}
-        onDoubleClick={onDoubleClick}
-        onEditingChange={onEditingChange}
-        placement={isUser ? 'right' : 'left'}
-        renderMessage={(node) => (
-          <Flexbox gap={8} style={{ width: '100%' }}>
-            {typeof content === 'string' && content ? (
-              <>
-                {children}
-                <Markdown content={content} />
-              </>
-            ) : (
-              <>
-                {node}
-                {children}
-              </>
-            )}
+      <Flexbox
+        align={isUser ? 'flex-end' : 'flex-start'}
+        className={cx('message-wrapper', styles.container, className)}
+        data-message-id={id}
+        gap={8}
+        paddingBlock={8}
+        style={{ paddingInlineStart: isUser ? 36 : 0 }}
+      >
+        <Flexbox
+          horizontal
+          align="center"
+          className="message-header"
+          direction={isUser ? 'horizontal-reverse' : 'horizontal'}
+          gap={8}
+        >
+          {shouldShowAvatar &&
+            (customAvatarRender ? customAvatarRender(avatarNode) : avatarNode)}
+          {shouldShowTitle && (
+            <Text fontSize={14} weight={500}>
+              {name}
+            </Text>
+          )}
+          {shouldShowTitle ? titleAddon : undefined}
+          {timeText ? (
+            <Text
+              aria-label="published-date"
+              as="time"
+              fontSize={12}
+              title={new Date(time!).toLocaleString(locale)}
+              type="secondary"
+            >
+              {timeText}
+            </Text>
+          ) : null}
+        </Flexbox>
+
+        <Flexbox
+          className="message-body"
+          gap={8}
+          style={{
+            maxWidth: '100%',
+            overflow: 'hidden',
+            position: 'relative',
+            width: isUser ? undefined : '100%',
+          }}
+        >
+          {aboveMessage}
+          <Flexbox
+            className={cx(styles.message, isUser && styles.bubble, disabled && styles.disabled)}
+            gap={16}
+            onDoubleClick={onDoubleClick}
+          >
+            {children}
+            {hasContent ? <Markdown content={content!} /> : null}
+            {messageExtra}
+          </Flexbox>
+          {belowMessage}
+        </Flexbox>
+
+        {(actionAddon || actions) && (
+          <Flexbox
+            horizontal
+            align="center"
+            gap={4}
+            style={{ alignSelf: isUser ? 'flex-end' : 'flex-start' }}
+          >
+            {!isUser && actionAddon}
+            {actions}
+            {isUser && actionAddon}
           </Flexbox>
         )}
-        showAvatar={showAvatar ?? true}
-        showTitle={showTitle ?? !isUser}
-        time={toEpoch(time)}
-        titleAddon={titleAddon}
-        variant={isUser ? 'bubble' : 'docs'}
-      >
-        {children}
-      </LobeChatItemWithChildren>
+        {afterActions ? (
+          <Flexbox style={{ width: isUser ? undefined : '100%' }}>{afterActions}</Flexbox>
+        ) : null}
+      </Flexbox>
     );
   },
 );

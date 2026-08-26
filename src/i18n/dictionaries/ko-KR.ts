@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': '여러 에이전트를 임시로 결합하고 오케스트레이션 모드를 선택해 협업을 시작합니다.',
   'workspace.group.hitlDesc': '확인 후 실행하고 요약하려면 동일한 runId로 계속하세요.',
   'workspace.group.hitlTitle': '슈퍼바이저 에이전트가 데이터 액세스를 요청',
-  'workspace.group.members': '에이전트 3개',
+  'workspace.group.members': '에이전트 {count}개',
   'workspace.group.mode': '오케스트레이션 모드',
   'workspace.group.modeHint': '모드는 agentGroupService에서 제공되며 페이지에 하드코딩되지 않습니다.',
   'workspace.group.name': '비행 검토 그룹',

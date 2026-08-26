@@ -74,10 +74,8 @@ const HomePage = memo(() => {
         );
       }
     }
-    if (!target || !content.trim()) return;
+    if (!target || !content.trim()) return false;
     const prompt = content.trim();
-    // 发送即清空输入框（与会话页一致）：导航后首页若被浏览器 bfcache 恢复也不残留旧消息。
-    setInput('');
     // 选中/解析出的 Agent 从输入里去掉 @ 前缀（保留正文）。
     const cleanPrompt = sanitizeMentionMarkup(prompt).replace(/^@\S*\s*/, '').trim() || prompt;
     const id = `session-${crypto.randomUUID()}`;
@@ -98,6 +96,7 @@ const HomePage = memo(() => {
     void sessionHistoryService.createSession(record).catch((reason) => {
       console.warn('[AgentDock] agent session persist failed', reason);
     });
+    return true;
   }, [agents, navigate, selected]);
 
   return (
@@ -130,11 +129,12 @@ const HomePage = memo(() => {
           )}
 
           <ChatInput
+            draftKey="home"
             agentName={selected?.agentFullName}
             fab={selected?.fab}
             mentions={agents}
             onChange={setInput}
-            onSend={(content) => void start(content)}
+            onSend={start}
             onStop={() => undefined}
             onSwitchAgent={(agent) => setSelected(agent)}
             placeholder={t('home.placeholder')}

@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': 'Combina temporaneamente più agenti, scegli una modalità di orchestrazione e collabora.',
   'workspace.group.hitlDesc': 'Continua con lo stesso runId per eseguire e riepilogare dopo la conferma.',
   'workspace.group.hitlTitle': 'L’agente supervisore richiede l’accesso ai dati',
-  'workspace.group.members': '3 agenti',
+  'workspace.group.members': '{count} agenti',
   'workspace.group.mode': 'Modalità di orchestrazione',
   'workspace.group.modeHint': 'Le modalità provengono da agentGroupService; la pagina non le codifica mai.',
   'workspace.group.name': 'Gruppo di revisione voli',

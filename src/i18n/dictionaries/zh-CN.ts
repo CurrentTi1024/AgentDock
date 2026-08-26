@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': '临时组合多个 Agent，选择编排方式并开始协作。',
   'workspace.group.hitlDesc': '确认后继续使用相同 runId 执行并汇总。',
   'workspace.group.hitlTitle': '主管 Agent 请求读取成员所需数据',
-  'workspace.group.members': '3 个 Agent',
+  'workspace.group.members': '{count} 个 Agent',
   'workspace.group.mode': '编排模式',
   'workspace.group.modeHint': '模式来自 agentGroupService，页面不硬编码。',
   'workspace.group.name': '飞行评审小组',

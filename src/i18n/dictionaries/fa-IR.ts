@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': 'چند عامل را به‌صورت موقت ترکیب کنید، یک حالت ارکستراسیون انتخاب کنید و همکاری را شروع کنید.',
   'workspace.group.hitlDesc': 'با همان runId ادامه دهید تا پس از تأیید اجرا و خلاصه‌سازی انجام شود.',
   'workspace.group.hitlTitle': 'عامل ناظر درخواست دسترسی به داده‌ها دارد',
-  'workspace.group.members': '3 عامل',
+  'workspace.group.members': '{count} عامل',
   'workspace.group.mode': 'حالت ارکستراسیون',
   'workspace.group.modeHint': 'حالت‌ها از agentGroupService می‌آیند؛ صفحه آن‌ها را هاردکد نمی‌کند.',
   'workspace.group.name': 'گروه بررسی پرواز',
