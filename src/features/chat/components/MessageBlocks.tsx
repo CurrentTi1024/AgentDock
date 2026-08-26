@@ -393,15 +393,18 @@ export const ToolCallBlock = ({ call }: { call: RuntimeToolCall }) => {
 // - 完成后自动收起，头部右侧箭头随状态旋转（展开朝下 / 收起朝右）；
 // - 展开列表每行：状态图标（运行=神经网络动画 / 完成=Check / 失败=X）+ 名称 + 耗时 + 状态标签；
 // - 完成后页脚：分隔线 + 步数/耗时汇总。
-export const WorkflowStepsBlock = ({ steps }: { steps: RuntimeStep[] }) => {
+export const WorkflowStepsBlock = ({ steps, streaming }: { steps: RuntimeStep[]; streaming?: boolean }) => {
   const { t } = useI18n();
-  const streaming = steps.some((step) => step.status === 'running');
+  // 展开状态跟随 run 的流式状态（LobeHub：整个 run 期间工作流保持展开，
+  // 步骤完成但正文仍在生成时也不收起；run 结束/历史渲染才收起）。
+  // 未传 streaming（历史渲染）时回退为按步骤状态判断。
+  const isStreaming = streaming ?? steps.some((step) => step.status === 'running');
   const completed = steps.filter((step) => step.status === 'completed').length;
-  const [open, setOpen] = useState(streaming);
+  const [open, setOpen] = useState(isStreaming);
   // 运行中自动展开，完成后自动收起；用户可点击重新展开。
   useEffect(() => {
-    setOpen(streaming);
-  }, [streaming]);
+    setOpen(isStreaming);
+  }, [isStreaming]);
   const startedAt = steps.reduce(
     (min, step) => (step.startedAt && (!min || step.startedAt < min) ? step.startedAt : min),
     undefined as number | undefined,
@@ -413,16 +416,16 @@ export const WorkflowStepsBlock = ({ steps }: { steps: RuntimeStep[] }) => {
   const durationText = formatProcessDuration(startedAt, finishedAt);
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
-    if (!streaming || !startedAt) return;
+    if (!isStreaming || !startedAt) return;
     const update = () => setElapsed(Math.max(0, Date.now() - startedAt));
     update();
     const id = window.setInterval(update, 1000);
     return () => window.clearInterval(id);
-  }, [streaming, startedAt]);
+  }, [isStreaming, startedAt]);
   return (
     <div className={styles.block}>
       <div className={styles.header} onClick={() => setOpen((value) => !value)}>
-        {streaming ? (
+        {isStreaming ? (
           <NeuralNetworkLoading size={16} />
         ) : (
           <Icon
@@ -438,7 +441,7 @@ export const WorkflowStepsBlock = ({ steps }: { steps: RuntimeStep[] }) => {
         <Text fontSize={12} weight={500} style={{ flex: 1, minWidth: 0 }}>
           {t('chat.steps', { completed, total: steps.length })}
         </Text>
-        {streaming ? (
+        {isStreaming ? (
           <Text fontSize={12} type="secondary">
             {t('chat.process.streaming')} · {formatElapsedTime(elapsed)}
           </Text>
@@ -449,7 +452,7 @@ export const WorkflowStepsBlock = ({ steps }: { steps: RuntimeStep[] }) => {
         ) : null}
         <CollapseArrow open={open} />
       </div>
-      {streaming && <WorkflowProgressBar />}
+      {isStreaming && <WorkflowProgressBar />}
       {open && (
         <Flexbox
           gap={2}
@@ -492,7 +495,7 @@ export const WorkflowStepsBlock = ({ steps }: { steps: RuntimeStep[] }) => {
               </Flexbox>
             );
           })}
-          {!streaming && steps.length > 0 && (
+          {!isStreaming && steps.length > 0 && (
             <Flexbox
               horizontal
               align="center"
@@ -1164,10 +1167,11 @@ export const renderRunBlocks = (
   const blocks: React.ReactNode[] = [];
   const stepBuffer: RuntimeStep[] = [];
   const seenSurfaces = new Set<string>();
-  const process = createProcessCollector(run.status === 'running' || run.status === 'paused');
+  const streaming = run.status === 'running' || run.status === 'paused';
+  const process = createProcessCollector(streaming);
   const pushStepsIntoProcess = () => {
     if (!stepBuffer.length) return;
-    process.state.nodes.push(<WorkflowStepsBlock key={`steps-${stepBuffer[0].id}`} steps={[...stepBuffer]} />);
+    process.state.nodes.push(<WorkflowStepsBlock key={`steps-${stepBuffer[0].id}`} steps={[...stepBuffer]} streaming={streaming} />);
     process.state.hasWork = true;
     process.state.stepCount += stepBuffer.length;
     process.track(
@@ -1206,7 +1210,7 @@ export const renderRunBlocks = (
     const steps = Object.values(run.steps || {}).sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0));
     const visibleSteps = steps.filter((step) => !isInternalStep(step.name));
     if (visibleSteps.length) {
-      process.state.nodes.push(<WorkflowStepsBlock key="steps" steps={visibleSteps} />);
+      process.state.nodes.push(<WorkflowStepsBlock key="steps" steps={visibleSteps} streaming={streaming} />);
       process.state.hasWork = true;
       process.state.stepCount += visibleSteps.length;
       process.track(
