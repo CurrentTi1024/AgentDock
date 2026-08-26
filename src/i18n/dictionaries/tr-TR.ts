@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': 'Birden çok ajanı geçici olarak birleştirin, bir orkestrasyon modu seçin ve iş birliğine başlayın.',
   'workspace.group.hitlDesc': 'Onaydan sonra çalıştırmak ve özetlemek için aynı runId ile devam edin.',
   'workspace.group.hitlTitle': 'Denetleyici ajan veri erişimi istiyor',
-  'workspace.group.members': '3 ajan',
+  'workspace.group.members': '{count} ajan',
   'workspace.group.mode': 'Orkestrasyon modu',
   'workspace.group.modeHint': 'Modlar agentGroupService’ten gelir; sayfa bunları asla sabit kodlamaz.',
   'workspace.group.name': 'Uçuş inceleme grubu',

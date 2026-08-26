@@ -40,7 +40,16 @@ import {
 } from '@/api/session/sessionHistoryService';
 import { useAgentDockConversation } from '@/features/chat/useAgentDockConversation';
 import { useChatScroll } from '@/features/chat/hooks/useChatScroll';
+import { getHistoryWindowLimit } from '@/features/chat/historyWindow';
+import {
+  findLiveProcessHostId,
+  findStoredProcessHosts,
+} from '@/features/chat/messageBlockOwnership';
 import ContentLoading from '@/features/chat/components/lobehub/ContentLoading';
+import {
+  runtimeMessageToSessionRecord,
+  SpecialMessage,
+} from '@/features/chat/components/lobehub/SpecialMessages';
 import { useUiStore } from '@/stores/uiStore';
 import { useI18n } from '@/i18n';
 
@@ -131,10 +140,9 @@ export default function ChatPage() {
 
   /** 变更/终态后刷新：按当前已加载文本数重取“最新 N 条文本窗口”，保留已加载的更早内容。 */
   const reloadHistoryWindow = useCallback(async () => {
-    // 首屏尚未建立窗口时跳过：避免 run-persisted 先于 loadInitialHistory 触发，
-    // 用 1 条文本的小窗口覆盖 50 条首屏。
-    if (loadedTextCountRef.current === 0) return;
-    const target = Math.max(loadedTextCountRef.current, 1);
+    // 新会话初始计数为 0，终态也必须重取至少一整轮，否则 live→history
+    // 切换时消息会瞬间消失。getMessagesPage 会按 run 整组返回，不会截断过程块。
+    const target = getHistoryWindowLimit(loadedTextCountRef.current);
     const page = await sessionHistoryService.getMessagesPage(sessionId, { limit: target });
     setHistory(page.records);
     setHasMoreOlder(page.hasMore);
@@ -167,7 +175,10 @@ export default function ChatPage() {
   const isActiveRun = run?.status === 'running' || run?.status === 'paused';
   // 已删消息墓碑：删除并重新生成时后端线程仍会带回被删轮次，展示与落库都需跳过。
   const deletedKeys = useMemo(() => new Set(session?.deletedMessageIds ?? []), [session?.deletedMessageIds]);
-  const liveMessages = Object.values(run?.messages || {}).filter(
+  const orderedLiveMessages = run?.messageOrder?.length
+    ? run.messageOrder.map((messageId) => run.messages[messageId]).filter(Boolean)
+    : Object.values(run?.messages || {});
+  const liveMessages = orderedLiveMessages.filter(
     (message) =>
       !String(message.id).startsWith('lc_run--') &&
       !deletedKeys.has(`text:${message.id}`) &&
@@ -179,6 +190,11 @@ export default function ChatPage() {
   const currentUserMessage = liveMessages
     .filter((message) => message.role === 'user')
     .at(-1)?.content;
+  const liveSpecialRecords = liveMessages
+    .filter((message) => message.role !== 'user' && message.role !== 'assistant')
+    .map((message, index) =>
+      runtimeMessageToSessionRecord(message, run?.runId || '', index, runStartedAt),
+    );
   // RUN_ERROR：错误文本被 reducer 追加到助手消息末尾用于持久化；展示时剥离，
   // 由 blocks 里的 agentDock.error 活动渲染 LobeHub 错误卡（Alert + 重新生成）。
   const displayAnswer = stripRunErrorText(answer || '', run?.error?.message);
@@ -364,19 +380,8 @@ export default function ChatPage() {
     void restore();
   }, [ensureSession, loadInitialHistory, restore, sessionId]);
 
-  useEffect(() => {
-    if (run && ['success', 'cancelled', 'error'].includes(run.status)) {
-      // 运行终态时 flushRunCheckpoint 异步落库；延迟到落库完成后刷新历史，
-      // 避免读到缺少助手回复的中间快照（竞态会导致完成后消息消失）。
-      const timer = setTimeout(() => {
-        void loadInitialHistory();
-      }, 600);
-      return () => clearTimeout(timer);
-    }
-  }, [loadInitialHistory, run?.status, sessionId]);
-
   const sendMessageWith = async (prompt: string) => {
-    if (!prompt || running) return;
+    if (!prompt || running) return false;
     // 解析 @Agent 提及：先确保候选列表已加载（直接手输 @ 也可能没触发过联想菜单）。
     if (prompt.includes('@') || prompt.includes('<mention')) await ensureMentions();
     const mentionAgents = parseMentionedAgents(prompt, mentionsRef.current).filter(
@@ -387,7 +392,7 @@ export default function ChatPage() {
     setRunStartedAt(Date.now());
     setArtifactOpen(false);
     const active = session ?? (await ensureSession());
-    if (!active) return;
+    if (!active) return false;
     // 标题默认 = 首条消息前 20 字符：会话还没有可见文本消息时才更新，
     // 覆盖侧边栏新建（初始 title=agentFullName）与默认 inbox 两种无消息场景。
     const hasAnyMessage = await sessionHistoryService.hasMessages(active.id);
@@ -398,7 +403,10 @@ export default function ChatPage() {
       title: hasAnyMessage ? active.title : buildSessionTitle(prompt, active.title),
       version: selectedAgent?.version || active.version,
     });
-    await send(prompt, { mentionAgents });
+    void send(prompt, { mentionAgents }).catch((reason) => {
+      console.error('[AgentDock] run start failed', reason);
+    });
+    return true;
   };
 
   // 首页 hub 发送：路由 state 携带 pendingPrompt，挂载且会话就绪后自动发送一次；
@@ -413,11 +421,10 @@ export default function ChatPage() {
     navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
   }, [location.pathname, location.search, location.state, navigate, session, sendMessageWith]);
 
-  const handleSend = (content: string) => {
+  const handleSend = async (content: string) => {
     const prompt = content.trim();
-    if (!prompt || running) return;
-    setInput('');
-    void sendMessageWith(prompt);
+    if (!prompt || running) return false;
+    return sendMessageWith(prompt);
   };
 
   const switchAgent = useCallback(
@@ -457,6 +464,7 @@ export default function ChatPage() {
       bucket.push(record);
       blocksByRun.set(record.runId, bucket);
     }
+    const processHosts = findStoredProcessHosts(history);
     const result: StoredTextMessage[] = [];
     for (const record of history) {
       if (record.id.startsWith('lc_run--')) continue;
@@ -465,7 +473,7 @@ export default function ChatPage() {
       // 空占位隐藏：assistant 行无内容且无过程块（如 START 后即停止/刷新）不渲染空气泡；
       // 有工具/推理块的空气泡保留（块需要 assistant 文本作宿主）。
       if (record.role === 'assistant' && !record.content && !(record.runId && (blocksByRun.get(record.runId)?.length ?? 0) > 0)) continue;
-      const blocks = record.role === 'assistant' && record.runId
+      const blocks = record.runId && processHosts.get(record.runId) === record.id
         ? (blocksByRun.get(record.runId) ?? [])
         : [];
       result.push({ blocks, record });
@@ -548,6 +556,12 @@ export default function ChatPage() {
       }),
     onRegenerateError: () => regenerateError(),
   }, { deletedKeys, showReasoning, showSurfaces: true });
+  const hasLiveAssistant = liveMessages.some((message) => message.role === 'assistant');
+  const liveProcessHostId = findLiveProcessHostId(liveSpecialRecords, hasLiveAssistant);
+  const hasLiveBlocks = Array.isArray(blocks) && blocks.length > 0;
+  const showLiveAssistant = Boolean(answer) || (
+    !liveProcessHostId && (hasLiveBlocks || liveSpecialRecords.length === 0)
+  );
 
   const lastLiveMessageId = Object.keys(run?.messages || {}).at(-1) || '';
   const feedbackTarget = {
@@ -634,6 +648,48 @@ export default function ChatPage() {
                   ? errorActivity.payload.message
                   : undefined,
               );
+              const renderedStoredBlocks = record.role === 'user' ? null : renderStoredBlocks(storedBlocks, {
+                onApproveHitl: (requestId, payload) =>
+                  void respondToHitl({
+                    mode: String(payload?.mode || 'toolAuthorization'),
+                    decision: 'approve',
+                    requestId,
+                    ...(payload?.editedArguments !== undefined ? { editedArguments: payload.editedArguments as Record<string, unknown> } : {}),
+                    ...(payload?.input !== undefined ? { input: String(payload.input) } : {}),
+                    ...(payload?.selectedValues !== undefined ? { selectedValues: payload.selectedValues as string[] } : {}),
+                    ...(payload?.formValues !== undefined ? { formValues: payload.formValues as Record<string, unknown> } : {}),
+                  }),
+                onRejectHitl: (requestId) =>
+                  void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
+                onSurfaceAction: (actionName, surfaceId) =>
+                  void sendA2uiAction({
+                    actionName: actionName || 'open_report',
+                    context: { reportId: 'artifact-report' },
+                    sourceComponentId: 'action-button',
+                    surfaceId,
+                  }),
+                onRegenerateError: (runId) => regenerateError(runId),
+              }, { deletedKeys, narration, showReasoning, showSurfaces: true });
+              const assistantActions = (
+                <MessageActions
+                  content={originalContent}
+                  onCopy={copyMessage}
+                  onDislike={() =>
+                    setFeedbackModal({
+                      messageId: record.id,
+                      runId: record.runId || '',
+                      sessionId,
+                      threadId: session?.threadId || '',
+                    })
+                  }
+                  onLike={() =>
+                    void messageFeedbackService.submitMessageFeedback({
+                      ...feedbackTarget,
+                      feedback: 'like',
+                    })
+                  }
+                />
+              );
               return (
                 <Fragment key={record.id}>
                   {gap > HISTORY_DIVIDER_MS && <HistoryDivider label={t('chat.history')} />}
@@ -651,32 +707,13 @@ export default function ChatPage() {
                       id={record.id}
                       name={t('chat.you')}
                       role="user"
-                      showAvatar
                       showTitle={false}
                       time={new Date(record.createdAt).getTime()}
                     />
-                  ) : (
+                  ) : record.role === 'assistant' || !record.role ? (
                     <ChatItem
-                      actions={
-                        <MessageActions
-                          content={originalContent}
-                          onCopy={copyMessage}
-                          onDislike={() =>
-                            setFeedbackModal({
-                              messageId: record.id,
-                              runId: record.runId || '',
-                              sessionId,
-                              threadId: session?.threadId || '',
-                            })
-                          }
-                          onLike={() =>
-                            void messageFeedbackService.submitMessageFeedback({
-                              ...feedbackTarget,
-                              feedback: 'like',
-                            })
-                          }
-                        />
-                      }
+                      actions={assistantActions}
+                      avatar={agentIcon}
                       content={record.content}
                       id={record.id}
                       name={agent}
@@ -685,29 +722,18 @@ export default function ChatPage() {
                       showTitle
                       time={new Date(record.createdAt).getTime()}
                     >
-                      {renderStoredBlocks(storedBlocks, {
-                        onApproveHitl: (requestId, payload) =>
-                          void respondToHitl({
-                            mode: String(payload?.mode || 'toolAuthorization'),
-                            decision: 'approve',
-                            requestId,
-                            ...(payload?.editedArguments !== undefined ? { editedArguments: payload.editedArguments as Record<string, unknown> } : {}),
-                            ...(payload?.input !== undefined ? { input: String(payload.input) } : {}),
-                            ...(payload?.selectedValues !== undefined ? { selectedValues: payload.selectedValues as string[] } : {}),
-                            ...(payload?.formValues !== undefined ? { formValues: payload.formValues as Record<string, unknown> } : {}),
-                          }),
-                        onRejectHitl: (requestId) =>
-                          void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
-                        onSurfaceAction: (actionName, surfaceId) =>
-                          void sendA2uiAction({
-                            actionName: actionName || 'open_report',
-                            context: { reportId: 'artifact-report' },
-                            sourceComponentId: 'action-button',
-                            surfaceId,
-                          }),
-                        onRegenerateError: (runId) => regenerateError(runId),
-                      }, { deletedKeys, narration, showReasoning, showSurfaces: true })}
+                      {renderedStoredBlocks}
                     </ChatItem>
+                  ) : (
+                    <SpecialMessage
+                      actions={assistantActions}
+                      agentAvatar={agentIcon}
+                      agentName={agent}
+                      content={displayContent}
+                      record={record}
+                    >
+                      {renderedStoredBlocks}
+                    </SpecialMessage>
                   )}
                 </Fragment>
               );
@@ -736,7 +762,18 @@ export default function ChatPage() {
                   role="user"
                   time={Date.now()}
                 />
-                <ChatItem
+                {liveSpecialRecords.map((record) => (
+                  <SpecialMessage
+                    agentAvatar={agentIcon}
+                    agentName={agent}
+                    key={record.id}
+                    loading={running}
+                    record={record}
+                  >
+                    {record.id === liveProcessHostId ? blocks : undefined}
+                  </SpecialMessage>
+                ))}
+                {showLiveAssistant && <ChatItem
                   actions={
                     !running && (
                       <MessageActions
@@ -759,6 +796,7 @@ export default function ChatPage() {
                       />
                     )
                   }
+                  avatar={agentIcon}
                   content={displayAnswer}
                   id="current-assistant"
                   loading={running}
@@ -766,8 +804,8 @@ export default function ChatPage() {
                   role="assistant"
                   time={Date.now()}
                 >
-                  {blocks}
-                  {running && !answer && !blocks && <ContentLoading startTime={runStartedAt} />}
+                  {!liveProcessHostId && blocks}
+                  {running && !answer && !hasLiveBlocks && <ContentLoading startTime={runStartedAt} />}
                   {!running && answer && (
                     <Flexbox horizontal gap={8}>
                       <ActionIcon
@@ -779,7 +817,7 @@ export default function ChatPage() {
                       {surface && <Tag color="info">{t('chat.a2uiSurface')}</Tag>}
                     </Flexbox>
                   )}
-                </ChatItem>
+                </ChatItem>}
               </>
             )}
           </Flexbox>
@@ -799,6 +837,7 @@ export default function ChatPage() {
               agentName={agent}
               approvalMode={approvalMode}
               fab={fab}
+              draftKey={`chat:${sessionId}`}
               mentions={mentions}
               running={running}
               value={input}

@@ -285,7 +285,7 @@ export default {
   'workspace.group.desc': 'Temporarily combine multiple Agents, choose an orchestration mode and start collaborating.',
   'workspace.group.hitlDesc': 'Continue with the same runId to execute and summarize after confirmation.',
   'workspace.group.hitlTitle': 'Supervisor Agent requests data access',
-  'workspace.group.members': '3 Agents',
+  'workspace.group.members': '{count} Agents',
   'workspace.group.mode': 'Orchestration mode',
   'workspace.group.modeHint': 'Modes come from agentGroupService; the page never hard-codes them.',
   'workspace.group.name': 'Flight review group',

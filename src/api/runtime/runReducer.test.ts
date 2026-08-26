@@ -173,6 +173,22 @@ test('records per-message eventId and dedupes replay', () => {
   assert.deepEqual(state.processedEventIds, ['1', '2']);
 });
 
+test('assistant narration/text participates in orderedBlocks with tools in arrival order', () => {
+  let state = createRunState('run-text-order', 'thread-text-order');
+  state = reduceRunEvent(state, { eventId: '1', event: { type: 'TEXT_MESSAGE_START', messageId: 'assistant-intro', role: 'assistant' } });
+  state = reduceRunEvent(state, { eventId: '2', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'assistant-intro', delta: '我先查询数据。' } });
+  state = reduceRunEvent(state, { eventId: '3', event: { type: 'TEXT_MESSAGE_END', messageId: 'assistant-intro' } });
+  state = reduceRunEvent(state, { eventId: '4', event: { type: 'TOOL_CALL_START', toolCallId: 'tool-between', toolCallName: 'weather.search' } });
+  state = reduceRunEvent(state, { eventId: '5', event: { type: 'TOOL_CALL_END', toolCallId: 'tool-between' } });
+  state = reduceRunEvent(state, { eventId: '6', event: { type: 'TEXT_MESSAGE_START', messageId: 'assistant-final', role: 'assistant' } });
+  state = reduceRunEvent(state, { eventId: '7', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'assistant-final', delta: '查询完成。' } });
+  assert.deepEqual(state.orderedBlocks, [
+    { id: 'assistant-intro', kind: 'text' },
+    { id: 'tool-between', kind: 'tool' },
+    { id: 'assistant-final', kind: 'text' },
+  ]);
+});
+
 test('tracks reasoning streaming state and duration across REASONING events', () => {
   let state = createRunState('run-5', 'thread-5');
   state = reduceRunEvent(state, { eventId: '1', event: { type: 'REASONING_MESSAGE_START', messageId: 'reasoning-5' } });
@@ -244,25 +260,46 @@ test('projects legacy on_interrupt custom event as a HITL pause', () => {
   assert.equal(state.activities['hitl-request-8'].requestId, 'request-8');
 });
 
-test('projects LobeHub task roles from MESSAGES_SNAPSHOT as activity blocks', () => {
+test('preserves every LobeHub visible message role from MESSAGES_SNAPSHOT', () => {
   let state = createRunState('run-9', 'thread-9');
+  const visibleRoles = [
+    'user',
+    'assistant',
+    'assistantGroup',
+    'supervisor',
+    'task',
+    'tasks',
+    'groupTasks',
+    'agentCouncil',
+    'compressedGroup',
+    'tool',
+    'verify',
+    'taskCallback',
+  ] as const;
   state = reduceRunEvent(state, {
     eventId: '1',
     event: {
       type: 'MESSAGES_SNAPSHOT',
-      messages: [
-        { id: 'user-9', role: 'user', content: 'hi' },
-        { id: 'task-9', role: 'task', content: '读取数据' },
-        { id: 'supervisor-9', role: 'supervisor', content: '汇总' },
-        { id: 'assistant-9', role: 'assistant', content: '完成' },
-      ],
+      messages: visibleRoles.map((role) => ({
+        content: role,
+        id: `${role}-9`,
+        metadata: { source: 'snapshot' },
+        role,
+      })),
     },
   });
-  assert.equal(state.messages['user-9'].content, 'hi');
-  assert.equal(state.messages['assistant-9'].content, '完成');
+  assert.deepEqual(state.messageOrder, visibleRoles.map((role) => `${role}-9`));
+  for (const role of visibleRoles) {
+    assert.equal(state.messages[`${role}-9`].role, role);
+    assert.deepEqual(state.messages[`${role}-9`].metadata, { source: 'snapshot' });
+  }
+  assert.equal(state.messages['task-9'].role, 'task');
+  assert.equal(state.messages['supervisor-9'].role, 'supervisor');
+  assert.equal(state.messages['assistant-9'].content, 'assistant');
   assert.equal(state.activities['task-9'].activityType, 'agentDock.task');
+  assert.equal(state.activities['task-9'].diagnosticOnly, true);
   assert.equal(state.activities['supervisor-9'].activityType, 'agentDock.supervisor');
-  assert.equal(Object.keys(state.messages).length, 2);
+  assert.equal(Object.keys(state.messages).length, visibleRoles.length);
 });
 
 test('ACTIVITY_SNAPSHOT stores activityType alongside content for live rendering', () => {

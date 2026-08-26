@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': 'Tymczasowo łącz wielu agentów, wybierz tryb orkiestracji i zacznij współpracę.',
   'workspace.group.hitlDesc': 'Kontynuuj z tym samym runId, aby po potwierdzeniu wykonać i podsumować.',
   'workspace.group.hitlTitle': 'Agent nadzorujący żąda dostępu do danych',
-  'workspace.group.members': '3 agentów',
+  'workspace.group.members': '{count} agentów',
   'workspace.group.mode': 'Tryb orkiestracji',
   'workspace.group.modeHint': 'Tryby pochodzą z agentGroupService; strona nie koduje ich na sztywno.',
   'workspace.group.name': 'Grupa przeglądu lotów',

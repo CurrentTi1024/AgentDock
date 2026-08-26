@@ -61,7 +61,7 @@
    - ~~Agent 列表卡片缺失每个 agent 的 skill/mcp 数量等元信息~~ ✅ 已补（TokenTag 风格数量标签）。
    - ~~“进入聊天”按钮颜色/样式与 LobeHub 不一致~~ ✅ 已改（主色 `blue` → `primary`，与 LobeHub 一致）。
    - 分类侧栏、卡片密度、详情 Tabs/侧栏等细节待逐项对照。
-2. **Chat / Group Chat 未全量复刻 LobeHub**：消息类型矩阵仍有缺口（assistantGroup / task / tasks / groupTasks / supervisor / activity 等），过程折叠、操作栏、编辑态、群聊设置面板等交互为简化版。
+2. **Chat / Group Chat 消息展示已完成源码级迁移（2026-08-27）**：覆盖 LobeHub `Messages/index.tsx` 全部顶层 role、过程折叠、工具、HITL 六模式、A2UI、实时/历史同构；作业记录见 `docs/agentdock/18-lobehub-chat-source-migration-worklog.md`。
 3. **其他页面为占位/简化**：Group / Tasks / Documents / Memory / Channel / Artifact / Page / Settings 未按 LobeHub 全量迁移。
 4. **本地环境**：5173 被旧 dev server（PID 54967）占用，测试可能访问旧代码；需 kill 后重启。
 5. **构建体积**：主 chunk ~2MB（CopilotKit 依赖 katex/mermaid/shiki），需要拆包优化。

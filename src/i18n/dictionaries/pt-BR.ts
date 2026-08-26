@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': 'Combine temporariamente vários agentes, escolha um modo de orquestração e comece a colaborar.',
   'workspace.group.hitlDesc': 'Continue com o mesmo runId para executar e resumir após a confirmação.',
   'workspace.group.hitlTitle': 'O agente supervisor solicita acesso aos dados',
-  'workspace.group.members': '3 agentes',
+  'workspace.group.members': '{count} agentes',
   'workspace.group.mode': 'Modo de orquestração',
   'workspace.group.modeHint': 'Os modos vêm do agentGroupService; a página nunca os codifica.',
   'workspace.group.name': 'Grupo de revisão de voo',

@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': 'Kết hợp tạm thời nhiều Agent, chọn chế độ điều phối và bắt đầu cộng tác.',
   'workspace.group.hitlDesc': 'Tiếp tục với cùng runId để thực thi và tóm tắt sau khi xác nhận.',
   'workspace.group.hitlTitle': 'Agent giám sát yêu cầu truy cập dữ liệu',
-  'workspace.group.members': '3 Agent',
+  'workspace.group.members': '{count} Agent',
   'workspace.group.mode': 'Chế độ điều phối',
   'workspace.group.modeHint': 'Các chế độ đến từ agentGroupService; trang không mã cứng chúng.',
   'workspace.group.name': 'Nhóm rà soát chuyến bay',

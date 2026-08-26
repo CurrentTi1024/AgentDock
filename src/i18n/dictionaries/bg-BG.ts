@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': 'Временно комбинирайте няколко агента, изберете режим на оркестрация и започнете сътрудничество.',
   'workspace.group.hitlDesc': 'Продължете със същия runId, за да изпълните и обобщите след потвърждение.',
   'workspace.group.hitlTitle': 'Супервайзор агентът иска достъп до данни',
-  'workspace.group.members': '3 агента',
+  'workspace.group.members': '{count} агента',
   'workspace.group.mode': 'Режим на оркестрация',
   'workspace.group.modeHint': 'Режимите идват от agentGroupService; страницата никога не ги закодира твърдо.',
   'workspace.group.name': 'Група за преглед на полети',

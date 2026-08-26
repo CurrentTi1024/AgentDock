@@ -1,6 +1,6 @@
 # LobeHub 源码迁移矩阵
 
-> 基线：`/private/tmp/lobehub-canary`  
+> 基线：`/Users/chenguo/lobehub` canary commit `920880679a7138282e13f18303a6183f63ef677a`
 > 原则：迁移 LobeHub 真实页面、组件、样式与交互；只替换服务端依赖和超出 AgentDock 范围的产品能力。
 
 ## 迁移规则
@@ -42,5 +42,7 @@
 
 - 已替换全局主题为 LobeHub `ThemeProvider` 与语义 token。
 - 已从三类 Community List Item 源码迁移统一市场卡片结构（FAB 版本右上角、skill/mcp 数量标签、底部时间到时分 + ownerName）；分页迁移为 antd `Pagination`（右下角），排序迁移为 `SortButton` 下拉 + 升降序切换。
-- 已从 Conversation ChatItem 源码迁移消息头、消息体、过程折叠和悬浮操作结构。
+- 已从 Conversation 仓库内 ChatItem 源码迁移消息头、消息体、用户气泡、过程折叠和悬浮操作结构，不再以 npm 通用 ChatItem 代替源码迁移。
+- 已覆盖 `Messages/index.tsx` 的全部可见 role，并把实时/历史统一为 props-first 渲染；完整作业和代码分块见 [18-lobehub-chat-source-migration-worklog.md](18-lobehub-chat-source-migration-worklog.md)。
+- 输入编辑器采用 LobeHub 的“编辑器内存权威源 + draftKey”模型，修复防抖受控值导致的光标跳走和草稿丢失。
 - 后续按上表逐个替换现有临时页面；临时页面不作为验收结果。

@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': '複数のエージェントを一時的に組み合わせ、オーケストレーションモードを選んで共同作業を始めます。',
   'workspace.group.hitlDesc': '同じ runId で続行し、承認後に実行・要約します。',
   'workspace.group.hitlTitle': 'スーパーバイザーエージェントがデータアクセスを要求',
-  'workspace.group.members': '3 エージェント',
+  'workspace.group.members': '{count} エージェント',
   'workspace.group.mode': 'オーケストレーションモード',
   'workspace.group.modeHint': 'モードは agentGroupService から取得され、ページにハードコードされません。',
   'workspace.group.name': '飛行レビューグループ',

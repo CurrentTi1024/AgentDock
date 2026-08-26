@@ -288,7 +288,7 @@ export default {
   'workspace.group.desc': 'Mehrere Agents vorübergehend kombinieren, einen Orchestrierungsmodus wählen und zusammenarbeiten.',
   'workspace.group.hitlDesc': 'Mit derselben runId fortfahren, um nach Bestätigung auszuführen und zusammenzufassen.',
   'workspace.group.hitlTitle': 'Supervisor-Agent fordert Datenzugriff an',
-  'workspace.group.members': '3 Agenten',
+  'workspace.group.members': '{count} Agenten',
   'workspace.group.mode': 'Orchestrierungsmodus',
   'workspace.group.modeHint': 'Die Modi stammen aus agentGroupService; die Seite codiert sie nie fest.',
   'workspace.group.name': 'Gruppe Flugüberprüfung',
