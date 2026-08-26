@@ -190,6 +190,9 @@ const createProcessCollector = (streaming: boolean) => {
     hasReasoning: false,
     hasWork: false,
     nodes: [] as React.ReactNode[],
+    // 推理（thinking）与过程分开：正文出来后 thinking 也要常驻显示（默认折叠），
+    // 不藏进 ProcessFold；工具/步骤/中间叙述才进过程折叠。
+    reasoningNodes: [] as React.ReactNode[],
     startedAt: undefined as number | undefined,
     stepCount: 0,
   };
@@ -198,25 +201,31 @@ const createProcessCollector = (streaming: boolean) => {
     if (finishedAt && (!state.finishedAt || finishedAt > state.finishedAt)) state.finishedAt = finishedAt;
   };
   const flush = (target: React.ReactNode[]) => {
-    if (!state.nodes.length) return;
+    if (!state.nodes.length && !state.reasoningNodes.length) return;
     // 快照节点副本再传给组件：state.nodes 随后会被 length=0 原地清空，
     // 若按引用传递，React 渲染时 children 已变成空数组（折叠有标题无内容）。
     const nodes = [...state.nodes];
-    // 单条 reasoning 独立展示（自身可折叠）；只有真实步骤/工具（stepCount>0）才汇总为折叠，
-    // 避免 narration/HITL/纯推理等 0 步过程渲染出「已处理 0 步 · –」的空折叠卡。
-    if (state.stepCount > 0) {
-      target.push(
-        <ProcessFold
-          durationText={formatProcessDuration(state.startedAt, state.finishedAt)}
-          key={`process-${state.startedAt ?? state.nodes.length}`}
-          stepCount={state.stepCount}
-          streaming={streaming}
-        >
-          {nodes}
-        </ProcessFold>,
-      );
-    } else {
-      target.push(...nodes);
+    const reasoningNodes = [...state.reasoningNodes];
+    // 推理独立常驻：正文出来后 thinking 也显示，默认折叠（Thinking 完成自动收起）。
+    if (reasoningNodes.length) target.push(...reasoningNodes);
+    state.reasoningNodes.length = 0;
+    if (nodes.length) {
+      // 只有真实步骤/工具（stepCount>0）才汇总为折叠，
+      // 避免 narration/HITL 等 0 步过程渲染出「已处理 0 步 · –」的空折叠卡。
+      if (state.stepCount > 0) {
+        target.push(
+          <ProcessFold
+            durationText={formatProcessDuration(state.startedAt, state.finishedAt)}
+            key={`process-${state.startedAt ?? state.nodes.length}`}
+            stepCount={state.stepCount}
+            streaming={streaming}
+          >
+            {nodes}
+          </ProcessFold>,
+        );
+      } else {
+        target.push(...nodes);
+      }
     }
     state.nodes.length = 0;
     state.stepCount = 0;
@@ -1036,7 +1045,10 @@ export const renderStoredBlocks = (
     const payload = (record.payload || {}) as Record<string, unknown>;
     if (record.kind === 'reasoning') {
       if (options.showReasoning !== false) {
-        process.state.nodes.push(<ReasoningBlock id={record.id} key={record.id} text={record.content || ''} />);
+        // 推理独立常驻（默认折叠）；空内容不渲染，避免“空已深度思考”噪声块。
+        if (record.content?.trim()) {
+          process.state.reasoningNodes.push(<ReasoningBlock id={record.id} key={record.id} text={record.content} />);
+        }
         process.state.hasReasoning = true;
       }
     } else if (record.kind === 'tool') {
@@ -1177,7 +1189,9 @@ export const renderRunBlocks = (
     if (options.showReasoning !== false) {
       for (const [id, text] of Object.entries(run.reasoning || {})) {
         const meta = run.reasoningMeta?.[id];
-        process.state.nodes.push(<ReasoningBlock id={id} key={`reasoning-${id}`} meta={meta} text={text} />);
+        if (text?.trim() || meta?.streaming) {
+          process.state.reasoningNodes.push(<ReasoningBlock id={id} key={`reasoning-${id}`} meta={meta} text={text} />);
+        }
         process.state.hasReasoning = true;
         process.track(meta?.startedAt, meta?.finishedAt);
       }
@@ -1221,7 +1235,9 @@ export const renderRunBlocks = (
         const text = run.reasoning?.[ref.id];
         if (text !== undefined) {
           const meta = run.reasoningMeta?.[ref.id];
-          process.state.nodes.push(<ReasoningBlock id={ref.id} key={`reasoning-${ref.id}`} meta={meta} text={text} />);
+          if (text?.trim() || meta?.streaming) {
+            process.state.reasoningNodes.push(<ReasoningBlock id={ref.id} key={`reasoning-${ref.id}`} meta={meta} text={text} />);
+          }
           process.state.hasReasoning = true;
           process.track(meta?.startedAt, meta?.finishedAt);
         }
