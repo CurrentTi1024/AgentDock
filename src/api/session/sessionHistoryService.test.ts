@@ -104,6 +104,16 @@ test('hasMessages：空会话为 false；落库用户/助手文本后为 true；
   assert.equal(await sessionHistoryService.hasMessages(sessionId), true, '用户文本落库后为 true');
 });
 
+test('复合消息主键允许不同 Session 复用 event/message id 且互不覆盖', async () => {
+  const createdAt = new Date().toISOString();
+  await sessionHistoryService.appendMessages([
+    { content: 'A', createdAt, id: 'step:plan', kind: 'step', sessionId: 'compound-key-a', sequence: 1 },
+    { content: 'B', createdAt, id: 'step:plan', kind: 'step', sessionId: 'compound-key-b', sequence: 1 },
+  ]);
+  assert.equal((await sessionHistoryService.getMessages('compound-key-a'))[0]?.content, 'A');
+  assert.equal((await sessionHistoryService.getMessages('compound-key-b'))[0]?.content, 'B');
+});
+
 test('单 Agent 运行结束 flush 后：messages 落库、sessions 时间戳更新、终态不落 checkpoint', async () => {
   const sessionId = 'session-persist-run-1';
   const runId = 'run-persist-1';
@@ -254,6 +264,32 @@ test('流式防抖：空闲 350ms 后自动落盘，无需手动 flush', async (
   assert.ok(messages.some((record) => record.kind === 'text'), '防抖定时器到期后消息应自动落盘');
   assert.equal(await sessionHistoryService.getLatestRun(sessionId), undefined, '终态不落 checkpoint');
   await flushRunCheckpoint();
+});
+
+test('持续流不会饿死 checkpoint：500ms 最大等待内落盘 running 游标', async () => {
+  const sessionId = 'session-persist-max-wait';
+  const runId = 'run-max-wait';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: '持续流最大等待落库',
+    type: 'agent',
+  });
+  const { input, snapshot } = buildSingleAgentRun(sessionId, runId);
+  const running = { ...snapshot, latestEventId: 'cursor-max-wait', status: 'running' as const };
+  // 每 100ms 更新一次，始终早于 350ms 尾部防抖；没有 max-wait 时永远不会写入。
+  for (let index = 0; index < 7; index += 1) {
+    scheduleRunCheckpoint(sessionId, input, running);
+    await wait(100);
+  }
+  const checkpoint = await sessionHistoryService.getLatestRun(sessionId);
+  assert.equal(checkpoint?.runId, runId);
+  assert.equal(checkpoint?.latestEventId, 'cursor-max-wait');
+  cancelPendingCheckpoint(runId);
 });
 
 test('刷新后恢复：历史消息从 messages 表重建，终态无 checkpoint', async () => {
@@ -600,7 +636,7 @@ test('v1 → v2 升级：lastMessageAt 从 text 消息回填，空会话回退 c
   const empty = await sessionDatabase.sessions.get('legacy-empty');
   assert.equal(withMsg?.lastMessageAt, '2024-01-03T00:00:00.000Z', '有消息会话按 text 最大 createdAt 回填');
   assert.equal(empty?.lastMessageAt, '2024-02-01T00:00:00.000Z', '空会话回退 createdAt');
-  assert.equal((await sessionDatabase.messages.get('text:m1'))?.content, 'hi', '旧消息数据保留');
+  assert.equal((await sessionDatabase.sessionMessages.get(['legacy-with-msg', 'text:m1']))?.content, 'hi', '旧消息数据保留');
 });
 
 test('checkpoint 剪枝：终态全部删除，running/paused 始终保留', async () => {

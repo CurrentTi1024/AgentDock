@@ -9,6 +9,7 @@ import {
   flushRunCheckpoint,
   scheduleRunCheckpoint,
   sessionHistoryService,
+  waitForRunCheckpoint,
 } from '../../../api/session/sessionHistoryService.ts';
 import {
   isOperationBusy,
@@ -134,16 +135,33 @@ const completeOperation = async (runId: string, snapshot: RuntimeRunState) => {
     snapshot,
     status: toOperationStatus(snapshot.status),
   });
-  try {
-    await flushRunCheckpoint(runId);
-  } catch (error) {
-    console.error('[AgentDock] operation checkpoint failed', {
-      error,
-      runId,
-      sessionId: operation.sessionId,
-    });
+  let persisted = false;
+  for (let attempt = 1; attempt <= 3 && !persisted; attempt += 1) {
+    if (!useSessionOperationStore.getState().operationsById[runId]) return;
+    try {
+      if (attempt > 1) {
+        scheduleRunCheckpoint(operation.sessionId, operation.input, snapshot);
+      }
+      await flushRunCheckpoint(runId);
+      persisted = true;
+    } catch (error) {
+      console.error('[AgentDock] operation checkpoint failed', {
+        attempt,
+        error,
+        runId,
+        sessionId: operation.sessionId,
+      });
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 300));
+      }
+    }
   }
-  scheduleCleanup({ ...operation, completedAt, snapshot, status: toOperationStatus(snapshot.status) });
+  // 落库失败时保留终态内存投影，避免 30 秒后用户刚看到的答案被清空。
+  if (!persisted) return;
+  // 落库期间 Session 可能已被用户删除/dispose；此时不能重新挂清理定时器。
+  const current = useSessionOperationStore.getState().operationsById[runId];
+  if (!current) return;
+  scheduleCleanup({ ...current, completedAt, snapshot, status: toOperationStatus(snapshot.status) });
 };
 
 const resolveOperation = (route: EventRoute, event: AgUiEvent) => {
@@ -157,6 +175,20 @@ const resolveOperation = (route: EventRoute, event: AgUiEvent) => {
   if (!runId) return undefined;
   const operation = state.operationsById[runId];
   if (!operation || operation.sessionId !== route.sessionId) return undefined;
+  const eventThreadId = typeof event.threadId === 'string' ? event.threadId : undefined;
+  if (
+    operation.threadId !== route.threadId ||
+    (eventThreadId && eventThreadId !== operation.threadId)
+  ) {
+    console.error('[AgentDock] operation thread mismatch', {
+      eventThreadId,
+      operationThreadId: operation.threadId,
+      routeThreadId: route.threadId,
+      sessionId: route.sessionId,
+      type: event.type,
+    });
+    return undefined;
+  }
   if (eventRunId && activeRunId && eventRunId !== activeRunId) {
     console.error('[AgentDock] operation protocol mismatch', {
       activeRunId,
@@ -330,48 +362,114 @@ export const sessionOperationService = {
       snapshot: running,
       status: 'running',
     });
-    if (getChatServiceMode() === 'http') {
-      const runtime = await sessionRuntimeRegistry.whenReady(sessionId);
-      await runtime.respondToHitl(operation.input, response, operation.legacyInterruptId);
-      return;
-    }
-    const resumed: SessionOperation = {
-      ...operation,
-      input: {
-        ...operation.input,
-        forwardedProps: {
-          ...operation.input.forwardedProps,
-          action: 'hitlResponse',
-          hitlResponse: response,
+    try {
+      if (getChatServiceMode() === 'http') {
+        const runtime = await sessionRuntimeRegistry.whenReady(sessionId);
+        await runtime.respondToHitl(operation.input, response, operation.legacyInterruptId);
+        return;
+      }
+      const resumed: SessionOperation = {
+        ...operation,
+        input: {
+          ...operation.input,
+          forwardedProps: {
+            ...operation.input.forwardedProps,
+            action: 'hitlResponse',
+            hitlResponse: response,
+          },
         },
-      },
-      snapshot: running,
-      status: 'running',
-    };
-    useSessionOperationStore.getState().updateOperation(operation.runId, {
-      input: resumed.input,
-    });
-    await executeMock(resumed);
+        snapshot: running,
+        status: 'running',
+      };
+      useSessionOperationStore.getState().updateOperation(operation.runId, {
+        input: resumed.input,
+      });
+      await executeMock(resumed);
+    } catch (error) {
+      // 恢复请求失败时仍然允许用户重试，不能永久卡在 running 且失去审批按钮。
+      const paused = { ...snapshot, status: 'paused' as const };
+      hotSnapshots.set(operation.runId, paused);
+      useSessionOperationStore.getState().updateOperation(operation.runId, {
+        snapshot: paused,
+        status: 'paused',
+      });
+      scheduleRunCheckpoint(operation.sessionId, operation.input, paused);
+      console.error('[AgentDock] HITL resume failed', { error, runId: operation.runId, sessionId });
+    }
   },
 
   async restore(context: SessionRuntimeContext) {
     if (getOperation(context.sessionId)) return;
     const checkpoint = await sessionHistoryService.getLatestRecoverableRun(context.sessionId);
     if (!checkpoint) return;
-    if (checkpoint.status === 'running') {
+    if (checkpoint.status === 'running' && !checkpoint.latestEventId) {
       const cancelled = finalizeReasoningMeta({
         ...checkpoint.snapshot,
         error: {
           code: 'CANCELLED',
-          message: 'Run interrupted by reload; stream resume is not supported yet.',
+          message: 'Run interrupted before a resumable event cursor was persisted.',
         },
         status: 'cancelled',
       });
       await sessionHistoryService.saveRunCheckpoint(context.sessionId, checkpoint.input, cancelled);
       return;
     }
-    startOperation(context, checkpoint.input, checkpoint.snapshot);
+    // 首次渲染时页面的 Session 记录可能尚未读完，context.threadId 仍是临时兜底值；
+    // checkpoint 才是恢复运行的权威 thread/agent 上下文。
+    const restoredContext: SessionRuntimeContext = {
+      agentId: checkpoint.input.forwardedProps.agentId || context.agentId,
+      fab: checkpoint.input.forwardedProps.fab || context.fab,
+      group: checkpoint.input.forwardedProps.group,
+      mentionAgents: checkpoint.input.forwardedProps.mentionAgents,
+      sessionId: context.sessionId,
+      threadId: checkpoint.threadId || checkpoint.input.threadId,
+    };
+    const restoredInput = checkpoint.status === 'running'
+      ? {
+          ...checkpoint.input,
+          forwardedProps: {
+            ...checkpoint.input.forwardedProps,
+            action: 'resume' as const,
+            resume: { lastEventId: checkpoint.latestEventId! },
+          },
+        }
+      : checkpoint.input;
+    const operation = startOperation(restoredContext, restoredInput, checkpoint.snapshot);
     pushRenderSnapshot(checkpoint.runId, checkpoint.snapshot, true);
+    if (checkpoint.status === 'running') {
+      try {
+        await dispatchOperation(operation);
+      } catch (error) {
+        applySyntheticError(operation, error, 'RESUME_ERROR');
+      }
+    }
+  },
+
+  async disposeSession(sessionId: string) {
+    const operation = getOperation(sessionId);
+    if (operation && isOperationBusy(operation)) {
+      try {
+        await this.stop(sessionId);
+      } catch (error) {
+        console.error('[AgentDock] failed to stop disposed session', { error, sessionId });
+      }
+    }
+    if (operation) {
+      const renderTimer = renderTimers.get(operation.runId);
+      if (renderTimer) clearTimeout(renderTimer);
+      renderTimers.delete(operation.runId);
+      mockControllers.get(operation.runId)?.abort();
+      mockControllers.delete(operation.runId);
+      cancelPendingCheckpoint(operation.runId);
+      await waitForRunCheckpoint(operation.runId);
+      const cleanupTimer = cleanupTimers.get(operation.runId);
+      if (cleanupTimer) clearTimeout(cleanupTimer);
+      cleanupTimers.delete(operation.runId);
+      hotSnapshots.delete(operation.runId);
+      useSessionOperationStore.getState().removeOperation(operation.runId);
+    }
+    const descriptor = useSessionOperationStore.getState().runtimeBySession[sessionId];
+    useSessionOperationStore.getState().removeRuntime(sessionId, descriptor?.key);
   },
 
   async send(

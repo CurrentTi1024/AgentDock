@@ -1,6 +1,6 @@
 // AgentDock 对话 facade：页面只选择当前 Session 的运行投影，Agent 实例与订阅由
 // Provider 下常驻的 SessionRuntimeHost/Worker 持有。路由切换不会中断其他 Session。
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { getChatServiceMode } from '@/api/core/serviceMode';
 import type { MentionAgentRef, RunAgentInput, RuntimeRunState } from '@/api/runtime/types';
@@ -47,6 +47,12 @@ export const useAgentDockConversation = (
 ): AgentDockConversationResult => {
   const optionsRef = useRef(options);
   optionsRef.current = options;
+  // 捕获触发发送这一帧的 Session；发送前的异步落库期间即使切到别的 Session，
+  // 也不能在真正 dispatch 时读取新的前台 options。
+  const sendContext = useMemo(
+    () => resolveContext(options),
+    [options.agentId, options.fab, options.group, options.mentionAgents, options.sessionId, options.threadId],
+  );
   const run = useSessionOperationStore(selectSessionRun(options.sessionId));
   const runtimeStatus = useSessionOperationStore(
     (state) => state.runtimeBySession[options.sessionId]?.status,
@@ -67,9 +73,9 @@ export const useAgentDockConversation = (
 
   const send = useCallback(
     async (message: string, sendOptions?: { mentionAgents?: MentionAgentRef[] }) => {
-      await sessionOperationService.send(resolveContext(optionsRef.current), message, sendOptions);
+      await sessionOperationService.send(sendContext, message, sendOptions);
     },
-    [],
+    [sendContext],
   );
 
   const stop = useCallback(async () => {

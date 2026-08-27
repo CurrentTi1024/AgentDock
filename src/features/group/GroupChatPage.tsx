@@ -139,12 +139,14 @@ const GroupChatPage = () => {
 
   const loadOlderHistory = useCallback(async () => {
     if (loadingOlderRef.current || nextCursorRef.current === undefined) return;
+    const targetSessionId = sessionId;
     loadingOlderRef.current = true;
     setLoadingOlder(true);
     try {
-      const page = await sessionHistoryService.getMessagesPage(sessionId, {
+      const page = await sessionHistoryService.getMessagesPage(targetSessionId, {
         beforeSequence: nextCursorRef.current,
       });
+      if (currentSessionIdRef.current !== targetSessionId) return;
       setHistory((current) => [...page.records, ...current]);
       setHasMoreOlder(page.hasMore);
       nextCursorRef.current = page.nextBeforeSequence;
@@ -159,8 +161,10 @@ const GroupChatPage = () => {
   const reloadHistoryWindow = useCallback(async () => {
     // 新群聊的初始计数为 0，终态也必须重取至少一整轮，否则 live→history
     // 切换时会回到欢迎页。分页服务按 run 整组返回。
+    const targetSessionId = sessionId;
     const target = getHistoryWindowLimit(loadedTextCountRef.current);
-    const page = await sessionHistoryService.getMessagesPage(sessionId, { limit: target });
+    const page = await sessionHistoryService.getMessagesPage(targetSessionId, { limit: target });
+    if (currentSessionIdRef.current !== targetSessionId) return;
     setHistory(page.records);
     setHasMoreOlder(page.hasMore);
     nextCursorRef.current = page.nextBeforeSequence;

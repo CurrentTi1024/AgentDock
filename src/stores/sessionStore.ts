@@ -18,6 +18,7 @@ import {
   type CleanupSelection,
   type StorageUsage,
 } from '@/api/session/sessionStorageService';
+import { sessionOperationService } from '@/features/chat/runtime/sessionOperationService';
 
 /** 会话列表分页：首屏加载页大小，点击“加载更多”每次追加一页。 */
 const SESSIONS_PAGE_SIZE = 50;
@@ -111,6 +112,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   removeSession: async (id) => {
+    await sessionOperationService.disposeSession(id);
     await sessionHistoryService.removeSession(id);
     // removeSession 会广播 sessions-changed，模块级订阅统一 refreshSessions。
   },

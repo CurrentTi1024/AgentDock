@@ -54,7 +54,7 @@ export const getStorageUsage = async (): Promise<StorageUsage> => {
   }
   const [sessions, messages, checkpoints] = await Promise.all([
     sessionDatabase.sessions.count(),
-    sessionDatabase.messages.count(),
+    sessionDatabase.sessionMessages.count(),
     sessionDatabase.checkpoints.count(),
   ]);
   const rawPercent = quota > 0 ? usage / quota : 0;
@@ -149,7 +149,7 @@ export const selectCleanupCandidates = async (
   const candidates: CleanupCandidate[] = [];
   let sizeEstimateBytes = 0;
   for (const session of selected) {
-    const messageCount = await sessionDatabase.messages.where('sessionId').equals(session.id).count();
+    const messageCount = await sessionDatabase.sessionMessages.where('sessionId').equals(session.id).count();
     const estimate = JSON.stringify(session).length + messageCount * ESTIMATED_BYTES_PER_MESSAGE;
     sizeEstimateBytes += estimate;
     candidates.push({
@@ -195,13 +195,13 @@ export const buildSessionExport = async (
   const includeCheckpoints = options?.includeCheckpoints !== false;
   const { sessions, messages, checkpoints } = await sessionDatabase.transaction(
     'r',
-    [sessionDatabase.sessions, sessionDatabase.messages, sessionDatabase.checkpoints],
+    [sessionDatabase.sessions, sessionDatabase.sessionMessages, sessionDatabase.checkpoints],
     async () => {
       const sessionRows = (await sessionDatabase.sessions.bulkGet(ids)).filter((row): row is SessionRecord => Boolean(row));
       const messageRows: SessionMessageRecord[] = [];
       const checkpointRows: RunCheckpointRecord[] = [];
       for (const session of sessionRows) {
-        messageRows.push(...(await sessionDatabase.messages.where('sessionId').equals(session.id).toArray()));
+        messageRows.push(...(await sessionDatabase.sessionMessages.where('sessionId').equals(session.id).toArray()));
         if (includeCheckpoints) {
           checkpointRows.push(...(await sessionDatabase.checkpoints.where('sessionId').equals(session.id).toArray()));
         }
@@ -242,11 +242,11 @@ export const deleteSessions = async (ids: string[]): Promise<number> => {
   if (ids.length === 0) return 0;
   await sessionDatabase.transaction(
     'rw',
-    [sessionDatabase.sessions, sessionDatabase.messages, sessionDatabase.checkpoints],
+    [sessionDatabase.sessions, sessionDatabase.sessionMessages, sessionDatabase.checkpoints],
     async () => {
       for (const id of ids) {
         await sessionDatabase.sessions.delete(id);
-        await sessionDatabase.messages.where('sessionId').equals(id).delete();
+        await sessionDatabase.sessionMessages.where('sessionId').equals(id).delete();
         await sessionDatabase.checkpoints.where('sessionId').equals(id).delete();
       }
     },

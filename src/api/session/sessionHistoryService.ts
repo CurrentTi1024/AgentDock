@@ -1,4 +1,4 @@
-import Dexie, { type EntityTable } from 'dexie';
+import Dexie, { type EntityTable, type Table } from 'dexie';
 import { LOBE_VISIBLE_MESSAGE_ROLES, type RunAgentInput, type RuntimeMessage, type RuntimeRunState } from '../runtime/types.ts';
 import { findLogicalSurfaceId } from '../runtime/runReducer.ts';
 export interface SessionRecord { agentId?: string; agentName?: string; createdAt: string; deletedMessageIds?: string[]; fab: string; group?: unknown; id: string; lastMessageAt?: string; pinned: boolean; threadId: string; title: string; type: 'agent' | 'group'; updatedAt: string; version?: string }
@@ -13,7 +13,11 @@ export interface MessagesPage {
 /** 会话内消息分页：每页最多包含的文本消息条数（过程块随所属 run 一并加载）。 */
 const MESSAGES_PAGE_TEXT_LIMIT = 50;
 class SessionDatabase extends Dexie {
-  sessions!: EntityTable<SessionRecord, 'id'>; messages!: EntityTable<SessionMessageRecord, 'id'>; checkpoints!: EntityTable<RunCheckpointRecord, 'runId'>;
+  sessions!: EntityTable<SessionRecord, 'id'>;
+  /** v1-v3 旧表，仅供 v4 升级迁移。 */
+  messages!: EntityTable<SessionMessageRecord, 'id'>;
+  sessionMessages!: Table<SessionMessageRecord, [string, string]>;
+  checkpoints!: EntityTable<RunCheckpointRecord, 'runId'>;
   constructor() {
     super('agentdock-session-v3');
     this.version(1).stores({ sessions: 'id,threadId,updatedAt,pinned,type', messages: 'id,sessionId,runId,createdAt,sequence', checkpoints: 'runId,sessionId,threadId,status,updatedAt' });
@@ -48,6 +52,17 @@ class SessionDatabase extends Dexie {
       sessions: 'id,threadId,updatedAt,pinned,type,agentId,fab,[agentId+fab],createdAt,lastMessageAt',
       messages: 'id,sessionId,runId,createdAt,sequence,[sessionId+sequence]',
       checkpoints: 'runId,sessionId,threadId,status,updatedAt',
+    });
+    // v4：新建复合主键表（Dexie 不支持原表直接更换主键），升级时无损复制旧历史。
+    // AG-UI 只保证 id 在线程内唯一；不同 Session 合法复用 plan、step-1 等 id。
+    this.version(4).stores({
+      sessions: 'id,threadId,updatedAt,pinned,type,agentId,fab,[agentId+fab],createdAt,lastMessageAt',
+      messages: 'id,sessionId,runId,createdAt,sequence,[sessionId+sequence]',
+      sessionMessages: '[sessionId+id],id,sessionId,runId,createdAt,sequence,[sessionId+sequence]',
+      checkpoints: 'runId,sessionId,threadId,status,updatedAt',
+    }).upgrade(async (trans) => {
+      const legacyRows = await trans.table('messages').toArray();
+      if (legacyRows.length) await trans.table('sessionMessages').bulkPut(legacyRows);
     });
   }
 }
@@ -85,7 +100,10 @@ const nextSequence = () => {
 // 防抖空闲后统一 flush，避免只落最后一段或丢消息。
 let pendingCheckpoints = new Map<string, { input: RunAgentInput; sessionId: string; snapshot: RuntimeRunState }>();
 const checkpointTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const checkpointMaxTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const checkpointWriteChains = new Map<string, Promise<void>>();
 const CHECKPOINT_DEBOUNCE_MS = 350;
+const CHECKPOINT_MAX_WAIT_MS = 500;
 // 终态 checkpoint 不再存储：历史渲染以 messages 表为权威（isActiveRun 仅对 running/paused 为真），
 // checkpoints 表只保留 running/paused 供断线/HITL 续传；存量终态行由剪枝与启动清扫回收。
 
@@ -236,7 +254,7 @@ export const sessionHistoryService = {
   async getSession(id: string) { return db.sessions.get(id); },
   /** 会话是否已有可见文本消息（用户/助手），用于「首条消息」语义的标题默认值。 */
   async hasMessages(sessionId: string) {
-    const row = await db.messages
+    const row = await db.sessionMessages
       .where('sessionId')
       .equals(sessionId)
       .filter((record) => record.kind === 'text' && (record.role === 'user' || record.role === 'assistant'))
@@ -264,15 +282,15 @@ export const sessionHistoryService = {
   async searchSessions(keyword: string) { const sessions = await this.listSessions(); const query = keyword.toLowerCase(); return sessions.filter((session) => `${session.title}${session.agentName || ''}`.toLowerCase().includes(query)); },
   async updateSession(id: string, value: Partial<SessionRecord>) { await db.sessions.update(id, { ...value, updatedAt: new Date().toISOString() }); notifySessionsChanged(); return db.sessions.get(id); },
   async removeSession(id: string) {
-    await guardWrite('removeSession', db.transaction('rw', db.sessions, db.messages, db.checkpoints, async () => {
+    await guardWrite('removeSession', db.transaction('rw', db.sessions, db.sessionMessages, db.checkpoints, async () => {
       await db.sessions.delete(id);
-      await db.messages.where('sessionId').equals(id).delete();
+      await db.sessionMessages.where('sessionId').equals(id).delete();
       await db.checkpoints.where('sessionId').equals(id).delete();
     }));
     notifySessionsChanged();
   },
-  async appendMessages(records: SessionMessageRecord[]) { await db.messages.bulkPut(records); },
-  async getMessages(sessionId: string) { return db.messages.where('sessionId').equals(sessionId).sortBy('sequence'); },
+  async appendMessages(records: SessionMessageRecord[]) { await db.sessionMessages.bulkPut(records); },
+  async getMessages(sessionId: string) { return db.sessionMessages.where('sessionId').equals(sessionId).sortBy('sequence'); },
   /**
    * 会话内消息分页（懒加载）：以“文本消息所属的 run”为最小完整单位——
    * 每页取最近 limit 条文本及其整轮过程块，避免分页边界切断一轮导致块挂错/重复。
@@ -284,7 +302,7 @@ export const sessionHistoryService = {
       ? ([sessionId, Number.MAX_SAFE_INTEGER] as [string, number])
       : ([sessionId, options.beforeSequence] as [string, number]);
     const includeUpper = options?.beforeSequence === undefined;
-    const texts = await db.messages
+    const texts = await db.sessionMessages
       .where('[sessionId+sequence]')
       .between([sessionId, 0], upper, true, includeUpper)
       .reverse()
@@ -296,7 +314,7 @@ export const sessionHistoryService = {
     const runIds = [...new Set(texts.map((record) => record.runId).filter((id): id is string => Boolean(id)))];
     const records: SessionMessageRecord[] = [];
     for (const runId of runIds) {
-      const rows = await db.messages.where('runId').equals(runId).toArray();
+      const rows = await db.sessionMessages.where('runId').equals(runId).toArray();
       records.push(...rows.filter((record) => record.sessionId === sessionId));
     }
     // 防御兜底：历史数据中可能存在的无 runId 文本行（渲染仍有效），避免被分页漏掉。
@@ -310,7 +328,7 @@ export const sessionHistoryService = {
     const nextBeforeSequence = records[0]?.sequence;
     const older = nextBeforeSequence === undefined
       ? []
-      : await db.messages
+      : await db.sessionMessages
           .where('[sessionId+sequence]')
           .between([sessionId, 0], [sessionId, nextBeforeSequence], true, false)
           .reverse()
@@ -376,7 +394,7 @@ export const sessionHistoryService = {
     // 多轮 run 快照会累积完整会话（MESSAGES_SNAPSHOT），每轮 flush 都会重写全部行。
     // 已存在的消息必须保留原 sequence/createdAt/runId，否则后一轮 flush 会把
     // 早前消息重新排序、时间戳覆盖，导致聊天时间线错乱；新消息才分配新序号。
-    const existingRows = await db.messages.where('sessionId').equals(sessionId).toArray();
+    const existingRows = await db.sessionMessages.where('sessionId').equals(sessionId).toArray();
     const existingById = new Map(existingRows.map((record) => [record.id, record]));
     // 已删消息墓碑：后端线程仍可能带回被删轮次，这里跳过不再写回。
     const sessionRow = await db.sessions.get(sessionId);
@@ -517,9 +535,9 @@ export const sessionHistoryService = {
     for (const id of Object.keys(snapshot.surfaces || {})) persistBlock('surface', id);
 
     if (obsoleteIntermediateTextKeys.length) {
-      await db.messages.bulkDelete(obsoleteIntermediateTextKeys);
+      await db.sessionMessages.bulkDelete(obsoleteIntermediateTextKeys.map((id) => [sessionId, id]));
     }
-    if (records.length) await db.messages.bulkPut(records);
+    if (records.length) await db.sessionMessages.bulkPut(records);
     // 维护 lastMessageAt：取“现有行 + 本次写入行”的 text 最大 createdAt
     // （快照可能只含部分轮次，不能只按本次 records 计算）。
     let maxText = 0;
@@ -555,6 +573,29 @@ export const scheduleRunCheckpoint = (sessionId: string, input: RunAgentInput, s
   checkpointTimers.set(runId, setTimeout(() => {
     void flushRunCheckpoint(runId);
   }, CHECKPOINT_DEBOUNCE_MS));
+  // 连续 token 会不断推迟尾部防抖；最大等待保证运行中的游标也定期落盘，刷新可续传。
+  if (!checkpointMaxTimers.has(runId)) {
+    checkpointMaxTimers.set(runId, setTimeout(() => {
+      void flushRunCheckpoint(runId);
+    }, CHECKPOINT_MAX_WAIT_MS));
+  }
+};
+
+const enqueueCheckpointWrite = (
+  runId: string,
+  job: { input: RunAgentInput; sessionId: string; snapshot: RuntimeRunState },
+) => {
+  // 同 run 严格串行：防止较早的 running 写在较新的 terminal 删除之后完成，复活陈旧 checkpoint。
+  const previous = checkpointWriteChains.get(runId) ?? Promise.resolve();
+  const next = previous
+    .catch(() => undefined)
+    .then(() => sessionHistoryService.saveRunCheckpoint(job.sessionId, job.input, job.snapshot));
+  checkpointWriteChains.set(runId, next);
+  const cleanup = () => {
+    if (checkpointWriteChains.get(runId) === next) checkpointWriteChains.delete(runId);
+  };
+  void next.then(cleanup, cleanup);
+  return next;
 };
 
 export const flushRunCheckpoint = async (runId?: string) => {
@@ -563,12 +604,15 @@ export const flushRunCheckpoint = async (runId?: string) => {
     const timer = checkpointTimers.get(id);
     if (timer) clearTimeout(timer);
     checkpointTimers.delete(id);
+    const maxTimer = checkpointMaxTimers.get(id);
+    if (maxTimer) clearTimeout(maxTimer);
+    checkpointMaxTimers.delete(id);
     const job = pendingCheckpoints.get(id);
     pendingCheckpoints.delete(id);
-    return job ? [job] : [];
+    return job ? [{ id, job }] : [];
   });
   const results = await Promise.allSettled(
-    jobs.map((job) => sessionHistoryService.saveRunCheckpoint(job.sessionId, job.input, job.snapshot)),
+    jobs.map(({ id, job }) => enqueueCheckpointWrite(id, job)),
   );
   const failed = results.find((result) => result.status === 'rejected');
   if (failed?.status === 'rejected') throw failed.reason;
@@ -584,6 +628,20 @@ export const cancelPendingCheckpoint = (runId: string): void => {
   const timer = checkpointTimers.get(runId);
   if (timer) clearTimeout(timer);
   checkpointTimers.delete(runId);
+  const maxTimer = checkpointMaxTimers.get(runId);
+  if (maxTimer) clearTimeout(maxTimer);
+  checkpointMaxTimers.delete(runId);
+};
+
+/** 等待某 run 已进入 IndexedDB 的串行写完成；删除 Session 前用于避免晚到写产生孤儿行。 */
+export const waitForRunCheckpoint = async (runId: string): Promise<void> => {
+  const pending = checkpointWriteChains.get(runId);
+  if (!pending) return;
+  try {
+    await pending;
+  } catch {
+    // 调用方只需要等待写链停止；实际写错误已由 operation 完成路径记录并决定是否重试。
+  }
 };
 
 export { notifySessionsChanged };

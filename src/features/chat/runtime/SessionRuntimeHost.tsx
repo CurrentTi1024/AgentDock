@@ -70,8 +70,8 @@ const SessionRuntimeWorker = ({ descriptor }: { descriptor: SessionRuntimeDescri
       legacyInterruptId?: string,
     ) => {
       const pending = agent.pendingInterrupts || [];
-      if (pending.length > 0) {
-        const interrupt = pending[0];
+      const interrupt = pending.find((item) => item.id === hitlResponse.requestId);
+      if (interrupt) {
         await copilotkit.runAgent({
           agent,
           forwardedProps: input.forwardedProps as Record<string, unknown>,
@@ -98,6 +98,9 @@ const SessionRuntimeWorker = ({ descriptor }: { descriptor: SessionRuntimeDescri
           runId: input.runId,
         });
         return;
+      }
+      if (pending.length > 0) {
+        throw new Error(`Pending interrupt ${hitlResponse.requestId} was not found.`);
       }
       await copilotkit.runAgent({
         agent,

@@ -130,12 +130,14 @@ export default function ChatPage() {
 
   const loadOlderHistory = useCallback(async () => {
     if (loadingOlderRef.current || nextCursorRef.current === undefined) return;
+    const targetSessionId = sessionId;
     loadingOlderRef.current = true;
     setLoadingOlder(true);
     try {
-      const page = await sessionHistoryService.getMessagesPage(sessionId, {
+      const page = await sessionHistoryService.getMessagesPage(targetSessionId, {
         beforeSequence: nextCursorRef.current,
       });
+      if (currentSessionIdRef.current !== targetSessionId) return;
       setHistory((current) => [...page.records, ...current]);
       setHasMoreOlder(page.hasMore);
       nextCursorRef.current = page.nextBeforeSequence;
@@ -150,8 +152,10 @@ export default function ChatPage() {
   const reloadHistoryWindow = useCallback(async () => {
     // 新会话初始计数为 0，终态也必须重取至少一整轮，否则 live→history
     // 切换时消息会瞬间消失。getMessagesPage 会按 run 整组返回，不会截断过程块。
+    const targetSessionId = sessionId;
     const target = getHistoryWindowLimit(loadedTextCountRef.current);
-    const page = await sessionHistoryService.getMessagesPage(sessionId, { limit: target });
+    const page = await sessionHistoryService.getMessagesPage(targetSessionId, { limit: target });
+    if (currentSessionIdRef.current !== targetSessionId) return;
     setHistory(page.records);
     setHasMoreOlder(page.hasMore);
     nextCursorRef.current = page.nextBeforeSequence;

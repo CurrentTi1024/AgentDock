@@ -3,7 +3,11 @@ import 'fake-indexeddb/auto';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { cancelPendingCheckpoint } from '../../api/session/sessionHistoryService.ts';
+import {
+  cancelPendingCheckpoint,
+  sessionDatabase,
+  sessionHistoryService,
+} from '../../api/session/sessionHistoryService.ts';
 import { createRunState } from '../../api/runtime/runReducer.ts';
 import type { RunAgentInput } from '../../api/runtime/types.ts';
 import { sessionOperationService } from './runtime/sessionOperationService.ts';
@@ -110,4 +114,81 @@ test('RUN_STARTED 携带其他 active runId 时拒绝跨 Session 写入', () => 
   assert.equal(useSessionOperationStore.getState().operationsById['run-B'].snapshot.processedEventIds.length, 0);
   cancelPendingCheckpoint('run-A');
   cancelPendingCheckpoint('run-B');
+});
+
+test('同一 Session 的旧 thread 订阅事件不会写入新 operation', () => {
+  resetStore();
+  addOperation('session-A', 'run-A');
+
+  sessionOperationService.applyEvent(
+    { sessionId: 'session-A', threadId: 'thread-stale' },
+    {
+      delta: 'stale answer',
+      messageId: 'assistant-stale',
+      rawEvent: { eventId: 'stale-thread-event' },
+      type: 'TEXT_MESSAGE_CONTENT',
+    },
+  );
+
+  assert.equal(
+    useSessionOperationStore.getState().operationsById['run-A'].snapshot.messages['assistant-stale'],
+    undefined,
+  );
+  cancelPendingCheckpoint('run-A');
+});
+
+test('paused checkpoint 恢复使用 checkpoint 的权威 threadId，而不是页面临时值', async () => {
+  resetStore();
+  await sessionDatabase.delete();
+  await sessionDatabase.open();
+  const operation = addOperation('session-restore', 'run-restore');
+  operation.snapshot.status = 'paused';
+  await sessionHistoryService.saveRunCheckpoint(
+    operation.sessionId,
+    operation.input,
+    operation.snapshot,
+  );
+  resetStore();
+
+  await sessionOperationService.restore({
+    agentId: 'temporary-agent',
+    fab: 'TEMP',
+    sessionId: operation.sessionId,
+    threadId: 'thread-temporary',
+  });
+
+  const state = useSessionOperationStore.getState();
+  assert.equal(state.operationsById['run-restore']?.threadId, 'thread-session-restore');
+  assert.equal(state.runtimeBySession['session-restore']?.threadId, 'thread-session-restore');
+  cancelPendingCheckpoint('run-restore');
+  resetStore();
+});
+
+test('running checkpoint 有 latestEventId 时按同 runId 发起 resume 并完成', async () => {
+  resetStore();
+  await sessionDatabase.delete();
+  await sessionDatabase.open();
+  const operation = addOperation('session-resume', 'run-resume');
+  operation.snapshot.latestEventId = 'event-cursor-10';
+  await sessionHistoryService.saveRunCheckpoint(
+    operation.sessionId,
+    operation.input,
+    operation.snapshot,
+  );
+  resetStore();
+
+  await sessionOperationService.restore({
+    agentId: 'temporary-agent',
+    fab: 'TEMP',
+    sessionId: operation.sessionId,
+    threadId: 'thread-temporary',
+  });
+
+  const restored = useSessionOperationStore.getState().operationsById['run-resume'];
+  assert.equal(restored?.input.forwardedProps.action, 'resume');
+  assert.equal(restored?.input.forwardedProps.resume?.lastEventId, 'event-cursor-10');
+  assert.equal(restored?.runId, 'run-resume');
+  assert.equal(restored?.snapshot.status, 'success');
+  await sessionOperationService.disposeSession(operation.sessionId);
+  resetStore();
 });

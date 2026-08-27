@@ -42,7 +42,7 @@ const seedMessages = async (sessionId: string, count: number) => {
     sequence: index + 1,
     sessionId,
   }));
-  await sessionDatabase.messages.bulkPut(rows);
+  await sessionDatabase.sessionMessages.bulkPut(rows);
 };
 
 const seedCheckpoint = async (sessionId: string, runId: string) => {
@@ -144,7 +144,7 @@ test('deleteSessions：会话/消息/检查点级联删除', async () => {
   const deleted = await deleteSessions([sessionId]);
   assert.equal(deleted, 1);
   assert.equal(await sessionDatabase.sessions.get(sessionId), undefined);
-  assert.equal(await sessionDatabase.messages.where('sessionId').equals(sessionId).count(), 0);
+  assert.equal(await sessionDatabase.sessionMessages.where('sessionId').equals(sessionId).count(), 0);
   assert.equal(await sessionDatabase.checkpoints.where('sessionId').equals(sessionId).count(), 0);
 });
 
@@ -159,6 +159,6 @@ test('exportAndDeleteSessions：先导出后删除，返回导出/删除数量',
   assert.equal(result.deleted, 1);
   assert.ok(result.filename.endsWith('.json'));
   assert.equal(await sessionDatabase.sessions.get(sessionId), undefined);
-  assert.equal(await sessionDatabase.messages.where('sessionId').equals(sessionId).count(), 0);
+  assert.equal(await sessionDatabase.sessionMessages.where('sessionId').equals(sessionId).count(), 0);
   assert.equal(await sessionDatabase.checkpoints.where('sessionId').equals(sessionId).count(), 0);
 });
