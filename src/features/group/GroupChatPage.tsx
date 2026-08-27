@@ -114,6 +114,8 @@ const GroupChatPage = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [composerHeight, setComposerHeight] = useState(0);
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const currentSessionIdRef = useRef(sessionId);
+  currentSessionIdRef.current = sessionId;
 
   const groupConfig = useMemo<StoredGroupConfig | undefined>(() => {
     const value = session?.group;
@@ -124,7 +126,9 @@ const GroupChatPage = () => {
   const configuredMembers = groupConfig?.members?.length ? groupConfig.members : undefined;
 
   const loadInitialHistory = useCallback(async () => {
-    const page = await sessionHistoryService.getMessagesPage(sessionId);
+    const targetSessionId = sessionId;
+    const page = await sessionHistoryService.getMessagesPage(targetSessionId);
+    if (currentSessionIdRef.current !== targetSessionId) return;
     setHistory(page.records);
     setHasMoreOlder(page.hasMore);
     nextCursorRef.current = page.nextBeforeSequence;
@@ -241,13 +245,23 @@ const GroupChatPage = () => {
   const lastLiveMessageId = Object.keys(run?.messages || {}).at(-1) || '';
 
   useEffect(() => {
+    setHistory([]);
+    setSession(pendingSession?.id === sessionId ? pendingSession : undefined);
+    setRunStartedAt(undefined);
+    // pendingSession 只在切换到新 id 时用于首帧，避免旧群聊历史残留。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+
+  useEffect(() => {
     if (!sessionId) {
       navigate('/group', { replace: true });
       return;
     }
-    void sessionHistoryService.getSession(sessionId).then((value) => {
+    const targetSessionId = sessionId;
+    void sessionHistoryService.getSession(targetSessionId).then((value) => {
+      if (currentSessionIdRef.current !== targetSessionId) return;
       if (!value) {
-        if (pendingSession?.id === sessionId) {
+        if (pendingSession?.id === targetSessionId) {
           setSession(pendingSession);
           return;
         }
@@ -330,7 +344,9 @@ const GroupChatPage = () => {
   const runStatusRef = useRef(run?.status);
   runStatusRef.current = run?.status;
   useEffect(() => {
-    const refresh = () => {
+    const refresh = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string }>).detail;
+      if (detail?.sessionId && detail.sessionId !== sessionId) return;
       if (!shouldReloadPersistedRun(runStatusRef.current)) return;
       void reloadHistoryWindow().then(() => {
         stickToBottom();

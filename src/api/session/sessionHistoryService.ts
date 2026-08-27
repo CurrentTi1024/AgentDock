@@ -84,7 +84,7 @@ const nextSequence = () => {
 // 按 runId 分槽的待落盘快照：多轮 run 并发/快速连续发送时互不覆盖，
 // 防抖空闲后统一 flush，避免只落最后一段或丢消息。
 let pendingCheckpoints = new Map<string, { input: RunAgentInput; sessionId: string; snapshot: RuntimeRunState }>();
-let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
+const checkpointTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const CHECKPOINT_DEBOUNCE_MS = 350;
 // 终态 checkpoint 不再存储：历史渲染以 messages 表为权威（isActiveRun 仅对 running/paused 为真），
 // checkpoints 表只保留 running/paused 供断线/HITL 续传；存量终态行由剪枝与启动清扫回收。
@@ -147,10 +147,10 @@ const notifySessionsChanged = () => {
   window.dispatchEvent(new CustomEvent('agentdock:sessions-changed'));
   sessionSyncChannel?.postMessage({ type: 'sessions-changed' });
 };
-const notifyRunPersisted = () => {
+const notifyRunPersisted = (detail: { runId: string; sessionId: string; status: RuntimeRunState['status'] }) => {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent('agentdock:run-persisted'));
-  sessionSyncChannel?.postMessage({ type: 'run-persisted' });
+  window.dispatchEvent(new CustomEvent('agentdock:run-persisted', { detail }));
+  sessionSyncChannel?.postMessage({ detail, type: 'run-persisted' });
 };
 /** 落库失败（QuotaExceededError 等）时通知 UI 引导清理。 */
 const notifyStorageError = (message: string) => {
@@ -370,7 +370,7 @@ export const sessionHistoryService = {
     await db.sessions.update(sessionId, { updatedAt });
     notifySessionsChanged();
     // 落库完成后广播，供对话页确定性刷新历史（避免与异步落库竞态）。
-    notifyRunPersisted();
+    notifyRunPersisted({ runId: snapshot.runId, sessionId, status: snapshot.status });
   },
   async persistRunSnapshot(sessionId: string, snapshot: RuntimeRunState) {
     // 多轮 run 快照会累积完整会话（MESSAGES_SNAPSHOT），每轮 flush 都会重写全部行。
@@ -548,23 +548,30 @@ export const sessionHistoryService = {
 
 /** 防抖写入：每 run 一槽，空闲 350ms 后统一落盘；终态时手动 flush。 */
 export const scheduleRunCheckpoint = (sessionId: string, input: RunAgentInput, snapshot: RuntimeRunState) => {
-  pendingCheckpoints.set(snapshot.runId, { input, sessionId, snapshot });
-  if (checkpointTimer) clearTimeout(checkpointTimer);
-  checkpointTimer = setTimeout(() => {
-    void flushRunCheckpoint();
-  }, CHECKPOINT_DEBOUNCE_MS);
+  const runId = snapshot.runId;
+  pendingCheckpoints.set(runId, { input, sessionId, snapshot });
+  const currentTimer = checkpointTimers.get(runId);
+  if (currentTimer) clearTimeout(currentTimer);
+  checkpointTimers.set(runId, setTimeout(() => {
+    void flushRunCheckpoint(runId);
+  }, CHECKPOINT_DEBOUNCE_MS));
 };
 
-export const flushRunCheckpoint = async () => {
-  if (checkpointTimer) {
-    clearTimeout(checkpointTimer);
-    checkpointTimer = undefined;
-  }
-  const jobs = [...pendingCheckpoints.values()];
-  pendingCheckpoints.clear();
-  for (const job of jobs) {
-    await sessionHistoryService.saveRunCheckpoint(job.sessionId, job.input, job.snapshot);
-  }
+export const flushRunCheckpoint = async (runId?: string) => {
+  const runIds = runId ? [runId] : [...pendingCheckpoints.keys()];
+  const jobs = runIds.flatMap((id) => {
+    const timer = checkpointTimers.get(id);
+    if (timer) clearTimeout(timer);
+    checkpointTimers.delete(id);
+    const job = pendingCheckpoints.get(id);
+    pendingCheckpoints.delete(id);
+    return job ? [job] : [];
+  });
+  const results = await Promise.allSettled(
+    jobs.map((job) => sessionHistoryService.saveRunCheckpoint(job.sessionId, job.input, job.snapshot)),
+  );
+  const failed = results.find((result) => result.status === 'rejected');
+  if (failed?.status === 'rejected') throw failed.reason;
 };
 
 /**
@@ -574,10 +581,9 @@ export const flushRunCheckpoint = async () => {
  */
 export const cancelPendingCheckpoint = (runId: string): void => {
   pendingCheckpoints.delete(runId);
-  if (pendingCheckpoints.size === 0 && checkpointTimer) {
-    clearTimeout(checkpointTimer);
-    checkpointTimer = undefined;
-  }
+  const timer = checkpointTimers.get(runId);
+  if (timer) clearTimeout(timer);
+  checkpointTimers.delete(runId);
 };
 
 export { notifySessionsChanged };

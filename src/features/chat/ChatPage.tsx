@@ -111,9 +111,15 @@ export default function ChatPage() {
   const [artifactOpen, setArtifactOpen] = useState(false);
   const [artifact, setArtifact] = useState<{ html?: string; title?: string }>();
   const [runStartedAt, setRunStartedAt] = useState<number>();
+  // React Router 会复用同一个 ChatPage 实例。所有异步读取都必须校验目标 session，
+  // 防止 A 的慢请求在已经切到 B 后回写 B 页面（历史串会话/身份闪回）。
+  const currentSessionIdRef = useRef(sessionId);
+  currentSessionIdRef.current = sessionId;
 
   const loadInitialHistory = useCallback(async () => {
-    const page = await sessionHistoryService.getMessagesPage(sessionId);
+    const targetSessionId = sessionId;
+    const page = await sessionHistoryService.getMessagesPage(targetSessionId);
+    if (currentSessionIdRef.current !== targetSessionId) return;
     setHistory(page.records);
     setHasMoreOlder(page.hasMore);
     nextCursorRef.current = page.nextBeforeSequence;
@@ -347,11 +353,11 @@ export default function ChatPage() {
     if (session?.id === sessionId) return session;
     const existing = await sessionHistoryService.getSession(sessionId);
     if (existing) {
-      setSession(existing);
+      if (currentSessionIdRef.current === sessionId) setSession(existing);
       return existing;
     }
     if (pendingSession?.id === sessionId) {
-      setSession(pendingSession);
+      if (currentSessionIdRef.current === sessionId) setSession(pendingSession);
       return pendingSession;
     }
     const created = await sessionHistoryService.createSession({
@@ -367,12 +373,26 @@ export default function ChatPage() {
       type: 'agent',
       version: selectedAgent?.version,
     });
-    setSession(created);
+    if (currentSessionIdRef.current === sessionId) setSession(created);
     return created;
   }, [fab, pendingSession, selectedAgent?.agentFullName, selectedAgent?.agentId, selectedAgent?.version, session, sessionId]);
 
   useEffect(() => {
+    // 不让新 Session 的首帧沿用旧 Session 的历史和身份；真实数据异步返回后再填充。
+    setHistory([]);
+    setSession(pendingSession?.id === sessionId ? pendingSession : undefined);
+    setSelectedAgent(undefined);
+    setRunStartedAt(undefined);
+    setArtifact(undefined);
+    setArtifactOpen(false);
+    // pendingSession 只属于导航到该 session 的瞬时 state；同一 id 内 state 变化不应重置页面。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+
+  useEffect(() => {
+    const targetSessionId = sessionId;
     void ensureSession().then((value) => {
+      if (currentSessionIdRef.current !== targetSessionId) return;
       // agentName 通常是 agentFullName（已含 FAB），不要再拼一次 -fab，避免双后缀。
       setAgentFallback(value.agentName || `${value.title}-${value.fab}`.replace(/\s+/g, ''));
     });
@@ -412,6 +432,11 @@ export default function ChatPage() {
   // 首页 hub 发送：路由 state 携带 pendingPrompt，挂载且会话就绪后自动发送一次；
   // 发送后 replace 清空 state，避免刷新/回退重发。
   const pendingPromptSentRef = useRef(false);
+  const pendingPromptSessionRef = useRef(sessionId);
+  if (pendingPromptSessionRef.current !== sessionId) {
+    pendingPromptSessionRef.current = sessionId;
+    pendingPromptSentRef.current = false;
+  }
   useEffect(() => {
     if (pendingPromptSentRef.current) return;
     const prompt = (location.state as { pendingPrompt?: string } | null)?.pendingPrompt;
@@ -500,7 +525,9 @@ export default function ChatPage() {
   const runStatusRef = useRef(run?.status);
   runStatusRef.current = run?.status;
   useEffect(() => {
-    const refresh = () => {
+    const refresh = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string }>).detail;
+      if (detail?.sessionId && detail.sessionId !== sessionId) return;
       if (runStatusRef.current === 'running' || runStatusRef.current === 'paused') return;
       void reloadHistoryWindow().then(() => {
         if (isStickToBottom()) stickToBottom();

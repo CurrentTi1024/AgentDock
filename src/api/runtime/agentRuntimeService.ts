@@ -1,5 +1,5 @@
-import { createAgentRuntimeMockEvents } from '@/mock-data/agentRuntime';
-import type { MentionAgentRef, RunAgentInput, StreamedEvent } from './types';
+import { createAgentRuntimeMockEvents } from '../../mock-data/agentRuntime.ts';
+import type { MentionAgentRef, RunAgentInput, StreamedEvent } from './types.ts';
 export interface RuntimeOptions { signal?: AbortSignal }
 export interface AgentRuntimeService { stream(input: RunAgentInput, options?: RuntimeOptions): AsyncGenerator<StreamedEvent> }
 // Chat 运行时：proxy 走官方 CopilotKit（useOfficialConversation），不经过本服务；

@@ -9,6 +9,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { getChatServiceMode } from '@/api/core/serviceMode';
 import { runtimeConfig } from '@/api/runtimeConfig';
 import { agentDockCatalog } from '@/features/chat/a2ui/catalog';
+import SessionRuntimeHost from '@/features/chat/runtime/SessionRuntimeHost';
 import { I18nProvider } from '@/i18n';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -77,6 +78,7 @@ export default function Providers({ children }: { children: ReactNode }) {
           runtimeUrl={runtimeConfig.copilotRuntimeUrl}
           useSingleEndpoint
         >
+          <SessionRuntimeHost />
           {app}
         </CopilotKit>
       ) : (
