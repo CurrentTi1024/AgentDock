@@ -576,6 +576,13 @@ const GroupChatPage = () => {
               width: '100%',
             }}
           >
+            {hasMoreOlder && (
+              <Flexbox align="center" paddingBlock={10}>
+                <Button loading={loadingOlder} size="small" onClick={() => void loadOlderHistory()}>
+                  {t('chat.loadEarlier')}
+                </Button>
+              </Flexbox>
+            )}
             {!hasAnyMessage && (
               <Flexbox align="center" gap={16} paddingBlock={48}>
                 <Icon color={cssVar.colorPrimary} icon={Users} size={48} />
@@ -702,13 +709,6 @@ const GroupChatPage = () => {
                 </Fragment>
               );
             })}
-            {hasMoreOlder && (
-              <Flexbox align="center" paddingBlock={10}>
-                <Button loading={loadingOlder} size="small" onClick={() => void loadOlderHistory()}>
-                  {t('chat.loadEarlier')}
-                </Button>
-              </Flexbox>
-            )}
             {isActiveRun && (answer || running || run?.status) && (
               <>
                 <ChatItem

@@ -649,6 +649,13 @@ export default function ChatPage() {
               width: '100%',
             }}
           >
+            {hasMoreOlder && (
+              <Flexbox align="center" paddingBlock={10}>
+                <Button loading={loadingOlder} size="small" onClick={() => void loadOlderHistory()}>
+                  {t('chat.loadEarlier')}
+                </Button>
+              </Flexbox>
+            )}
             {!hasAnyMessage && (
               <Welcome
                 agentIcon={agentIcon}
@@ -765,13 +772,6 @@ export default function ChatPage() {
                 </Fragment>
               );
             })}
-            {hasMoreOlder && (
-              <Flexbox align="center" paddingBlock={10}>
-                <Button loading={loadingOlder} size="small" onClick={() => void loadOlderHistory()}>
-                  {t('chat.loadEarlier')}
-                </Button>
-              </Flexbox>
-            )}
             {isActiveRun && (answer || running || run?.status) && (
               <>
                 <ChatItem
