@@ -40,6 +40,7 @@ import {
 } from '@/api/session/sessionHistoryService';
 import { useAgentDockConversation } from '@/features/chat/useAgentDockConversation';
 import { useChatScroll } from '@/features/chat/hooks/useChatScroll';
+import { useLoadEarlierVisibility } from '@/features/chat/hooks/useLoadEarlierVisibility';
 import { getHistoryWindowLimit } from '@/features/chat/historyWindow';
 import {
   findLiveProcessHostId,
@@ -105,6 +106,7 @@ export default function ChatPage() {
   // 会话内消息懒加载：首屏最近一页，加载更早按文本所属 run 整轮追加。
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadEarlierVisibility = useLoadEarlierVisibility(sessionId);
   const nextCursorRef = useRef<number | undefined>(undefined);
   const loadedTextCountRef = useRef(0);
   const loadingOlderRef = useRef(false);
@@ -638,7 +640,14 @@ export default function ChatPage() {
           status={run?.status}
           onToggleArtifact={() => setArtifactOpen((open) => !open)}
         />
-        <Flexbox className={styles.scroll} data-testid="chat-scroll" ref={scrollRef}>
+        <Flexbox
+          className={styles.scroll}
+          data-testid="chat-scroll"
+          ref={scrollRef}
+          onTouchMove={loadEarlierVisibility.onTouchMove}
+          onTouchStart={loadEarlierVisibility.onTouchStart}
+          onWheel={loadEarlierVisibility.onWheel}
+        >
           <Flexbox
             gap={8}
             style={{
@@ -649,7 +658,7 @@ export default function ChatPage() {
               width: '100%',
             }}
           >
-            {hasMoreOlder && (
+            {hasMoreOlder && loadEarlierVisibility.visible && (
               <Flexbox align="center" paddingBlock={10}>
                 <Button loading={loadingOlder} size="small" onClick={() => void loadOlderHistory()}>
                   {t('chat.loadEarlier')}
