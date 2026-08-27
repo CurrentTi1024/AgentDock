@@ -243,23 +243,23 @@ export const sessionHistoryService = {
       .first();
     return row !== undefined;
   },
-  /** 分页读取会话列表（按 updatedAt 倒序）；不传 limit 时保持旧行为返回全部。 */
+  /** 分页读取会话列表（按 createdAt 倒序）；会话有新消息时不改变侧边栏位置。 */
   async listSessions(options?: { limit?: number; offset?: number }) {
-    let collection = db.sessions.orderBy('updatedAt').reverse();
+    let collection = db.sessions.orderBy('createdAt').reverse();
     if (options?.offset) collection = collection.offset(options.offset);
     if (options?.limit !== undefined) collection = collection.limit(options.limit);
     return collection.toArray();
   },
   async countSessions() { return db.sessions.count(); },
-  /** 全部群组会话，按更新时间倒序，走 type 索引（群组数量有限，一次性取回）。 */
+  /** 全部群组会话，按创建时间倒序，走 type 索引（群组数量有限，一次性取回）。 */
   async listGroupSessions() {
     const rows = await db.sessions.where('type').equals('group').toArray();
-    return rows.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
-  /** 某 Agent（agentId + fab）的历史会话，按更新时间倒序，走 [agentId+fab] 索引。 */
+  /** 某 Agent（agentId + fab）的历史会话，按创建时间倒序，走 [agentId+fab] 索引。 */
   async listSessionsByAgent(agentId: string, fab: string) {
     const rows = await db.sessions.where('[agentId+fab]').equals([agentId, fab]).toArray();
-    return rows.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
   async searchSessions(keyword: string) { const sessions = await this.listSessions(); const query = keyword.toLowerCase(); return sessions.filter((session) => `${session.title}${session.agentName || ''}`.toLowerCase().includes(query)); },
   async updateSession(id: string, value: Partial<SessionRecord>) { await db.sessions.update(id, { ...value, updatedAt: new Date().toISOString() }); notifySessionsChanged(); return db.sessions.get(id); },

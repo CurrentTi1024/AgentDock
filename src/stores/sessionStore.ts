@@ -23,7 +23,7 @@ import {
 const SESSIONS_PAGE_SIZE = 50;
 
 interface SessionStore {
-  /** 会话列表（按 updatedAt 倒序，随 sessions-changed/run-persisted 自动刷新）。 */
+  /** 会话列表（按 createdAt 倒序，更新消息不会让已有会话跳位）。 */
   sessions: SessionRecord[];
   hasMoreSessions: boolean;
   sessionLimit: number;

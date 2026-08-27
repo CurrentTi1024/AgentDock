@@ -1113,7 +1113,7 @@ test('LobeHub 同款占位+增量：空占位行存在，内容到达后同 id u
   assert.ok(userRow && assistantRow && assistantRow.sequence > userRow.sequence, 'assistant 排在用户之后');
 });
 
-test('listSessions 分页：limit/offset 按 updatedAt 倒序，countSessions 返回总数', async () => {
+test('所有 Session 列表按 createdAt 倒序，消息更新不改变侧边栏顺序', async () => {
   await sessionDatabase.delete();
   await sessionDatabase.open();
   for (let index = 1; index <= 5; index += 1) {
@@ -1128,13 +1128,58 @@ test('listSessions 分页：limit/offset 按 updatedAt 倒序，countSessions �
       title: `s${index}`,
       type: 'agent',
     });
-    await sessionDatabase.sessions.update(id, { updatedAt: new Date(2024, 0, index).toISOString() });
+    await sessionDatabase.sessions.update(id, {
+      createdAt: new Date(2024, 0, index).toISOString(),
+      updatedAt: new Date(2025, 0, 6 - index).toISOString(),
+    });
   }
   const page1 = await sessionHistoryService.listSessions({ limit: 2 });
   assert.deepEqual(page1.map((session) => session.id), ['page-session-5', 'page-session-4']);
   const page2 = await sessionHistoryService.listSessions({ limit: 2, offset: 2 });
   assert.deepEqual(page2.map((session) => session.id), ['page-session-3', 'page-session-2']);
   assert.equal(await sessionHistoryService.countSessions(), 5);
+
+  await sessionDatabase.sessions.update('page-session-1', {
+    updatedAt: new Date(2030, 0, 1).toISOString(),
+  });
+  const unchanged = await sessionHistoryService.listSessions();
+  assert.deepEqual(
+    unchanged.map((session) => session.id),
+    ['page-session-5', 'page-session-4', 'page-session-3', 'page-session-2', 'page-session-1'],
+  );
+});
+
+test('Agent 话题与 Group 侧边栏同样按 createdAt 倒序', async () => {
+  await sessionDatabase.delete();
+  await sessionDatabase.open();
+  const create = async (id: string, type: 'agent' | 'group', createdAt: string) => {
+    await sessionHistoryService.createSession({
+      agentId: 'flight-analysis',
+      agentName: 'FlightAnalysis_Agent',
+      fab: 'F15B',
+      id,
+      pinned: false,
+      threadId: `thread-${id}`,
+      title: id,
+      type,
+    });
+    await sessionDatabase.sessions.update(id, { createdAt });
+  };
+  await create('agent-old', 'agent', '2024-01-01T00:00:00.000Z');
+  await create('agent-new', 'agent', '2024-01-03T00:00:00.000Z');
+  await create('group-old', 'group', '2024-01-02T00:00:00.000Z');
+  await create('group-new', 'group', '2024-01-04T00:00:00.000Z');
+
+  assert.deepEqual(
+    (await sessionHistoryService.listSessionsByAgent('flight-analysis', 'F15B'))
+      .filter((session) => session.type === 'agent')
+      .map((session) => session.id),
+    ['agent-new', 'agent-old'],
+  );
+  assert.deepEqual(
+    (await sessionHistoryService.listGroupSessions()).map((session) => session.id),
+    ['group-new', 'group-old'],
+  );
 });
 
 test('getMessagesPage：按 run 整轮分页，文本不重叠、顺序正确、翻页收敛', async () => {
