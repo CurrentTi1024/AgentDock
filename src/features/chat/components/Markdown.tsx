@@ -113,11 +113,14 @@ interface MarkdownProps {
   enableStream?: boolean;
 }
 
-export const Markdown = memo<MarkdownProps>(({ content, enableStream = true }) => (
+// 历史消息进入 Session 时会整批挂载，默认禁用动画，避免完整内容被当作新 token 重放。
+// 当前正在运行的助手消息由调用方显式开启流式动画。
+export const Markdown = memo<MarkdownProps>(({ content, enableStream = false }) => (
   <LobeMarkdown
     animated={enableStream}
     components={{ a: AgentMentionLink }}
     enableMermaid
+    enableStream={enableStream}
     fullFeaturedCodeBlock
     remarkPlugins={[remarkAgentMention]}
     variant="chat"

@@ -68,6 +68,7 @@ export interface ChatItemProps {
   customAvatarRender?: (node: ReactNode) => ReactNode;
   disabled?: boolean;
   editing?: boolean;
+  enableStream?: boolean;
   id: string;
   loading?: boolean;
   messageExtra?: ReactNode;
@@ -96,6 +97,7 @@ const ChatItem = memo<ChatItemProps>(
     content,
     customAvatarRender,
     disabled,
+    enableStream,
     id,
     loading,
     messageExtra,
@@ -180,7 +182,7 @@ const ChatItem = memo<ChatItemProps>(
             onDoubleClick={onDoubleClick}
           >
             {children}
-            {hasContent ? <Markdown content={content!} /> : null}
+            {hasContent ? <Markdown content={content!} enableStream={enableStream} /> : null}
             {messageExtra}
           </Flexbox>
           {belowMessage}

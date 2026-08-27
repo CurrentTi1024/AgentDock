@@ -766,6 +766,7 @@ const GroupChatPage = () => {
                   }
                   avatar="👥"
                   content={displayAnswer}
+                  enableStream={running}
                   id="current-group-assistant"
                   loading={running}
                   name={session?.title || t('nav.group')}

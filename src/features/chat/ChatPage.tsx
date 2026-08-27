@@ -825,6 +825,7 @@ export default function ChatPage() {
                   }
                   avatar={agentIcon}
                   content={displayAnswer}
+                  enableStream={running}
                   id="current-assistant"
                   loading={running}
                   name={agent}
