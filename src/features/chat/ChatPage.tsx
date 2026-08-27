@@ -143,8 +143,11 @@ export default function ChatPage() {
       nextCursorRef.current = page.nextBeforeSequence;
       loadedTextCountRef.current += page.records.filter((record) => record.kind === 'text').length;
     } finally {
-      loadingOlderRef.current = false;
-      setLoadingOlder(false);
+      // A 请求结束时若页面已切到 B，不能清掉 B 自己的 loading 锁/状态。
+      if (currentSessionIdRef.current === targetSessionId) {
+        loadingOlderRef.current = false;
+        setLoadingOlder(false);
+      }
     }
   }, [sessionId]);
 
@@ -385,6 +388,8 @@ export default function ChatPage() {
 
   useEffect(() => {
     // 不让新 Session 的首帧沿用旧 Session 的历史和身份；真实数据异步返回后再填充。
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
     setHistory([]);
     setSession(pendingSession?.id === sessionId ? pendingSession : undefined);
     setSelectedAgent(undefined);

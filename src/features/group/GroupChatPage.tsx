@@ -152,8 +152,10 @@ const GroupChatPage = () => {
       nextCursorRef.current = page.nextBeforeSequence;
       loadedTextCountRef.current += page.records.filter((record) => record.kind === 'text').length;
     } finally {
-      loadingOlderRef.current = false;
-      setLoadingOlder(false);
+      if (currentSessionIdRef.current === targetSessionId) {
+        loadingOlderRef.current = false;
+        setLoadingOlder(false);
+      }
     }
   }, [sessionId]);
 
@@ -251,6 +253,8 @@ const GroupChatPage = () => {
   const lastLiveMessageId = Object.keys(run?.messages || {}).at(-1) || '';
 
   useEffect(() => {
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
     setHistory([]);
     setSession(pendingSession?.id === sessionId ? pendingSession : undefined);
     setRunStartedAt(undefined);

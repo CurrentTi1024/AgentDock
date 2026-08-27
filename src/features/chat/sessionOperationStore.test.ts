@@ -11,6 +11,7 @@ import {
 import { createRunState } from '../../api/runtime/runReducer.ts';
 import type { RunAgentInput } from '../../api/runtime/types.ts';
 import { sessionOperationService } from './runtime/sessionOperationService.ts';
+import { sessionRuntimeRegistry } from './runtime/sessionRuntimeRegistry.ts';
 import type { SessionOperation } from './runtime/types.ts';
 import { useSessionOperationStore } from '../../stores/sessionOperationStore.ts';
 
@@ -162,6 +163,52 @@ test('paused checkpoint 恢复使用 checkpoint 的权威 threadId，而不是�
   assert.equal(state.runtimeBySession['session-restore']?.threadId, 'thread-session-restore');
   cancelPendingCheckpoint('run-restore');
   resetStore();
+});
+
+test('restore 读取 checkpoint 期间若新 run 已启动，不得用旧 run 覆盖 active 映射', async () => {
+  resetStore();
+  await sessionDatabase.delete();
+  await sessionDatabase.open();
+  const oldOperation = addOperation('session-restore-race', 'run-old');
+  oldOperation.snapshot.status = 'paused';
+  await sessionHistoryService.saveRunCheckpoint(
+    oldOperation.sessionId,
+    oldOperation.input,
+    oldOperation.snapshot,
+  );
+  resetStore();
+
+  const originalGetLatest = sessionHistoryService.getLatestRecoverableRun;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  sessionHistoryService.getLatestRecoverableRun = async (sessionId) => {
+    await gate;
+    return originalGetLatest.call(sessionHistoryService, sessionId);
+  };
+  try {
+    const restoring = sessionOperationService.restore({
+      agentId: 'agent',
+      fab: 'FAB',
+      sessionId: oldOperation.sessionId,
+      threadId: oldOperation.threadId,
+    });
+    addOperation(oldOperation.sessionId, 'run-new');
+    release();
+    await restoring;
+    const state = useSessionOperationStore.getState();
+    assert.equal(state.activeRunBySession[oldOperation.sessionId], 'run-new');
+    assert.equal(state.operationsById['run-old'], undefined);
+  } finally {
+    sessionHistoryService.getLatestRecoverableRun = originalGetLatest;
+    cancelPendingCheckpoint('run-new');
+    resetStore();
+  }
+});
+
+test('runtime reset 会立即拒绝等待者，不遗留 15 秒定时等待', async () => {
+  const waiting = sessionRuntimeRegistry.whenReady('session-runtime-reset');
+  sessionRuntimeRegistry.reset('session-runtime-reset', 'disposed for test');
+  await assert.rejects(waiting, /disposed for test/);
 });
 
 test('running checkpoint 有 latestEventId 时按同 runId 发起 resume 并完成', async () => {

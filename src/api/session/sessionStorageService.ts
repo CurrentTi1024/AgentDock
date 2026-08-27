@@ -267,11 +267,17 @@ export interface ExportAndDeleteResult {
  */
 export const exportAndDeleteSessions = async (
   criteria: CleanupCriteria | { ids: string[] },
-  options?: { includeCheckpoints?: boolean },
+  options?: {
+    /** 删除前停止对应运行时；回调失败时保留全部数据。 */
+    beforeDelete?: (ids: string[]) => Promise<void>;
+    includeCheckpoints?: boolean;
+  },
 ): Promise<ExportAndDeleteResult> => {
   const { file, sizeBytes, total } = await buildSessionExport(criteria, options);
   if (total === 0) return { deleted: 0, exported: 0, filename: '', sizeBytes: 0 };
   const filename = exportSessionFile(file);
-  const deleted = await deleteSessions(file.sessions.map((session) => session.id));
+  const ids = file.sessions.map((session) => session.id);
+  await options?.beforeDelete?.(ids);
+  const deleted = await deleteSessions(ids);
   return { deleted, exported: total, filename, sizeBytes };
 };

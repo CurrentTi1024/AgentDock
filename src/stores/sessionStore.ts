@@ -101,7 +101,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   exportAndDeleteCleanup: async (criteria) => {
     set({ busy: true });
     try {
-      const result = await exportAndDeleteSessions(criteria);
+      const result = await exportAndDeleteSessions(criteria, {
+        beforeDelete: async (ids) => {
+          await Promise.all(ids.map((id) => sessionOperationService.disposeSession(id)));
+        },
+      });
       set({ cleanupSelection: undefined });
       await get().refreshSessions();
       await get().refreshStorageUsage({ force: true });

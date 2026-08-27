@@ -28,6 +28,21 @@ export const sessionRuntimeRegistry = {
     if (handles.get(sessionId) === handle) handles.delete(sessionId);
   },
 
+  /**
+   * Session 的 thread 被替换或会话被删除时立即失效旧 handle，并终止所有等待者。
+   * 否则 React 完成 Worker 换代前，whenReady() 可能拿到上一条 thread 的 handle。
+   */
+  reset(sessionId: string, reason = 'Session runtime was reset.') {
+    handles.delete(sessionId);
+    const pending = waiters.get(sessionId);
+    if (!pending) return;
+    for (const waiter of pending) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error(reason));
+    }
+    waiters.delete(sessionId);
+  },
+
   whenReady(sessionId: string): Promise<SessionRuntimeHandle> {
     const current = handles.get(sessionId);
     if (current?.isReady()) return Promise.resolve(current);

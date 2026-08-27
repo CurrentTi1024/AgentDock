@@ -162,3 +162,23 @@ test('exportAndDeleteSessions：先导出后删除，返回导出/删除数量',
   assert.equal(await sessionDatabase.sessionMessages.where('sessionId').equals(sessionId).count(), 0);
   assert.equal(await sessionDatabase.checkpoints.where('sessionId').equals(sessionId).count(), 0);
 });
+
+test('exportAndDeleteSessions：删除前等待运行时处置，回调失败则不删除', async () => {
+  const sessionId = 'export-dispose-guard-session';
+  await makeSession(sessionId, '2024-01-01T00:00:00.000Z', '2024-01-10T00:00:00.000Z');
+  const calls: string[][] = [];
+  await assert.rejects(
+    exportAndDeleteSessions(
+      { ids: [sessionId] },
+      {
+        beforeDelete: async (ids) => {
+          calls.push(ids);
+          throw new Error('dispose failed');
+        },
+      },
+    ),
+    /dispose failed/,
+  );
+  assert.deepEqual(calls, [[sessionId]]);
+  assert.ok(await sessionDatabase.sessions.get(sessionId), '运行时未处置成功时必须保留会话');
+});

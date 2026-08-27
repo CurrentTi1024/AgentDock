@@ -55,9 +55,16 @@ const runtimeKey = (context: SessionRuntimeContext) =>
   `${context.sessionId}:${context.threadId}`;
 
 const ensureRuntime = (context: SessionRuntimeContext) => {
-  useSessionOperationStore.getState().upsertRuntime({
+  const store = useSessionOperationStore.getState();
+  const key = runtimeKey(context);
+  // 终态清理已移除 descriptor、但旧 Worker 尚未完成 unmount 时，registry 里仍可能
+  // 短暂保留旧 handle；只要当前 descriptor 不是同一 key，就先同步失效。
+  if (store.runtimeBySession[context.sessionId]?.key !== key) {
+    sessionRuntimeRegistry.reset(context.sessionId, 'Session runtime context changed.');
+  }
+  store.upsertRuntime({
     ...context,
-    key: runtimeKey(context),
+    key,
     status: 'booting',
   });
 };
@@ -357,43 +364,55 @@ export const sessionOperationService = {
     if (!operation || operation.status !== 'paused') return;
     const snapshot = hotSnapshots.get(operation.runId) ?? operation.snapshot;
     const running = { ...snapshot, status: 'running' as const };
+    const resumedInput: RunAgentInput = {
+      ...operation.input,
+      forwardedProps: {
+        ...operation.input.forwardedProps,
+        action: 'hitlResponse',
+        hitlResponse: response,
+      },
+    };
     hotSnapshots.set(operation.runId, running);
     useSessionOperationStore.getState().updateOperation(operation.runId, {
+      input: resumedInput,
       snapshot: running,
       status: 'running',
     });
     try {
+      // 先把“审批已提交、正在恢复”写入 checkpoint，关闭点击后到首个新事件之间的刷新窗口。
+      scheduleRunCheckpoint(operation.sessionId, resumedInput, running);
+      await flushRunCheckpoint(operation.runId);
       if (getChatServiceMode() === 'http') {
         const runtime = await sessionRuntimeRegistry.whenReady(sessionId);
-        await runtime.respondToHitl(operation.input, response, operation.legacyInterruptId);
+        await runtime.respondToHitl(resumedInput, response, operation.legacyInterruptId);
         return;
       }
       const resumed: SessionOperation = {
         ...operation,
-        input: {
-          ...operation.input,
-          forwardedProps: {
-            ...operation.input.forwardedProps,
-            action: 'hitlResponse',
-            hitlResponse: response,
-          },
-        },
+        input: resumedInput,
         snapshot: running,
         status: 'running',
       };
-      useSessionOperationStore.getState().updateOperation(operation.runId, {
-        input: resumed.input,
-      });
       await executeMock(resumed);
     } catch (error) {
       // 恢复请求失败时仍然允许用户重试，不能永久卡在 running 且失去审批按钮。
       const paused = { ...snapshot, status: 'paused' as const };
       hotSnapshots.set(operation.runId, paused);
       useSessionOperationStore.getState().updateOperation(operation.runId, {
+        input: operation.input,
         snapshot: paused,
         status: 'paused',
       });
       scheduleRunCheckpoint(operation.sessionId, operation.input, paused);
+      try {
+        await flushRunCheckpoint(operation.runId);
+      } catch (persistError) {
+        console.error('[AgentDock] HITL rollback checkpoint failed', {
+          error: persistError,
+          runId: operation.runId,
+          sessionId,
+        });
+      }
       console.error('[AgentDock] HITL resume failed', { error, runId: operation.runId, sessionId });
     }
   },
@@ -402,6 +421,9 @@ export const sessionOperationService = {
     if (getOperation(context.sessionId)) return;
     const checkpoint = await sessionHistoryService.getLatestRecoverableRun(context.sessionId);
     if (!checkpoint) return;
+    // checkpoint 读取是异步的；期间用户可能已发送新消息或另一次 restore 已经启动。
+    // 旧恢复绝不能覆盖刚建立的新 active run。
+    if (getOperation(context.sessionId)) return;
     if (checkpoint.status === 'running' && !checkpoint.latestEventId) {
       const cancelled = finalizeReasoningMeta({
         ...checkpoint.snapshot,
@@ -470,6 +492,7 @@ export const sessionOperationService = {
     }
     const descriptor = useSessionOperationStore.getState().runtimeBySession[sessionId];
     useSessionOperationStore.getState().removeRuntime(sessionId, descriptor?.key);
+    sessionRuntimeRegistry.reset(sessionId, 'Session was disposed.');
   },
 
   async send(
@@ -537,8 +560,13 @@ export const sessionOperationService = {
     if (!operation || !isOperationBusy(operation)) return;
     try {
       if (getChatServiceMode() === 'http') {
-        const runtime = await sessionRuntimeRegistry.whenReady(sessionId);
-        await runtime.stop();
+        const runtime = sessionRuntimeRegistry.get(sessionId);
+        if (runtime?.isReady()) {
+          await runtime.stop();
+        } else {
+          // 启动阶段没有可停止的远端 handle：直接终止 whenReady 等待，避免停止/删除卡 15 秒。
+          sessionRuntimeRegistry.reset(sessionId, 'Run stopped before runtime became ready.');
+        }
       } else {
         mockControllers.get(operation.runId)?.abort();
       }

@@ -72,6 +72,9 @@ export default function Providers({ children }: { children: ReactNode }) {
         <CopilotKit
           a2ui={{ catalog: agentDockCatalog }}
           credentials="include"
+          // CopilotKit Inspector（右上角风筝）只用于开发调试；显式关闭，避免 localhost、
+          // IP/内网部署或未来默认值变化时把内部 AG-UI 状态暴露给最终用户。
+          enableInspector={false}
           onError={(event) => {
             console.error('[CopilotKit]', event.error);
           }}

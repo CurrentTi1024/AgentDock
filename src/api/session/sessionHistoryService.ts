@@ -219,9 +219,17 @@ const guardWrite = async <T>(label: string, task: Promise<T>): Promise<T> => {
     throw error;
   }
 };
+const flushCheckpointBestEffort = (runId?: string) => {
+  void flushRunCheckpoint(runId).catch((error) => {
+    // guardWrite 已触发 storage-error；这里再吞掉定时器/pagehide 链的 rejection，
+    // 避免升级成 window.unhandledrejection 干扰宿主应用的全局错误处理。
+    console.error('[AgentDock] checkpoint flush failed', { error, runId });
+  });
+};
+
 // 页面隐藏/关闭前兜底 flush：尽量把未落盘快照写入，避免刷新丢失最后一轮（best-effort）。
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-  const flushOnLeave = () => { void flushRunCheckpoint(); };
+  const flushOnLeave = () => flushCheckpointBestEffort();
   window.addEventListener('pagehide', flushOnLeave);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushOnLeave();
@@ -571,12 +579,12 @@ export const scheduleRunCheckpoint = (sessionId: string, input: RunAgentInput, s
   const currentTimer = checkpointTimers.get(runId);
   if (currentTimer) clearTimeout(currentTimer);
   checkpointTimers.set(runId, setTimeout(() => {
-    void flushRunCheckpoint(runId);
+    flushCheckpointBestEffort(runId);
   }, CHECKPOINT_DEBOUNCE_MS));
   // 连续 token 会不断推迟尾部防抖；最大等待保证运行中的游标也定期落盘，刷新可续传。
   if (!checkpointMaxTimers.has(runId)) {
     checkpointMaxTimers.set(runId, setTimeout(() => {
-      void flushRunCheckpoint(runId);
+      flushCheckpointBestEffort(runId);
     }, CHECKPOINT_MAX_WAIT_MS));
   }
 };
