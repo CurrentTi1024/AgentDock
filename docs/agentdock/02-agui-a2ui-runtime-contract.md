@@ -219,6 +219,29 @@ data: {"type":"TEXT_MESSAGE_CONTENT", ...}
 - A2UI 同一 Surface 更新必须使用相同 `surfaceId`。
 - ID 在对应 thread 内不可复用。
 
+### 4.4 独立订阅的多 Session 事件路由
+
+AgentDock 首期使用“一个活跃 Session 一个独立 Agent/SSE 订阅”，不要求普通内容事件重复携带 `sessionId`、`threadId` 或 `runId`：
+
+- Browser 在发送前生成 `runId`，并把 `sessionId/threadId/runId` 固定到本地 Operation。
+- `RUN_STARTED` 必须回显请求中的 `threadId + runId`，用于校验订阅与 Operation 未错配。
+- 后续普通事件通过创建订阅时捕获的 `sessionId` 写入对应 Operation；禁止按当前页面 active Session 路由。
+- 同一 Session 首期至多一个普通 active Run，因此无 `runId` 的内容事件可以安全归属该 Session 当前 Run。
+- 如果后续改为多个 Run 共用一条连接，则每个 event envelope 必须增加 `runId/operationId`，本条独立订阅规则不再适用。
+- 每个业务事件仍必须提供 `rawEvent.eventId`，用于客户端去重和未来续传。
+
+未来续传请求至少携带：
+
+```json
+{
+  "threadId": "thread-001",
+  "runId": "run-001",
+  "afterEventId": "1723870000000-000042"
+}
+```
+
+`afterEventId` 为 exclusive cursor。续传只能订阅并补发缺失事件，不得重新启动相同 `runId` 的 Agent。
+
 ## 5. SSE 与事件格式
 
 响应：

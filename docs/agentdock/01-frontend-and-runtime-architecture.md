@@ -222,7 +222,27 @@ type AgentDockContentBlock =
 - LobeHub Cloud、模型供应商、计费、评论、分享、Electron。
 - 原生 Tool Registry 改为 AgentDock Renderer Registry。
 
-### 5.5 Renderer Registry
+### 5.5 多 Session 运行所有权（升级目标）
+
+多 Session 并发不能由 ChatPage 局部 Hook 持有 Agent 订阅。运行时升级采用：
+
+```text
+CopilotKit Provider
+  └─ SessionRuntimeHost（常驻，不随路由切换）
+       ├─ SessionRuntimeWorker A（独立 useAgent + subscribe）
+       └─ SessionRuntimeWorker B（独立 useAgent + subscribe）
+
+ChatPage
+  └─ 仅按 sessionId 选择对应 RuntimeRunState
+```
+
+- 每个活跃 Session 一个独立 Worker，同 Session 至多一个普通 active Run，不同 Session 可并发。
+- `operationId` 直接复用 AG-UI `runId`；事件由 Worker 启动时捕获的 `sessionId` 路由，不读取当前页面 Session。
+- Worker、订阅和 Run 状态属于全局 Operation 层；页面 unmount 不能停止或退订后台 Run。
+- Operation 只保存活跃与短期终态热状态；最终可见消息仍写 Dexie，历史 Session 不创建 Worker。
+- 详细模块、代码骨架和迁移步骤见 `design/18-multi-session-concurrent-runs.md`。
+
+### 5.6 Renderer Registry
 
 ```ts
 interface ToolRendererRegistration {
@@ -267,7 +287,8 @@ checkpoints
   - `checkpoints`：`runId` + 完整快照 + `latestEventId`（断线恢复游标）；
   - `messages`：`persistRunSnapshot` 把快照中全部可见消息（text / reasoning / tool / activity / surface / step）`bulkPut`；
   - `sessions.updatedAt` 刷新（驱动会话列表排序）。
-- 页面刷新恢复：会话列表与当前会话消息从 `getMessages` 读取；mock 从 `getLatestRun` 恢复快照（`runStore.restoreSession`），http+proxy 走 `connectAgent(action=resume, resume.lastEventId)`。
+- 同标签页切换 Session：由常驻 `SessionRuntimeWorker` 保持各自独立订阅，切换页面不需要 replay。
+- 页面刷新恢复：会话列表与当前会话消息从 `getMessages` 读取；在 Orchestration 尚未提供可靠的 `runId + afterEventId` 事件重放前，http 路径把陈旧 running checkpoint 转为 cancelled，禁止自动重发整轮。后端契约满足后，再从本地 checkpoint snapshot 继续消费游标后的增量事件。
 - 失败策略：新建会话/群聊统一“先跳转、路由携带 `pendingSession`、后台异步落库”，写入失败仅 `console.warn` 不阻断对话；`createSession` 超过 3s 未完成输出阻塞诊断；监听 Dexie `blocked`/`versionchange`，被旧标签页阻塞时提示关闭旧页。
 - 列表刷新：`createSession`/`updateSession`/`saveRunCheckpoint` 成功后广播 `agentdock:sessions-changed`，HomeSidebar/GroupSidebar/群聊首页监听后重新拉取会话列表，新会话无需手动刷新即可出现在“最近对话/最近群聊”。
 - 测试：`src/api/session/sessionHistoryService.test.ts` 用 `fake-indexeddb` 覆盖“创建会话 / 终态 flush 落库 / 防抖自动落盘 / 刷新后恢复一致”；浏览器验收按 `docs/agentdock/03` 刷新后回看。
