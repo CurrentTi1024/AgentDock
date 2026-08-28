@@ -260,7 +260,25 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
       }
       break;
     }
-    case 'ACTIVITY_DELTA': next.activities[id] = { ...(next.activities[id] as object || {}), ...(event.patch as object || event.delta as object || {}) }; pushOrderedBlock(next, 'activity', id); break;
+    case 'ACTIVITY_DELTA': {
+      const current = (next.activities[id] as Record<string, unknown> | undefined) ?? {};
+      const delta = (
+        event.patch && typeof event.patch === 'object'
+          ? event.patch
+          : event.delta && typeof event.delta === 'object'
+            ? event.delta
+            : {}
+      ) as Record<string, unknown>;
+      const activityType = String(event.activityType || current.activityType || '');
+      next.activities[id] = {
+        ...current,
+        ...delta,
+        ...(activityType ? { activityType } : {}),
+        messageId: id,
+      };
+      pushOrderedBlock(next, 'activity', id);
+      break;
+    }
     case 'CUSTOM_EVENT': {
       const name = String(event.name || '');
       const value = event.value;

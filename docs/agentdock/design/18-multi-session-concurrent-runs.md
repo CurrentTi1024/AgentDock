@@ -204,6 +204,8 @@ success / error / cancelled / 无 live run → 发送按钮
 
 历史加载不启用流式动画；只有当前 live Run 使用 `enableStream`。终态落库事件包含 `sessionId/runId/status`，页面只刷新自己的 Session。
 
+`ACTIVITY_SNAPSHOT / ACTIVITY_DELTA` 会按事件顺序进入 `orderedBlocks`。除 A2UI Surface、错误和 HITL 使用专用组件外，所有普通 Activity（不要求 `activityType` 以 `agentDock.` 开头）都显示为助手过程折叠区内的任务卡片；实时态和 IndexedDB 历史态遵循同一规则。
+
 ## 8. 明确非目标与运行边界
 
 - 不支持同一 Session 内两个普通 Run 并发。

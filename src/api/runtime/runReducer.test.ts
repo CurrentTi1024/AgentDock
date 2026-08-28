@@ -407,6 +407,26 @@ test('ACTIVITY_SNAPSHOT stores activityType alongside content for live rendering
   assert.deepEqual(state.orderedBlocks, [{ id: 'task-10', kind: 'activity' }]);
 });
 
+test('standalone ACTIVITY_DELTA preserves top-level activityType for task-card rendering', () => {
+  const state = reduceRunEvent(createRunState('run-activity-delta', 'thread-activity-delta'), {
+    eventId: 'activity-delta-1',
+    event: {
+      activityType: 'company.longRunningTask',
+      delta: { description: '正在查询业务数据', status: 'running' },
+      messageId: 'company-task-1',
+      type: 'ACTIVITY_DELTA',
+    },
+  });
+
+  assert.deepEqual(state.activities['company-task-1'], {
+    activityType: 'company.longRunningTask',
+    description: '正在查询业务数据',
+    messageId: 'company-task-1',
+    status: 'running',
+  });
+  assert.deepEqual(state.orderedBlocks, [{ id: 'company-task-1', kind: 'activity' }]);
+});
+
 test('RUN_ERROR：真实错误生成 assistant 错误回复（最后一个 chunk）并置 error 元信息', () => {
   let state = createRunState('run-error-1', 'thread-error-1');
   state = reduceRunEvent(state, {

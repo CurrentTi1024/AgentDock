@@ -439,6 +439,7 @@ export const renderStoredBlocks = (
         );
         continue;
       }
+      pushStepsIntoProcess();
       const requestId = typeof payload.requestId === 'string' ? payload.requestId : '';
       if (requestId) {
         // HITL 属于过程本身（LobeHub 干预在 workflow 内部）：
@@ -464,14 +465,11 @@ export const renderStoredBlocks = (
         process.state.hasWork = true;
         continue;
       }
-      // supervisor/tasks/groupTasks/agentDelegation 等过程活动并入折叠（LobeHub workflow 内联）。
-      if (typeof payload.activityType === 'string' && payload.activityType.startsWith('agentDock.')) {
-        process.state.nodes.push(<ActivityBlock activity={payload} key={record.id} />);
-        process.state.hasWork = true;
-        continue;
-      }
-      flushSteps();
-      nodes.push(<ActivityBlock activity={payload} key={record.id} />);
+      // 所有普通 AG-UI Activity 都是执行过程任务卡，统一进入 assistant workflow 折叠区；
+      // 不以 agentDock.* 为前提，真实后端的自定义 activityType 也必须可见。
+      process.state.nodes.push(<ActivityBlock activity={payload} key={record.id} />);
+      process.state.hasWork = true;
+      continue;
     } else if (record.kind === 'surface') {
       flushSteps();
       if (options.showSurfaces === false) continue;
@@ -561,6 +559,38 @@ export const renderRunBlocks = (
         Math.max(...visibleSteps.map((step) => step.finishedAt ?? 0)),
       );
     }
+    // 旧 checkpoint 可能没有 orderedBlocks；普通 Activity 仍必须进入过程折叠区。
+    for (const [id, activity] of Object.entries(run.activities || {})) {
+      if (!activity || typeof activity !== 'object') continue;
+      const value = activity as { activityType?: string; requestId?: string; [key: string]: unknown };
+      if (
+        value.diagnosticOnly === true ||
+        value.activityType === 'a2ui.surface' ||
+        value.activityType === 'a2ui-surface' ||
+        value.activityType === 'agentDock.artifact' ||
+        value.activityType === 'agentDock.error'
+      ) continue;
+      if (value.requestId || value.activityType === 'agentDock.hitl') {
+        process.state.nodes.push(
+          <HitlBlock
+            description={typeof value.description === 'string' ? value.description : undefined}
+            key={`fallback-hitl-${id}`}
+            mode={typeof value.mode === 'string' ? value.mode : 'toolAuthorization'}
+            onApprove={(requestId, approvePayload) =>
+              handlers.onApproveHitl(requestId, {
+                ...approvePayload,
+                mode: value.mode || 'toolAuthorization',
+              })
+            }
+            onReject={handlers.onRejectHitl}
+            requestId={String(value.requestId || id)}
+          />,
+        );
+      } else {
+        process.state.nodes.push(<ActivityBlock activity={value} key={`fallback-activity-${id}`} />);
+      }
+      process.state.hasWork = true;
+    }
     flushSteps();
     if (options.showSurfaces !== false) {
       for (const [surfaceId, payload] of Object.entries(run.surfaces || {})) {
@@ -640,6 +670,7 @@ export const renderRunBlocks = (
           );
           continue;
         }
+        pushStepsIntoProcess();
         if (value.requestId) {
           // HITL 属于过程（LobeHub 干预在 workflow 内部）：进入折叠。
           process.state.nodes.push(
@@ -681,8 +712,8 @@ export const renderRunBlocks = (
             />,
           );
           process.state.hasWork = true;
-        } else if (typeof value.activityType === 'string' && value.activityType.startsWith('agentDock.')) {
-          // supervisor/tasks/groupTasks/agentDelegation 等过程活动并入折叠。
+        } else {
+          // 所有普通 AG-UI Activity（包括非 agentDock.* 自定义类型）都作为任务卡并入折叠。
           process.state.nodes.push(<ActivityBlock activity={value} key={`activity-${ref.id}`} />);
           process.state.hasWork = true;
         }
