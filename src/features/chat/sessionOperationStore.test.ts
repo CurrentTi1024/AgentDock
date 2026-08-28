@@ -27,6 +27,22 @@ const resetStore = () => {
   });
 };
 
+const installHttpChatMode = () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const values = new Map<string, string>([['agentdock-chat-mode', 'http']]);
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    } as Storage,
+  });
+  return () => {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+  };
+};
+
 const addOperation = (sessionId: string, runId: string): SessionOperation => {
   const input: RunAgentInput = {
     context: [],
@@ -182,6 +198,179 @@ test('subscriber input 为无 runId 事件绑定旧 run，迟到事件不会污�
   cancelPendingCheckpoint('run-new');
 });
 
+test('subscriber input 覆盖上游自定义 run/thread id，终态归属客户端 operation', () => {
+  const bound = bindEventToRun(
+    { runId: 'backend-run', threadId: 'backend-thread', type: 'RUN_FINISHED' },
+    { runId: 'client-run', threadId: 'client-thread' },
+  );
+  assert.equal(bound.runId, 'client-run');
+  assert.equal(bound.threadId, 'client-thread');
+});
+
+test('Runtime 流正常关闭但没有 RUN_FINISHED 时，单/多 Session 都会退出 running', async () => {
+  resetStore();
+  const restoreChatMode = installHttpChatMode();
+  const contexts = ['stream-close-a', 'stream-close-b'].map((sessionId) => ({
+    agentId: 'agent',
+    fab: 'FAB',
+    sessionId,
+    threadId: `thread-${sessionId}`,
+  }));
+  const handles = contexts.map(() => ({
+    isReady: () => true,
+    respondToHitl: async () => {},
+    run: async () => {},
+    stop: async () => {},
+  }));
+  try {
+    const sending = contexts.map((context) => sessionOperationService.send(context, 'hello'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    contexts.forEach((context, index) => sessionRuntimeRegistry.register(context.sessionId, handles[index]));
+    await Promise.all(sending);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    for (const context of contexts) {
+      const runId = useSessionOperationStore.getState().activeRunBySession[context.sessionId];
+      assert.equal(useSessionOperationStore.getState().operationsById[runId!]?.snapshot.status, 'success');
+    }
+  } finally {
+    await Promise.all(contexts.map((context) => sessionOperationService.disposeSession(context.sessionId)));
+    contexts.forEach((context, index) => sessionRuntimeRegistry.unregister(context.sessionId, handles[index]));
+    restoreChatMode();
+    resetStore();
+  }
+});
+
+test('Runtime 已投影 RUN_ERROR 后关闭流，success 兜底不会覆盖 error', async () => {
+  resetStore();
+  const restoreChatMode = installHttpChatMode();
+  const context = {
+    agentId: 'agent',
+    fab: 'FAB',
+    sessionId: 'stream-error',
+    threadId: 'thread-stream-error',
+  };
+  const handle = {
+    isReady: () => true,
+    respondToHitl: async () => {},
+    run: async (input: RunAgentInput) => {
+      sessionOperationService.applyEvent(
+        { sessionId: context.sessionId, threadId: context.threadId },
+        {
+          code: 'BACKEND_ERROR',
+          message: 'backend failed',
+          runId: input.runId,
+          threadId: input.threadId,
+          type: 'RUN_ERROR',
+        },
+      );
+    },
+    stop: async () => {},
+  };
+  try {
+    const sending = sessionOperationService.send(context, 'fail');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    sessionRuntimeRegistry.register(context.sessionId, handle);
+    await sending;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const runId = useSessionOperationStore.getState().activeRunBySession[context.sessionId];
+    const snapshot = useSessionOperationStore.getState().operationsById[runId!]?.snapshot;
+    assert.equal(snapshot?.status, 'error');
+    assert.equal(snapshot?.error?.code, 'BACKEND_ERROR');
+  } finally {
+    await sessionOperationService.disposeSession(context.sessionId);
+    sessionRuntimeRegistry.unregister(context.sessionId, handle);
+    restoreChatMode();
+    resetStore();
+  }
+});
+
+test('Stop 触发 Runtime 流关闭时保持 cancelled，不被关闭兜底改成 success', async () => {
+  resetStore();
+  const restoreChatMode = installHttpChatMode();
+  const context = {
+    agentId: 'agent',
+    fab: 'FAB',
+    sessionId: 'stream-stop',
+    threadId: 'thread-stream-stop',
+  };
+  let closeStream!: () => void;
+  let markRunStarted!: () => void;
+  let stopCalls = 0;
+  const runStarted = new Promise<void>((resolve) => { markRunStarted = resolve; });
+  const stream = new Promise<void>((resolve) => { closeStream = resolve; });
+  const handle = {
+    isReady: () => true,
+    respondToHitl: async () => {},
+    run: async () => {
+      markRunStarted();
+      await stream;
+    },
+    stop: async () => {
+      stopCalls += 1;
+      closeStream();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+  };
+  try {
+    const sending = sessionOperationService.send(context, 'stop me');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    sessionRuntimeRegistry.register(context.sessionId, handle);
+    await runStarted;
+    await Promise.all([
+      sessionOperationService.stop(context.sessionId),
+      sessionOperationService.stop(context.sessionId),
+    ]);
+    await sending;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const runId = useSessionOperationStore.getState().activeRunBySession[context.sessionId];
+    assert.equal(useSessionOperationStore.getState().operationsById[runId!]?.snapshot.status, 'cancelled');
+    assert.equal(stopCalls, 1);
+  } finally {
+    await sessionOperationService.disposeSession(context.sessionId);
+    sessionRuntimeRegistry.unregister(context.sessionId, handle);
+    restoreChatMode();
+    resetStore();
+  }
+});
+
+test('HITL Runtime 恢复流正常关闭但无终态事件时退出 running', async () => {
+  resetStore();
+  const operation = addOperation('hitl-stream-close', 'run-hitl-stream-close');
+  operation.snapshot.status = 'paused';
+  useSessionOperationStore.getState().updateOperation(operation.runId, {
+    snapshot: operation.snapshot,
+    status: 'paused',
+  });
+  const restoreChatMode = installHttpChatMode();
+  const handle = {
+    isReady: () => true,
+    respondToHitl: async () => {},
+    run: async () => {},
+    stop: async () => {},
+  };
+  sessionRuntimeRegistry.register(operation.sessionId, handle);
+  try {
+    await sessionOperationService.respondToHitl(operation.sessionId, {
+      decision: 'approve',
+      mode: 'approval',
+      requestId: 'approval-stream-close',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(
+      useSessionOperationStore.getState().operationsById[operation.runId]?.snapshot.status,
+      'success',
+    );
+  } finally {
+    await sessionOperationService.disposeSession(operation.sessionId);
+    sessionRuntimeRegistry.unregister(operation.sessionId, handle);
+    restoreChatMode();
+    resetStore();
+  }
+});
+
 test('RUN_FINISHED interrupt 推进 cursor、保留全部审批并进入 paused', async () => {
   resetStore();
   const operation = addOperation('session-hitl-cursor', 'run-hitl-cursor');
@@ -237,15 +426,7 @@ test('HITL 恢复异步失败不得把已停止 run 从 cancelled 复活为 paus
     status: 'paused',
   });
 
-  const originalLocalStorage = globalThis.localStorage;
-  const values = new Map<string, string>([['agentdock-chat-mode', 'http']]);
-  Object.defineProperty(globalThis, 'localStorage', {
-    configurable: true,
-    value: {
-      getItem: (key: string) => values.get(key) ?? null,
-      setItem: (key: string, value: string) => values.set(key, value),
-    } as Storage,
-  });
+  const restoreChatMode = installHttpChatMode();
   let rejectResume!: (reason: Error) => void;
   let markStarted!: () => void;
   const started = new Promise<void>((resolve) => { markStarted = resolve; });
@@ -281,14 +462,7 @@ test('HITL 恢复异步失败不得把已停止 run 从 cancelled 复活为 paus
   } finally {
     sessionRuntimeRegistry.unregister(operation.sessionId, handle);
     cancelPendingCheckpoint(operation.runId);
-    if (originalLocalStorage) {
-      Object.defineProperty(globalThis, 'localStorage', {
-        configurable: true,
-        value: originalLocalStorage,
-      });
-    } else {
-      Reflect.deleteProperty(globalThis, 'localStorage');
-    }
+    restoreChatMode();
     resetStore();
   }
 });

@@ -31,6 +31,8 @@ const renderTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const hotSnapshots = new Map<string, RuntimeRunState>();
 const mockControllers = new Map<string, AbortController>();
+const stopPromises = new Map<string, Promise<void>>();
+const stoppingRuns = new Set<string>();
 
 const isTerminal = (status: RuntimeRunState['status']) =>
   status === 'success' || status === 'error' || status === 'cancelled';
@@ -45,15 +47,29 @@ const toStreamedEvent = (event: AgUiEvent): StreamedEvent => ({
       : undefined,
 });
 
-/** Bind the subscriber input's authoritative route to events that omit it. */
+/**
+ * Bind every subscriber event to the run that produced the callback. Some upstream agents
+ * emit their own run/thread identifiers; CopilotKit's subscriber input is authoritative for
+ * the client operation, so source identifiers must never override it and strand the UI busy.
+ */
 export const bindEventToRun = (
   event: AgUiEvent,
   input: Pick<RunAgentInput, 'runId' | 'threadId'>,
-): AgUiEvent => ({
-  ...event,
-  runId: typeof event.runId === 'string' ? event.runId : input.runId,
-  threadId: typeof event.threadId === 'string' ? event.threadId : input.threadId,
-});
+): AgUiEvent => {
+  if (
+    (typeof event.runId === 'string' && event.runId !== input.runId) ||
+    (typeof event.threadId === 'string' && event.threadId !== input.threadId)
+  ) {
+    console.warn('[AgentDock] upstream event route normalized to subscriber input', {
+      inputRunId: input.runId,
+      inputThreadId: input.threadId,
+      sourceRunId: event.runId,
+      sourceThreadId: event.threadId,
+      type: event.type,
+    });
+  }
+  return { ...event, runId: input.runId, threadId: input.threadId };
+};
 
 const getOperation = (sessionId: string): SessionOperation | undefined => {
   const state = useSessionOperationStore.getState();
@@ -252,6 +268,32 @@ const applySyntheticError = (
   );
 };
 
+/**
+ * CopilotKit resolves runAgent() when the transport lifecycle closes. Normally RUN_FINISHED
+ * already made the snapshot terminal; this fallback only closes the same still-running run.
+ * It deliberately leaves paused HITL, errors, cancellations, disposed runs, and newer runs alone.
+ */
+const finalizeOperationAfterStreamClosed = (operation: SessionOperation) => {
+  const current = getOperation(operation.sessionId);
+  const snapshot = hotSnapshots.get(operation.runId);
+  if (
+    current?.runId !== operation.runId ||
+    !snapshot ||
+    stoppingRuns.has(operation.runId) ||
+    snapshot.status !== 'running'
+  ) return;
+  applyStreamedEvent(
+    { sessionId: operation.sessionId, threadId: operation.threadId },
+    {
+      event: {
+        runId: operation.runId,
+        threadId: operation.threadId,
+        type: 'RUN_FINISHED',
+      },
+    },
+  );
+};
+
 const executeMock = async (operation: SessionOperation) => {
   const controller = new AbortController();
   mockControllers.set(operation.runId, controller);
@@ -276,11 +318,13 @@ const dispatchOperation = async (operation: SessionOperation) => {
     const runtime = await sessionRuntimeRegistry.whenReady(operation.sessionId);
     useSessionOperationStore.getState().updateOperation(operation.runId, { status: 'running' });
     await runtime.run(operation.input);
+    finalizeOperationAfterStreamClosed(operation);
     return;
   }
   useSessionOperationStore.getState().markRuntimeReady(operation.sessionId);
   useSessionOperationStore.getState().updateOperation(operation.runId, { status: 'running' });
   await executeMock(operation);
+  finalizeOperationAfterStreamClosed(operation);
 };
 
 const startOperation = (
@@ -428,6 +472,7 @@ export const sessionOperationService = {
           isTerminal(snapshotAfterReady.status)
         ) return;
         await runtime.respondToHitl(resumedInput, response, operation.legacyInterruptId);
+        finalizeOperationAfterStreamClosed(operation);
         return;
       }
       const resumed: SessionOperation = {
@@ -437,6 +482,7 @@ export const sessionOperationService = {
         status: 'running',
       };
       await executeMock(resumed);
+      finalizeOperationAfterStreamClosed(resumed);
     } catch (error) {
       const current = getOperation(sessionId);
       const latest = hotSnapshots.get(operation.runId);
@@ -611,21 +657,36 @@ export const sessionOperationService = {
   async stop(sessionId: string) {
     const operation = getOperation(sessionId);
     if (!operation || !isOperationBusy(operation)) return;
-    try {
-      if (getChatServiceMode() === 'http') {
-        const runtime = sessionRuntimeRegistry.get(sessionId);
-        if (runtime?.isReady()) {
-          await runtime.stop();
+    const existingStop = stopPromises.get(operation.runId);
+    if (existingStop) {
+      await existingStop;
+      return;
+    }
+    stoppingRuns.add(operation.runId);
+    const stopPromise = (async () => {
+      try {
+        if (getChatServiceMode() === 'http') {
+          const runtime = sessionRuntimeRegistry.get(sessionId);
+          if (runtime?.isReady()) {
+            await runtime.stop();
+          } else {
+            // 启动阶段没有可停止的远端 handle：直接终止 whenReady 等待，避免停止/删除卡 15 秒。
+            sessionRuntimeRegistry.reset(sessionId, 'Run stopped before runtime became ready.');
+          }
         } else {
-          // 启动阶段没有可停止的远端 handle：直接终止 whenReady 等待，避免停止/删除卡 15 秒。
-          sessionRuntimeRegistry.reset(sessionId, 'Run stopped before runtime became ready.');
+          mockControllers.get(operation.runId)?.abort();
         }
-      } else {
-        mockControllers.get(operation.runId)?.abort();
+      } finally {
+        cancelPendingCheckpoint(operation.runId);
+        applySyntheticError(operation, new Error('Run cancelled by user.'), 'CANCELLED');
       }
+    })();
+    stopPromises.set(operation.runId, stopPromise);
+    try {
+      await stopPromise;
     } finally {
-      cancelPendingCheckpoint(operation.runId);
-      applySyntheticError(operation, new Error('Run cancelled by user.'), 'CANCELLED');
+      if (stopPromises.get(operation.runId) === stopPromise) stopPromises.delete(operation.runId);
+      stoppingRuns.delete(operation.runId);
     }
   },
 };
