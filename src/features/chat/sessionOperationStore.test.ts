@@ -91,7 +91,7 @@ test('独立订阅按捕获的 sessionId 路由：A 事件不会更新 B', async
     { sessionId: 'session-A', threadId: 'thread-session-A' },
     {
       messageId: 'assistant-A',
-      rawEvent: { eventId: 'event-A-1' },
+      eventId: 'event-A-1',
       role: 'assistant',
       type: 'TEXT_MESSAGE_START',
     },
@@ -101,7 +101,7 @@ test('独立订阅按捕获的 sessionId 路由：A 事件不会更新 B', async
     {
       delta: 'A answer',
       messageId: 'assistant-A',
-      rawEvent: { eventId: 'event-A-2' },
+      eventId: 'event-A-2',
       type: 'TEXT_MESSAGE_CONTENT',
     },
   );
@@ -116,7 +116,7 @@ test('独立订阅按捕获的 sessionId 路由：A 事件不会更新 B', async
     {
       delta: 'B answer',
       messageId: 'assistant-B',
-      rawEvent: { eventId: 'event-B-1' },
+      eventId: 'event-B-1',
       type: 'TEXT_MESSAGE_CONTENT',
     },
   );
@@ -128,7 +128,7 @@ test('独立订阅按捕获的 sessionId 路由：A 事件不会更新 B', async
   cancelPendingCheckpoint('run-B');
 });
 
-test('顶层 eventId 也用于事件去重与断点游标', async () => {
+test('顶层 eventId 用于事件去重与断点游标', async () => {
   resetStore();
   const operation = addOperation('session-top-level-cursor', 'run-top-level-cursor');
   const event = {
@@ -163,7 +163,7 @@ test('RUN_STARTED 携带其他 active runId 时拒绝跨 Session 写入', () => 
   sessionOperationService.applyEvent(
     { sessionId: 'session-A', threadId: 'thread-session-A' },
     {
-      rawEvent: { eventId: 'mismatch-1' },
+      eventId: 'mismatch-1',
       runId: 'run-B',
       threadId: 'thread-session-B',
       type: 'RUN_STARTED',
@@ -185,7 +185,7 @@ test('同一 Session 的旧 thread 订阅事件不会写入新 operation', () =>
     {
       delta: 'stale answer',
       messageId: 'assistant-stale',
-      rawEvent: { eventId: 'stale-thread-event' },
+      eventId: 'stale-thread-event',
       type: 'TEXT_MESSAGE_CONTENT',
     },
   );
@@ -205,7 +205,7 @@ test('subscriber input 为无 runId 事件绑定旧 run，迟到事件不会污�
     {
       delta: 'late old answer',
       messageId: 'assistant-late',
-      rawEvent: { eventId: 'late-event-1' },
+      eventId: 'late-event-1',
       type: 'TEXT_MESSAGE_CONTENT',
     },
     oldOperation.input,
@@ -232,6 +232,52 @@ test('subscriber input 覆盖上游自定义 run/thread id，终态归属客户�
   );
   assert.equal(bound.runId, 'client-run');
   assert.equal(bound.threadId, 'client-thread');
+});
+
+test('多 Session 分别收到顶层 eventId 终态事件后，各自退出运行态', async () => {
+  resetStore();
+  const operationA = addOperation('terminal-session-A', 'terminal-run-A');
+  const operationB = addOperation('terminal-session-B', 'terminal-run-B');
+  sessionOperationService.setViewingSession(operationB.sessionId);
+
+  sessionOperationService.applyEvent(
+    { sessionId: operationA.sessionId, threadId: operationA.threadId },
+    {
+      eventId: 'terminal-A-1',
+      runId: operationA.runId,
+      threadId: operationA.threadId,
+      type: 'RUN_FINISHED',
+    },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  let state = useSessionOperationStore.getState();
+  assert.equal(state.operationsById[operationA.runId]?.snapshot.status, 'success');
+  assert.equal(state.operationsById[operationA.runId]?.status, 'success');
+  assert.equal(state.operationsById[operationA.runId]?.latestEventId, 'terminal-A-1');
+  assert.equal(state.operationsById[operationB.runId]?.snapshot.status, 'running');
+
+  sessionOperationService.applyEvent(
+    { sessionId: operationB.sessionId, threadId: operationB.threadId },
+    {
+      eventId: 'terminal-B-1',
+      runId: operationB.runId,
+      threadId: operationB.threadId,
+      type: 'RUN_FINISHED',
+    },
+  );
+  sessionOperationService.setViewingSession(operationA.sessionId);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  state = useSessionOperationStore.getState();
+  assert.equal(state.operationsById[operationA.runId]?.snapshot.status, 'success');
+  assert.equal(state.operationsById[operationB.runId]?.snapshot.status, 'success');
+  assert.equal(state.operationsById[operationB.runId]?.status, 'success');
+  assert.equal(state.operationsById[operationB.runId]?.latestEventId, 'terminal-B-1');
+  await Promise.all([
+    sessionOperationService.disposeSession(operationA.sessionId),
+    sessionOperationService.disposeSession(operationB.sessionId),
+  ]);
 });
 
 test('Runtime 流正常关闭但没有 RUN_FINISHED 时，单/多 Session 都会退出 running', async () => {
@@ -434,7 +480,7 @@ test('RUN_FINISHED interrupt 推进 cursor、保留全部审批并进入 paused'
   sessionOperationService.applyRunFinished(
     { sessionId: operation.sessionId, threadId: operation.threadId },
     {
-      rawEvent: { eventId: 'interrupt-event-7' },
+      eventId: 'interrupt-event-7',
       runId: operation.runId,
       threadId: operation.threadId,
       type: 'RUN_FINISHED',
@@ -457,7 +503,7 @@ test('缺少 interrupt payload 的中断按协议错误终止，不永久停在 
   sessionOperationService.applyRunFinished(
     { sessionId: operation.sessionId, threadId: operation.threadId },
     {
-      rawEvent: { eventId: 'interrupt-empty-1' },
+      eventId: 'interrupt-empty-1',
       runId: operation.runId,
       threadId: operation.threadId,
       type: 'RUN_FINISHED',

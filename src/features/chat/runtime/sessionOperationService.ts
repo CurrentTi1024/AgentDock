@@ -41,14 +41,8 @@ const toOperationStatus = (status: RuntimeRunState['status']): OperationStatus =
 
 const toStreamedEvent = (event: AgUiEvent): StreamedEvent => ({
   event,
-  // AG-UI transports commonly preserve custom metadata either on the parsed event or on
-  // rawEvent. Accept both shapes so dedupe/checkpoint cursors survive adapter differences.
-  eventId:
-    typeof event.eventId === 'string'
-      ? event.eventId
-      : typeof event.rawEvent?.eventId === 'string'
-        ? event.rawEvent.eventId
-        : undefined,
+  // 后端契约：eventId 是 AG-UI 事件顶层字段，也是去重与断点续传的唯一游标。
+  eventId: typeof event.eventId === 'string' ? event.eventId : undefined,
 });
 
 /**
@@ -404,7 +398,7 @@ export const sessionOperationService = {
         event: {
           code: 'INTERRUPT_MISSING',
           message: 'Agent reported an interrupt without an interrupt payload.',
-          rawEvent: streamed.eventId ? { eventId: streamed.eventId } : undefined,
+          eventId: streamed.eventId,
           runId: event.runId,
           threadId: event.threadId,
           type: 'RUN_ERROR',
@@ -422,7 +416,7 @@ export const sessionOperationService = {
             requestId: interrupt.id,
           },
           messageId: `hitl-${interrupt.id}`,
-          rawEvent: index === 0 && streamed.eventId ? { eventId: streamed.eventId } : undefined,
+          eventId: index === 0 ? streamed.eventId : undefined,
           runId: event.runId,
           threadId: event.threadId,
           type: 'ACTIVITY_SNAPSHOT',

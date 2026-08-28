@@ -56,7 +56,7 @@ export interface RunAgentInput {
   context: unknown[]; messages: RuntimeMessage[]; parentRunId?: string; runId: string; state: unknown; threadId: string; tools: unknown[];
   forwardedProps: { action: RunAction; agentId?: string; fab: string; sessionId: string; group?: AgentGroupInput; mentionAgents?: MentionAgentRef[]; resume?: { lastEventId: string }; hitlResponse?: { requestId: string; mode: string; decision?: 'approve' | 'reject'; editedArguments?: Record<string, unknown>; input?: string; selectedValues?: string[]; formValues?: Record<string, unknown> }; a2uiAction?: { actionName: string; context?: Record<string, unknown>; sourceComponentId?: string; surfaceId: string } };
 }
-export interface AgUiEvent { type: string; rawEvent?: { runId?: string; eventId?: string }; [key: string]: unknown }
+export interface AgUiEvent { type: string; eventId?: string; rawEvent?: { runId?: string }; [key: string]: unknown }
 export interface StreamedEvent { event: AgUiEvent; eventId?: string }
 export type RunStatus = 'cancelled' | 'error' | 'idle' | 'paused' | 'running' | 'success';
 export type RuntimeBlockKind = 'activity' | 'error' | 'reasoning' | 'step' | 'surface' | 'text' | 'tool';

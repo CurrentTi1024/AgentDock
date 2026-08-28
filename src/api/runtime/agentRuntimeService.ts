@@ -5,7 +5,7 @@ export interface AgentRuntimeService { stream(input: RunAgentInput, options?: Ru
 // Chat 运行时：proxy 走官方 CopilotKit（useOfficialConversation），不经过本服务；
 // 本服务仅供 mock（离线 UI 测试）路径使用。direct（自研 SSE 直连上游）已移除。
 export class CopilotHeadlessMockService implements AgentRuntimeService {
-  async *stream(input: RunAgentInput, options: RuntimeOptions = {}) { for await (const event of createAgentRuntimeMockEvents(input, options.signal)) yield { event, eventId: event.rawEvent?.eventId }; }
+  async *stream(input: RunAgentInput, options: RuntimeOptions = {}) { for await (const event of createAgentRuntimeMockEvents(input, options.signal)) yield { event, eventId: event.eventId }; }
 }
 export const agentRuntimeService: AgentRuntimeService = new CopilotHeadlessMockService();
 export const createRunInput = (input: { agentId?: string; fab: string; group?: RunAgentInput['forwardedProps']['group']; mentionAgents?: MentionAgentRef[]; message: string; parentRunId?: string; sessionId: string; threadId: string }): RunAgentInput => {
