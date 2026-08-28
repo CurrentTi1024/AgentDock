@@ -128,6 +128,33 @@ test('独立订阅按捕获的 sessionId 路由：A 事件不会更新 B', async
   cancelPendingCheckpoint('run-B');
 });
 
+test('顶层 eventId 也用于事件去重与断点游标', async () => {
+  resetStore();
+  const operation = addOperation('session-top-level-cursor', 'run-top-level-cursor');
+  const event = {
+    delta: 'only once',
+    eventId: 'cursor-top-level-1',
+    messageId: 'assistant-top-level-cursor',
+    type: 'TEXT_MESSAGE_CONTENT',
+  };
+
+  sessionOperationService.applyEvent(
+    { sessionId: operation.sessionId, threadId: operation.threadId },
+    event,
+  );
+  sessionOperationService.applyEvent(
+    { sessionId: operation.sessionId, threadId: operation.threadId },
+    event,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  const snapshot = useSessionOperationStore.getState().operationsById[operation.runId].snapshot;
+  assert.equal(snapshot.messages['assistant-top-level-cursor']?.content, 'only once');
+  assert.equal(snapshot.latestEventId, 'cursor-top-level-1');
+  assert.deepEqual(snapshot.processedEventIds, ['cursor-top-level-1']);
+  await sessionOperationService.disposeSession(operation.sessionId);
+});
+
 test('RUN_STARTED 携带其他 active runId 时拒绝跨 Session 写入', () => {
   resetStore();
   addOperation('session-A', 'run-A');
@@ -331,6 +358,36 @@ test('Stop 触发 Runtime 流关闭时保持 cancelled，不被关闭兜底改�
   } finally {
     await sessionOperationService.disposeSession(context.sessionId);
     sessionRuntimeRegistry.unregister(context.sessionId, handle);
+    restoreChatMode();
+    resetStore();
+  }
+});
+
+test('Runtime stop 失败仍安全完成本地取消且不向 UI 抛出 rejection', async () => {
+  resetStore();
+  const restoreChatMode = installHttpChatMode();
+  const operation = addOperation('stop-rejection', 'run-stop-rejection');
+  const handle = {
+    isReady: () => true,
+    respondToHitl: async () => {},
+    run: async () => {},
+    stop: async () => {
+      throw new Error('remote stop unavailable');
+    },
+  };
+  sessionRuntimeRegistry.register(operation.sessionId, handle);
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    await assert.doesNotReject(sessionOperationService.stop(operation.sessionId));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const snapshot = useSessionOperationStore.getState().operationsById[operation.runId]?.snapshot;
+    assert.equal(snapshot?.status, 'cancelled');
+    assert.equal(snapshot?.error?.code, 'CANCELLED');
+  } finally {
+    console.error = originalConsoleError;
+    await sessionOperationService.disposeSession(operation.sessionId);
+    sessionRuntimeRegistry.unregister(operation.sessionId, handle);
     restoreChatMode();
     resetStore();
   }

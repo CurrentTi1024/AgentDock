@@ -41,10 +41,14 @@ const toOperationStatus = (status: RuntimeRunState['status']): OperationStatus =
 
 const toStreamedEvent = (event: AgUiEvent): StreamedEvent => ({
   event,
+  // AG-UI transports commonly preserve custom metadata either on the parsed event or on
+  // rawEvent. Accept both shapes so dedupe/checkpoint cursors survive adapter differences.
   eventId:
-    event && typeof event === 'object' && 'rawEvent' in event
-      ? (event.rawEvent?.eventId)
-      : undefined,
+    typeof event.eventId === 'string'
+      ? event.eventId
+      : typeof event.rawEvent?.eventId === 'string'
+        ? event.rawEvent.eventId
+        : undefined,
 });
 
 /**
@@ -676,6 +680,15 @@ export const sessionOperationService = {
         } else {
           mockControllers.get(operation.runId)?.abort();
         }
+      } catch (error) {
+        // A failed remote cancellation must not leak an unhandled rejection from the UI.
+        // The local operation is still terminalized below; a late backend terminal event is
+        // safely ignored by the reducer once that cancellation has been projected.
+        console.error('[AgentDock] runtime stop failed; cancelling local operation', {
+          error,
+          runId: operation.runId,
+          sessionId,
+        });
       } finally {
         cancelPendingCheckpoint(operation.runId);
         applySyntheticError(operation, new Error('Run cancelled by user.'), 'CANCELLED');
