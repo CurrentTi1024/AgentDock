@@ -60,6 +60,7 @@ export const stripRunErrorText = (content: string, errorMessage?: string): strin
 
 /** 收集一轮 run 的过程块（思考/工具/步骤），完成后折叠为 ProcessFold 汇总行。 */
 const createProcessCollector = (streaming: boolean) => {
+  let flushIndex = 0;
   const state = {
     finishedAt: undefined as number | undefined,
     hasReasoning: false,
@@ -88,10 +89,12 @@ const createProcessCollector = (streaming: boolean) => {
       // 只有真实步骤/工具（stepCount>0）才汇总为折叠，
       // 避免 narration/HITL 等 0 步过程渲染出「已处理 0 步 · –」的空折叠卡。
       if (state.stepCount > 0) {
+        const processKey = `process-${state.startedAt ?? 'untimed'}-${flushIndex}`;
+        flushIndex += 1;
         target.push(
           <ProcessFold
             durationText={formatProcessDuration(state.startedAt, state.finishedAt)}
-            key={`process-${state.startedAt ?? state.nodes.length}`}
+            key={processKey}
             stepCount={state.stepCount}
             streaming={streaming}
           >
@@ -469,6 +472,7 @@ export const renderStoredBlocks = (
       // 不以 agentDock.* 为前提，真实后端的自定义 activityType 也必须可见。
       process.state.nodes.push(<ActivityBlock activity={payload} key={record.id} />);
       process.state.hasWork = true;
+      process.state.stepCount += 1;
       continue;
     } else if (record.kind === 'surface') {
       flushSteps();
@@ -588,6 +592,7 @@ export const renderRunBlocks = (
         );
       } else {
         process.state.nodes.push(<ActivityBlock activity={value} key={`fallback-activity-${id}`} />);
+        process.state.stepCount += 1;
       }
       process.state.hasWork = true;
     }
@@ -716,6 +721,7 @@ export const renderRunBlocks = (
           // 所有普通 AG-UI Activity（包括非 agentDock.* 自定义类型）都作为任务卡并入折叠。
           process.state.nodes.push(<ActivityBlock activity={value} key={`activity-${ref.id}`} />);
           process.state.hasWork = true;
+          process.state.stepCount += 1;
         }
       } else if (ref.kind === 'surface') {
         flushSteps();

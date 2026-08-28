@@ -412,7 +412,14 @@ test('standalone ACTIVITY_DELTA preserves top-level activityType for task-card r
     eventId: 'activity-delta-1',
     event: {
       activityType: 'company.longRunningTask',
-      delta: { description: '正在查询业务数据', status: 'running' },
+      patch: [
+        { op: 'add', path: '/description', value: '正在查询业务数据' },
+        { op: 'add', path: '/progress', value: { current: 1, labels: ['查询'] } },
+        { op: 'replace', path: '/progress/current', value: 2 },
+        { op: 'add', path: '/progress/labels/-', value: '分析' },
+        { op: 'add', path: '/status', value: 'running' },
+        { op: 'add', path: '/__proto__/polluted', value: true },
+      ],
       messageId: 'company-task-1',
       type: 'ACTIVITY_DELTA',
     },
@@ -422,8 +429,10 @@ test('standalone ACTIVITY_DELTA preserves top-level activityType for task-card r
     activityType: 'company.longRunningTask',
     description: '正在查询业务数据',
     messageId: 'company-task-1',
+    progress: { current: 2, labels: ['查询', '分析'] },
     status: 'running',
   });
+  assert.equal(({} as { polluted?: boolean }).polluted, undefined);
   assert.deepEqual(state.orderedBlocks, [{ id: 'company-task-1', kind: 'activity' }]);
 });
 

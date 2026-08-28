@@ -60,6 +60,83 @@ const AGENT_DOCK_ACTIVITY_TYPES = new Set([
 /** MESSAGES_SNAPSHOT 中的 LobeHub 任务类角色 → 对应 activityType。 */
 const taskRoleToActivityType = (role: string): string | undefined =>
   LOBE_TASK_ROLES.includes(role as (typeof LOBE_TASK_ROLES)[number]) ? `agentDock.${role}` : undefined;
+const UNSAFE_JSON_POINTER_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const decodeJsonPointer = (path: string): string[] | undefined => {
+  if (path === '') return [];
+  if (!path.startsWith('/')) return undefined;
+  const segments = path
+    .slice(1)
+    .split('/')
+    .map((segment) => segment.replace(/~1/g, '/').replace(/~0/g, '~'));
+  return segments.some((segment) => UNSAFE_JSON_POINTER_KEYS.has(segment)) ? undefined : segments;
+};
+/** AG-UI ACTIVITY_DELTA.patch 是 RFC 6902 数组。只应用后端实际生成的 add/replace/remove，
+ *  非法路径与原型链键直接忽略，避免损坏投影或引入 prototype pollution。 */
+const applyActivityPatch = (
+  current: Record<string, unknown>,
+  patch: unknown,
+): Record<string, unknown> => {
+  // 兼容早期 mock 的对象 delta；正式 AG-UI 路径始终是 patch 数组。
+  if (!Array.isArray(patch)) {
+    return patch && typeof patch === 'object'
+      ? { ...current, ...(patch as Record<string, unknown>) }
+      : current;
+  }
+  let document: unknown = structuredClone(current);
+  for (const candidate of patch) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const operation = candidate as { op?: unknown; path?: unknown; value?: unknown };
+    if (
+      (operation.op !== 'add' && operation.op !== 'replace' && operation.op !== 'remove') ||
+      typeof operation.path !== 'string'
+    ) continue;
+    const segments = decodeJsonPointer(operation.path);
+    if (!segments) continue;
+    if (segments.length === 0) {
+      if (operation.op === 'remove') document = {};
+      else if (operation.value && typeof operation.value === 'object' && !Array.isArray(operation.value)) {
+        document = structuredClone(operation.value);
+      }
+      continue;
+    }
+    let parent = document;
+    for (const segment of segments.slice(0, -1)) {
+      if (Array.isArray(parent)) {
+        const index = Number(segment);
+        parent = Number.isInteger(index) && index >= 0 ? parent[index] : undefined;
+      } else if (parent && typeof parent === 'object') {
+        parent = (parent as Record<string, unknown>)[segment];
+      } else {
+        parent = undefined;
+      }
+      if (!parent || typeof parent !== 'object') break;
+    }
+    if (!parent || typeof parent !== 'object') continue;
+    const key = segments.at(-1)!;
+    if (Array.isArray(parent)) {
+      if (operation.op === 'add' && key === '-') {
+        parent.push(structuredClone(operation.value));
+        continue;
+      }
+      const index = Number(key);
+      if (!Number.isInteger(index) || index < 0) continue;
+      if (operation.op === 'add' && index <= parent.length) {
+        parent.splice(index, 0, structuredClone(operation.value));
+      } else if (operation.op === 'replace' && index < parent.length) {
+        parent[index] = structuredClone(operation.value);
+      } else if (operation.op === 'remove' && index < parent.length) {
+        parent.splice(index, 1);
+      }
+    } else if (operation.op === 'remove') {
+      delete (parent as Record<string, unknown>)[key];
+    } else {
+      (parent as Record<string, unknown>)[key] = structuredClone(operation.value);
+    }
+  }
+  return document && typeof document === 'object' && !Array.isArray(document)
+    ? document as Record<string, unknown>
+    : current;
+};
 /** 终态兜底：无论后端是否发送 REASONING_END，都收尾所有推理块的 streaming 状态，
  *  保证 run 完成后 thinking 必定折叠（ReasoningBlock 的 open 跟随 streaming）。 */
 export const finalizeReasoningMeta = (state: RuntimeRunState): RuntimeRunState => {
@@ -262,17 +339,9 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
     }
     case 'ACTIVITY_DELTA': {
       const current = (next.activities[id] as Record<string, unknown> | undefined) ?? {};
-      const delta = (
-        event.patch && typeof event.patch === 'object'
-          ? event.patch
-          : event.delta && typeof event.delta === 'object'
-            ? event.delta
-            : {}
-      ) as Record<string, unknown>;
       const activityType = String(event.activityType || current.activityType || '');
       next.activities[id] = {
-        ...current,
-        ...delta,
+        ...applyActivityPatch(current, event.patch ?? event.delta),
         ...(activityType ? { activityType } : {}),
         messageId: id,
       };
