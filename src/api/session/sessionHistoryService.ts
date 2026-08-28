@@ -160,6 +160,7 @@ const BLOCKED_WARN_MS = 3000;
 const sessionSyncChannel = typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined'
   ? new BroadcastChannel('agentdock:session-sync')
   : undefined;
+const sessionDeletionListeners = new Set<(ids: string[]) => void>();
 const notifySessionsChanged = () => {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent('agentdock:sessions-changed'));
@@ -169,6 +170,18 @@ const notifyRunPersisted = (detail: { runId: string; sessionId: string; status: 
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent('agentdock:run-persisted', { detail }));
   sessionSyncChannel?.postMessage({ detail, type: 'run-persisted' });
+};
+/** 删除落库前通知所有标签页停止对应 Runtime；持久化层另有 orphan guard 兜底。 */
+export const notifySessionsDeleting = (ids: string[]) => {
+  if (ids.length === 0) return;
+  for (const listener of sessionDeletionListeners) {
+    try {
+      listener(ids);
+    } catch (error) {
+      console.error('[AgentDock] session deletion listener failed', { error, ids });
+    }
+  }
+  sessionSyncChannel?.postMessage({ ids, type: 'sessions-deleting' });
 };
 /** 落库失败（QuotaExceededError 等）时通知 UI 引导清理。 */
 const notifyStorageError = (message: string) => {
@@ -195,6 +208,22 @@ export const subscribeSessionChanges = (callback: () => void): (() => void) => {
       window.removeEventListener('agentdock:sessions-changed', onWindow);
       window.removeEventListener('agentdock:run-persisted', onWindow);
     }
+    sessionSyncChannel?.removeEventListener('message', onChannel);
+  };
+};
+export const subscribeSessionDeletions = (callback: (ids: string[]) => void): (() => void) => {
+  sessionDeletionListeners.add(callback);
+  const onChannel = (event: MessageEvent) => {
+    const payload = event.data as { ids?: unknown; type?: string } | undefined;
+    if (
+      payload?.type === 'sessions-deleting' &&
+      Array.isArray(payload.ids) &&
+      payload.ids.every((id) => typeof id === 'string')
+    ) callback(payload.ids);
+  };
+  sessionSyncChannel?.addEventListener('message', onChannel);
+  return () => {
+    sessionDeletionListeners.delete(callback);
     sessionSyncChannel?.removeEventListener('message', onChannel);
   };
 };
@@ -290,6 +319,7 @@ export const sessionHistoryService = {
   async searchSessions(keyword: string) { const sessions = await this.listSessions(); const query = keyword.toLowerCase(); return sessions.filter((session) => `${session.title}${session.agentName || ''}`.toLowerCase().includes(query)); },
   async updateSession(id: string, value: Partial<SessionRecord>) { await db.sessions.update(id, { ...value, updatedAt: new Date().toISOString() }); notifySessionsChanged(); return db.sessions.get(id); },
   async removeSession(id: string) {
+    notifySessionsDeleting([id]);
     await guardWrite('removeSession', db.transaction('rw', db.sessions, db.sessionMessages, db.checkpoints, async () => {
       await db.sessions.delete(id);
       await db.sessionMessages.where('sessionId').equals(id).delete();
@@ -362,6 +392,16 @@ export const sessionHistoryService = {
     await this._writeCheckpoint(sessionId, input, snapshot);
   },
   async _writeCheckpoint(sessionId: string, input: RunAgentInput, snapshot: RuntimeRunState) {
+    const discardOrphans = async () => {
+      await Promise.all([
+        db.checkpoints.where('sessionId').equals(sessionId).delete(),
+        db.sessionMessages.where('sessionId').equals(sessionId).delete(),
+      ]);
+    };
+    if (!(await db.sessions.get(sessionId))) {
+      await discardOrphans();
+      return;
+    }
     const updatedAt = new Date().toISOString();
     const isRecoverable = snapshot.status === 'running' || snapshot.status === 'paused';
     if (isRecoverable) {
@@ -393,7 +433,11 @@ export const sessionHistoryService = {
     // - 刷新/断线时 DB 里始终有该消息（部分内容可恢复）；
     // - 文本行保持“先于其过程块”的顺序（空占位也占据文本位置），历史按轮次不可变。
     await this.persistRunSnapshot(sessionId, snapshot);
-    await db.sessions.update(sessionId, { updatedAt });
+    const updated = await db.sessions.update(sessionId, { updatedAt });
+    if (updated === 0) {
+      await discardOrphans();
+      return;
+    }
     notifySessionsChanged();
     // 落库完成后广播，供对话页确定性刷新历史（避免与异步落库竞态）。
     notifyRunPersisted({ runId: snapshot.runId, sessionId, status: snapshot.status });

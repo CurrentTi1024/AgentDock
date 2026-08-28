@@ -5,7 +5,7 @@ import { Fragment, useEffect, useMemo, useRef } from 'react';
 import type { AgUiEvent, RunAgentInput } from '@/api/runtime/types';
 import { useSessionOperationStore } from '@/stores/sessionOperationStore';
 
-import { sessionOperationService } from './sessionOperationService';
+import { bindEventToRun, sessionOperationService } from './sessionOperationService';
 import { sessionRuntimeRegistry } from './sessionRuntimeRegistry';
 import type {
   HitlResponse,
@@ -26,36 +26,38 @@ const SessionRuntimeWorker = ({ descriptor }: { descriptor: SessionRuntimeDescri
 
   useEffect(() => {
     if (!isReady) return;
-    const emit = (event: AgUiEvent) => sessionOperationService.applyEvent(route, event);
+    const emit = (event: AgUiEvent, input: Pick<RunAgentInput, 'runId' | 'threadId'>) =>
+      sessionOperationService.applyEvent(route, bindEventToRun(event, input));
     const subscription = agent.subscribe({
-      onActivityDeltaEvent: ({ event }) => emit(event),
-      onActivitySnapshotEvent: ({ event }) => emit(event),
-      onCustomEvent: ({ event }) => sessionOperationService.applyCustomEvent(route, event),
-      onMessagesSnapshotEvent: ({ event }) => emit(event),
-      onRawEvent: ({ event }) => emit(event),
-      onReasoningMessageContentEvent: ({ event }) => emit(event),
-      onReasoningMessageEndEvent: ({ event }) => emit(event),
-      onReasoningMessageStartEvent: ({ event }) => emit(event),
-      onRunErrorEvent: ({ event }) => emit(event),
+      onActivityDeltaEvent: ({ event, input }) => emit(event, input),
+      onActivitySnapshotEvent: ({ event, input }) => emit(event, input),
+      onCustomEvent: ({ event, input }) =>
+        sessionOperationService.applyCustomEvent(route, bindEventToRun(event, input)),
+      onMessagesSnapshotEvent: ({ event, input }) => emit(event, input),
+      onRawEvent: ({ event, input }) => emit(event, input),
+      onReasoningMessageContentEvent: ({ event, input }) => emit(event, input),
+      onReasoningMessageEndEvent: ({ event, input }) => emit(event, input),
+      onReasoningMessageStartEvent: ({ event, input }) => emit(event, input),
+      onRunErrorEvent: ({ event, input }) => emit(event, input),
       onRunFinishedEvent: (params) =>
         sessionOperationService.applyRunFinished(
           route,
-          params.event,
+          bindEventToRun(params.event, params.input),
           params.outcome,
           params.outcome === 'interrupt' ? params.interrupts : undefined,
         ),
-      onRunStartedEvent: ({ event }) => emit(event),
-      onStateDeltaEvent: ({ event }) => emit(event),
-      onStateSnapshotEvent: ({ event }) => emit(event),
-      onStepFinishedEvent: ({ event }) => emit(event),
-      onStepStartedEvent: ({ event }) => emit(event),
-      onTextMessageContentEvent: ({ event }) => emit(event),
-      onTextMessageEndEvent: ({ event }) => emit(event),
-      onTextMessageStartEvent: ({ event }) => emit(event),
-      onToolCallArgsEvent: ({ event }) => emit(event),
-      onToolCallEndEvent: ({ event }) => emit(event),
-      onToolCallResultEvent: ({ event }) => emit(event),
-      onToolCallStartEvent: ({ event }) => emit(event),
+      onRunStartedEvent: ({ event, input }) => emit(event, input),
+      onStateDeltaEvent: ({ event, input }) => emit(event, input),
+      onStateSnapshotEvent: ({ event, input }) => emit(event, input),
+      onStepFinishedEvent: ({ event, input }) => emit(event, input),
+      onStepStartedEvent: ({ event, input }) => emit(event, input),
+      onTextMessageContentEvent: ({ event, input }) => emit(event, input),
+      onTextMessageEndEvent: ({ event, input }) => emit(event, input),
+      onTextMessageStartEvent: ({ event, input }) => emit(event, input),
+      onToolCallArgsEvent: ({ event, input }) => emit(event, input),
+      onToolCallEndEvent: ({ event, input }) => emit(event, input),
+      onToolCallResultEvent: ({ event, input }) => emit(event, input),
+      onToolCallStartEvent: ({ event, input }) => emit(event, input),
     });
     return () => subscription.unsubscribe();
   }, [agent, isReady, route]);

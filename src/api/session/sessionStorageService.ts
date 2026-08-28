@@ -1,5 +1,6 @@
 import {
   notifySessionsChanged,
+  notifySessionsDeleting,
   sessionDatabase,
   type RunCheckpointRecord,
   type SessionMessageRecord,
@@ -240,6 +241,7 @@ export const exportSessionFile = (file: SessionExportFile, filename = defaultExp
 /** 级联删除会话（sessions + messages + checkpoints），完成后广播变更（含跨标签页）。 */
 export const deleteSessions = async (ids: string[]): Promise<number> => {
   if (ids.length === 0) return 0;
+  notifySessionsDeleting(ids);
   await sessionDatabase.transaction(
     'rw',
     [sessionDatabase.sessions, sessionDatabase.sessionMessages, sessionDatabase.checkpoints],

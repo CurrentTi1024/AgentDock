@@ -7,8 +7,10 @@ import { createRunState } from '../runtime/runReducer.ts';
 import type { RunAgentInput } from '../runtime/types.ts';
 import {
   flushRunCheckpoint,
+  notifySessionsDeleting,
   sessionDatabase,
   sessionHistoryService,
+  subscribeSessionDeletions,
 } from './sessionHistoryService.ts';
 import {
   buildSessionExport,
@@ -146,6 +148,40 @@ test('deleteSessions：会话/消息/检查点级联删除', async () => {
   assert.equal(await sessionDatabase.sessions.get(sessionId), undefined);
   assert.equal(await sessionDatabase.sessionMessages.where('sessionId').equals(sessionId).count(), 0);
   assert.equal(await sessionDatabase.checkpoints.where('sessionId').equals(sessionId).count(), 0);
+});
+
+test('删除前通知携带精确 Session ids，运行时可在落库前处置', () => {
+  const calls: string[][] = [];
+  const unsubscribe = subscribeSessionDeletions((ids) => calls.push(ids));
+  try {
+    notifySessionsDeleting(['session-a', 'session-b']);
+    assert.deepEqual(calls, [['session-a', 'session-b']]);
+  } finally {
+    unsubscribe();
+  }
+});
+
+test('Session 已删除时 checkpoint 写入不会重建孤儿消息或检查点', async () => {
+  const sessionId = 'deleted-session-write-guard';
+  const runId = 'deleted-run-write-guard';
+  const input: RunAgentInput = {
+    context: [],
+    forwardedProps: { action: 'run', fab: 'F15B', sessionId },
+    messages: [],
+    runId,
+    state: {},
+    threadId: `thread-${sessionId}`,
+    tools: [],
+  };
+  const snapshot = createRunState(runId, input.threadId);
+  snapshot.status = 'running';
+  snapshot.messages.answer = { content: 'orphan', id: 'answer', role: 'assistant', runId };
+  snapshot.messageOrder.push('answer');
+
+  await sessionHistoryService.saveRunCheckpoint(sessionId, input, snapshot);
+
+  assert.equal(await sessionDatabase.checkpoints.where('sessionId').equals(sessionId).count(), 0);
+  assert.equal(await sessionDatabase.sessionMessages.where('sessionId').equals(sessionId).count(), 0);
 });
 
 test('exportAndDeleteSessions：先导出后删除，返回导出/删除数量', async () => {

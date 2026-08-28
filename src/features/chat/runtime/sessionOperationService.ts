@@ -45,6 +45,16 @@ const toStreamedEvent = (event: AgUiEvent): StreamedEvent => ({
       : undefined,
 });
 
+/** Bind the subscriber input's authoritative route to events that omit it. */
+export const bindEventToRun = (
+  event: AgUiEvent,
+  input: Pick<RunAgentInput, 'runId' | 'threadId'>,
+): AgUiEvent => ({
+  ...event,
+  runId: typeof event.runId === 'string' ? event.runId : input.runId,
+  threadId: typeof event.threadId === 'string' ? event.threadId : input.threadId,
+});
+
 const getOperation = (sessionId: string): SessionOperation | undefined => {
   const state = useSessionOperationStore.getState();
   const runId = state.activeRunBySession[sessionId];
@@ -340,7 +350,22 @@ export const sessionOperationService = {
       applyStreamedEvent(route, toStreamedEvent(event));
       return;
     }
-    for (const interrupt of interrupts) {
+    const streamed = toStreamedEvent(event);
+    if (interrupts.length === 0) {
+      applyStreamedEvent(route, {
+        event: {
+          code: 'INTERRUPT_MISSING',
+          message: 'Agent reported an interrupt without an interrupt payload.',
+          rawEvent: streamed.eventId ? { eventId: streamed.eventId } : undefined,
+          runId: event.runId,
+          threadId: event.threadId,
+          type: 'RUN_ERROR',
+        },
+        eventId: streamed.eventId,
+      });
+      return;
+    }
+    for (const [index, interrupt] of interrupts.entries()) {
       applyStreamedEvent(route, {
         event: {
           activityType: 'agentDock.hitl',
@@ -349,8 +374,12 @@ export const sessionOperationService = {
             requestId: interrupt.id,
           },
           messageId: `hitl-${interrupt.id}`,
+          rawEvent: index === 0 && streamed.eventId ? { eventId: streamed.eventId } : undefined,
+          runId: event.runId,
+          threadId: event.threadId,
           type: 'ACTIVITY_SNAPSHOT',
         },
+        eventId: index === 0 ? streamed.eventId : undefined,
       });
     }
   },
@@ -382,8 +411,22 @@ export const sessionOperationService = {
       // 先把“审批已提交、正在恢复”写入 checkpoint，关闭点击后到首个新事件之间的刷新窗口。
       scheduleRunCheckpoint(operation.sessionId, resumedInput, running);
       await flushRunCheckpoint(operation.runId);
+      const currentBeforeDispatch = getOperation(sessionId);
+      const currentSnapshot = hotSnapshots.get(operation.runId);
+      if (
+        currentBeforeDispatch?.runId !== operation.runId ||
+        !currentSnapshot ||
+        isTerminal(currentSnapshot.status)
+      ) return;
       if (getChatServiceMode() === 'http') {
         const runtime = await sessionRuntimeRegistry.whenReady(sessionId);
+        const currentAfterReady = getOperation(sessionId);
+        const snapshotAfterReady = hotSnapshots.get(operation.runId);
+        if (
+          currentAfterReady?.runId !== operation.runId ||
+          !snapshotAfterReady ||
+          isTerminal(snapshotAfterReady.status)
+        ) return;
         await runtime.respondToHitl(resumedInput, response, operation.legacyInterruptId);
         return;
       }
@@ -395,8 +438,18 @@ export const sessionOperationService = {
       };
       await executeMock(resumed);
     } catch (error) {
+      const current = getOperation(sessionId);
+      const latest = hotSnapshots.get(operation.runId);
+      if (current?.runId !== operation.runId || !latest || isTerminal(latest.status)) {
+        console.error('[AgentDock] stale HITL resume failed after operation ended', {
+          error,
+          runId: operation.runId,
+          sessionId,
+        });
+        return;
+      }
       // 恢复请求失败时仍然允许用户重试，不能永久卡在 running 且失去审批按钮。
-      const paused = { ...snapshot, status: 'paused' as const };
+      const paused = { ...latest, status: 'paused' as const };
       hotSnapshots.set(operation.runId, paused);
       useSessionOperationStore.getState().updateOperation(operation.runId, {
         input: operation.input,

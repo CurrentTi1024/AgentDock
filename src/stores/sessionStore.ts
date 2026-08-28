@@ -5,6 +5,7 @@ import { create } from 'zustand';
 import {
   sessionHistoryService,
   subscribeSessionChanges,
+  subscribeSessionDeletions,
   type SessionRecord,
 } from '@/api/session/sessionHistoryService';
 import {
@@ -133,6 +134,11 @@ if (typeof window !== 'undefined') {
     const store = useSessionStore.getState();
     void store.refreshSessions();
     void store.refreshStorageUsage();
+  });
+  subscribeSessionDeletions((ids) => {
+    void Promise.all(ids.map((id) => sessionOperationService.disposeSession(id))).catch((error) => {
+      console.error('[AgentDock] failed to dispose sessions deleted in another tab', { error, ids });
+    });
   });
   const onFocus = () => {
     void useSessionStore.getState().refreshStorageUsage();
