@@ -133,6 +133,95 @@ test('drops CopilotKit internal duplicate message ids from MESSAGES_SNAPSHOT', (
   assert.equal(state.messages['lc_run--01a01afa-5bd9'], undefined);
 });
 
+test('MESSAGES_SNAPSHOT live 投影只保留最近 200 条可见消息', () => {
+  const state = reduceRunEvent(createRunState('run-bounded-snapshot', 'thread-bounded'), {
+    eventId: 'snapshot-bounded-1',
+    event: {
+      messages: [
+        { content: 'hidden', id: 'system-hidden', role: 'system' },
+        ...Array.from({ length: 250 }, (_, index) => ({
+          content: `message-${index}`,
+          id: `message-${index}`,
+          role: index % 2 === 0 ? 'user' : 'assistant',
+        })),
+      ],
+      type: 'MESSAGES_SNAPSHOT',
+    },
+  });
+
+  assert.equal(state.messageOrder.length, 200);
+  assert.equal(Object.keys(state.messages).length, 200);
+  assert.equal(state.messageOrder[0], 'message-50');
+  assert.equal(state.messageOrder.at(-1), 'message-249');
+  assert.equal(state.messages['system-hidden'], undefined);
+});
+
+test('连续 MESSAGES_SNAPSHOT 会淘汰旧快照项而不是跨事件无限累积', () => {
+  let state = createRunState('run-repeated-snapshot', 'thread-repeated');
+  state = reduceRunEvent(state, {
+    eventId: 'repeated-1',
+    event: {
+      messages: Array.from({ length: 200 }, (_, index) => ({
+        content: `old-${index}`,
+        id: `old-${index}`,
+        role: index === 0 ? 'tasks' : index % 2 === 0 ? 'user' : 'assistant',
+      })),
+      type: 'MESSAGES_SNAPSHOT',
+    },
+  });
+  state.messages['local-current-user'] = {
+    content: 'current question',
+    id: 'local-current-user',
+    role: 'user',
+  };
+  state.messageOrder.push('local-current-user');
+  state = reduceRunEvent(state, {
+    eventId: 'repeated-2',
+    event: {
+      messages: Array.from({ length: 200 }, (_, index) => ({
+        content: `new-${index}`,
+        id: `new-${index}`,
+        role: index % 2 === 0 ? 'user' : 'assistant',
+      })),
+      type: 'MESSAGES_SNAPSHOT',
+    },
+  });
+
+  assert.equal(state.messageOrder.length, 201);
+  assert.equal(Object.keys(state.messages).length, 201);
+  assert.equal(state.messages['old-199'], undefined);
+  assert.equal(state.messages['local-current-user']?.content, 'current question');
+  assert.equal(state.activities['old-0'], undefined);
+  assert.equal(state.orderedBlocks.some((block) => block.id === 'old-0'), false);
+  assert.equal(state.messages['new-199']?.content, 'new-199');
+});
+
+test('rawEvents 仅保留小型诊断元数据，不复制大 payload 或 AG-UI state', () => {
+  const huge = 'x'.repeat(100_000);
+  let state = reduceRunEvent(createRunState('run-compact-raw', 'thread-compact-raw'), {
+    eventId: 'compact-raw-1',
+    event: {
+      messageId: 'assistant-compact-raw',
+      messages: [{ content: huge, id: 'large-message', role: 'assistant' }],
+      snapshot: { huge },
+      type: 'MESSAGES_SNAPSHOT',
+    },
+  });
+  state = reduceRunEvent(state, {
+    eventId: 'compact-raw-2',
+    event: { snapshot: { huge }, type: 'STATE_SNAPSHOT' },
+  });
+
+  assert.deepEqual(state.rawEvents[0], {
+    eventId: 'compact-raw-1',
+    messageCount: 1,
+    messageId: 'assistant-compact-raw',
+    type: 'MESSAGES_SNAPSHOT',
+  });
+  assert.equal(JSON.stringify(state.rawEvents).length < 500, true);
+  assert.equal(state.state, undefined);
+});
+
 test('快照先于流式完成到达：规范 UUID 按角色替换部分内容占位，不产生双气泡', () => {
   let state = createRunState('run-snap-3', 'thread-snap-3');
   // 流式阶段只输出了一部分（“我”），快照携带规范 UUID + 完整内容

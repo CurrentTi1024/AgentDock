@@ -228,7 +228,7 @@ AgentDock 首期使用“一个活跃 Session 一个独立 Agent/SSE 订阅”�
 - 后续普通事件通过创建订阅时捕获的 `sessionId` 写入对应 Operation；禁止按当前页面 active Session 路由。
 - 同一 Session 首期至多一个普通 active Run，因此无 `runId` 的内容事件可以安全归属该 Session 当前 Run。
 - 如果后续改为多个 Run 共用一条连接，则每个 event envelope 必须增加 `runId/operationId`，本条独立订阅规则不再适用。
-- 每个业务事件仍必须提供 `rawEvent.eventId`，用于客户端去重和未来续传。
+- 每个需要精确去重或断点续传的业务事件必须提供顶层 `eventId`；客户端不读取 `rawEvent.eventId`。
 
 未来续传请求至少携带：
 
@@ -521,10 +521,10 @@ Runtime Adapter 使用相同 `runId` 请求 `/ag-ui`（官方 `agent/connect`）
 
 ### 10.5 实测补充（demo 后端，2026-08-20）
 
-- demo 后端（`backend/streaming.py`）已实现：逐事件注入 `rawEvent.eventId`（`{epoch_ms}-{seq}` 严格递增）、按 runId 内存缓冲（FIFO 上限 100 run）、`action=resume + lastEventId` 只回放游标后事件（不重新执行 Core）、未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`。
+- demo 后端（`backend/streaming.py`）已实现：逐事件注入顶层 `eventId`（`{epoch_ms}-{seq}` 严格递增）、按 runId 内存缓冲（FIFO 上限 100 run）、`action=resume + lastEventId` 只回放游标后事件（不重新执行 Core）、未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`。
 - 实测：首轮 69 事件全部带 eventId；resume（第 40 条游标）精确回放 29 条且无模型调用；未知 runId 返回 STREAM_EXPIRED。
 - ⚠️ 经 CopilotKit single-route `agent/run` envelope 走纯尾回放时，runtime SSE 校验要求首事件为 `RUN_STARTED` 且以终态结束，纯尾回放会判 `INCOMPLETE_STREAM`。真实接入二选一：① 使用官方 `agent/connect`（lastSeenEventId）语义；② 全量回放（相同 eventId）+ Browser 按 eventId 去重（前端 reducer 已支持）。
-- 前端当前策略：Service 未提供可验证的 connect/游标前，陈旧 running checkpoint 在恢复时转为 cancelled，不自动 resume（避免重放并发）；HITL(paused) 通过 `runAgent(resume[])` 续跑。
+- 前端当前策略：running checkpoint 有顶层 `latestEventId` 时，以相同 `runId` 发送 `action=resume + lastEventId`；没有游标时才安全终结为 cancelled。HITL(paused) 通过同一 Operation 的 `hitlResponse` 续跑。
 
 ## 11. Stop/Cancel
 

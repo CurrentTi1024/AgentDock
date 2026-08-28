@@ -324,12 +324,11 @@ flowchart LR
   C -->|终态/无| F[历史由 messages 渲染]
 ```
 
-- mock 路径：restoreSession 直接恢复 run 并续传。
-- http 路径：**陈旧 running 自动转 cancelled**（后端无游标回放前不自动续传，防并发重放），历史照常渲染，下一轮上下文从 messages 表回填。
+- mock/http 路径统一由 `sessionOperationService.restore` 恢复；running 且有 `latestEventId` 时按相同 `runId` 续传，没有游标时转 cancelled。历史照常渲染。
 
 ### 8.3 发送
 
-`runStore.resume` 构造 `resume.lastEventId = run.latestEventId`，随 POST body 的 `forwardedProps` 发往后端；后端按 **`eventId > lastEventId` 字符串比较**回放游标之后的事件。
+恢复逻辑构造 `resume.lastEventId = run.latestEventId`，随 POST body 的 `forwardedProps` 发往后端；后端按游标回放之后的事件。
 
 ### 8.4 排序契约（关键约束）
 
@@ -337,7 +336,7 @@ eventId 必须**字符串可排序**（序号定宽补零，如 `{epoch_ms}-{seq
 
 ### 8.5 防重入
 
-- 前端“陈旧 running 不自动 resume”：http 路径转 cancelled。
+- 前端“无游标不 resume”：只有存在 `latestEventId` 才发增量恢复请求。
 - 前端“同会话并发 run 门禁”：上一轮未结束（running/paused）时忽略新发送。
 - 重放安全：`processedEventIds` 精确去重 + 后端按游标只补缺失事件。
 

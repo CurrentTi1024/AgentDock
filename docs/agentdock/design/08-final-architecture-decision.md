@@ -148,7 +148,7 @@ AgentDockProjection（纯函数，无副作用）
 ### 5.3 runId / eventId
 
 - `runId`：由官方客户端生成，事件回调中读取并写入 IndexedDB；后端必须原样回显。
-- `eventId`：如果公司保留 Redis 事件游标，把 `rawEvent.eventId` 透传（runtime 不裁剪）；恢复时用官方 connect/resume + 后端游标。
+- `eventId`：公司 Redis 事件游标通过 AG-UI 事件顶层 `eventId` 透传；恢复时使用相同 `runId` 的 resume + `lastEventId`。
 
 ## 6. A2UI 渲染决策
 

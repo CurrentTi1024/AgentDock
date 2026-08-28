@@ -354,32 +354,47 @@ const GroupChatPage = () => {
   const runStatusRef = useRef(run?.status);
   runStatusRef.current = run?.status;
   useEffect(() => {
+    let disposed = false;
+    let settleTimer: number | undefined;
+    let maxSettleTimer: number | undefined;
+    const clearSettleTimers = () => {
+      if (settleTimer !== undefined) window.clearInterval(settleTimer);
+      if (maxSettleTimer !== undefined) window.clearTimeout(maxSettleTimer);
+      settleTimer = undefined;
+      maxSettleTimer = undefined;
+    };
     const refresh = (event: Event) => {
       const detail = (event as CustomEvent<{ sessionId?: string }>).detail;
       if (detail?.sessionId && detail.sessionId !== sessionId) return;
       if (!shouldReloadPersistedRun(runStatusRef.current)) return;
       void reloadHistoryWindow().then(() => {
+        if (disposed) return;
+        clearSettleTimers();
         stickToBottom();
         // 终态后内容可能延迟增高：强制贴底直到高度连续 1s 稳定（或 12s 上限）。
         let stableTicks = 0;
         let lastHeight = -1;
-        const settleTimer = window.setInterval(() => {
+        settleTimer = window.setInterval(() => {
           const node = scrollRef.current;
           if (!node) return;
           node.scrollTop = node.scrollHeight;
           if (node.scrollHeight === lastHeight) {
             stableTicks += 1;
-            if (stableTicks >= 4) window.clearInterval(settleTimer);
+            if (stableTicks >= 4) clearSettleTimers();
           } else {
             stableTicks = 0;
             lastHeight = node.scrollHeight;
           }
         }, 250);
-        window.setTimeout(() => window.clearInterval(settleTimer), 12_000);
+        maxSettleTimer = window.setTimeout(clearSettleTimers, 12_000);
       });
     };
     window.addEventListener('agentdock:run-persisted', refresh);
-    return () => window.removeEventListener('agentdock:run-persisted', refresh);
+    return () => {
+      disposed = true;
+      window.removeEventListener('agentdock:run-persisted', refresh);
+      clearSettleTimers();
+    };
   }, [reloadHistoryWindow, scrollRef, sessionId, stickToBottom]);
 
   const blocks = renderRunBlocks(run, {

@@ -837,7 +837,7 @@ test('断线续传：checkpoint 存 latestEventId，restore 取用并构造 resu
   const { input, snapshot } = buildSingleAgentRun(sessionId, 'run-resume-eid');
   await sessionHistoryService.saveRunCheckpoint(sessionId, input, { ...snapshot, status: 'running' as const });
 
-  // 取用：与 runStore.restoreSession 一致，从 checkpoint 恢复游标。
+  // 取用：与 sessionOperationService.restore 一致，从 checkpoint 恢复游标。
   const checkpoint = await sessionHistoryService.getLatestRun(sessionId);
   assert.ok(checkpoint);
   assert.equal(checkpoint.status, 'running');
@@ -847,7 +847,7 @@ test('断线续传：checkpoint 存 latestEventId，restore 取用并构造 resu
     'processedEventIds 保留供重放精确去重',
   );
 
-  // 发送：与 runStore.resume 相同的构造逻辑，lastEventId 随 forwardedProps 发往后端。
+  // 发送：与 sessionOperationService.restore 相同的构造逻辑，lastEventId 随 forwardedProps 发往后端。
   const resumeInput = {
     ...checkpoint.input,
     forwardedProps: {

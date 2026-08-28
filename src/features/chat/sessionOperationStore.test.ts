@@ -280,6 +280,75 @@ test('多 Session 分别收到顶层 eventId 终态事件后，各自退出运�
   ]);
 });
 
+test('终态 Operation 全局保留不超过 50 个，避免 Session 数增长造成热内存堆积', async () => {
+  resetStore();
+  const operations = Array.from({ length: 55 }, (_, index) =>
+    addOperation(`bounded-session-${index}`, `bounded-run-${index}`));
+  for (const [index, operation] of operations.entries()) {
+    sessionOperationService.applyEvent(
+      { sessionId: operation.sessionId, threadId: operation.threadId },
+      {
+        eventId: `bounded-terminal-${index}`,
+        runId: operation.runId,
+        threadId: operation.threadId,
+        type: 'RUN_FINISHED',
+      },
+    );
+  }
+
+  const state = useSessionOperationStore.getState();
+  assert.equal(Object.keys(state.operationsById).length, 50);
+  assert.equal(state.operationsById['bounded-run-0'], undefined);
+  assert.ok(state.operationsById['bounded-run-54']);
+  await Promise.all(
+    operations.map((operation) => sessionOperationService.disposeSession(operation.sessionId)),
+  );
+  assert.equal(Object.keys(useSessionOperationStore.getState().operationsById).length, 0);
+});
+
+test('disposeSession 清理同一 Session 的 active 与旧 Operation 残留', async () => {
+  resetStore();
+  addOperation('dispose-all-runs', 'dispose-old-run').snapshot.status = 'success';
+  const active = addOperation('dispose-all-runs', 'dispose-active-run');
+  active.snapshot.status = 'success';
+  useSessionOperationStore.getState().updateOperation(active.runId, {
+    snapshot: active.snapshot,
+    status: 'success',
+  });
+
+  await sessionOperationService.disposeSession('dispose-all-runs');
+  const state = useSessionOperationStore.getState();
+  assert.equal(state.operationsById['dispose-old-run'], undefined);
+  assert.equal(state.operationsById['dispose-active-run'], undefined);
+  assert.equal(state.activeRunBySession['dispose-all-runs'], undefined);
+});
+
+test('Runtime Worker 水合只加载最近 200 条用户/助手文本', async () => {
+  resetStore();
+  await sessionDatabase.delete();
+  await sessionDatabase.open();
+  const operation = addOperation('bounded-hydration', 'bounded-hydration-run');
+  await createSessionRecord(operation);
+  await sessionDatabase.sessionMessages.bulkPut(
+    Array.from({ length: 250 }, (_, index) => ({
+      content: `content-${index}`,
+      createdAt: new Date(1_700_000_000_000 + index).toISOString(),
+      id: `text:hydration-${index}`,
+      kind: 'text' as const,
+      role: index % 2 === 0 ? 'user' as const : 'assistant' as const,
+      runId: `hydration-run-${index}`,
+      sequence: index + 1,
+      sessionId: operation.sessionId,
+    })),
+  );
+
+  const messages = await sessionOperationService.hydrateRuntime(operation.sessionId);
+  assert.equal(messages.length, 200);
+  assert.equal(messages[0]?.id, 'hydration-50');
+  assert.equal(messages.at(-1)?.id, 'hydration-249');
+  await sessionOperationService.disposeSession(operation.sessionId);
+});
+
 test('Runtime 流正常关闭但没有 RUN_FINISHED 时，单/多 Session 都会退出 running', async () => {
   resetStore();
   const restoreChatMode = installHttpChatMode();
@@ -404,6 +473,35 @@ test('Stop 触发 Runtime 流关闭时保持 cancelled，不被关闭兜底改�
   } finally {
     await sessionOperationService.disposeSession(context.sessionId);
     sessionRuntimeRegistry.unregister(context.sessionId, handle);
+    restoreChatMode();
+    resetStore();
+  }
+});
+
+test('远端 stop 尚未返回时，当前 Session 已立即退出运行态', async () => {
+  resetStore();
+  const restoreChatMode = installHttpChatMode();
+  const operation = addOperation('stop-local-first', 'run-stop-local-first');
+  let releaseStop!: () => void;
+  const remoteStop = new Promise<void>((resolve) => { releaseStop = resolve; });
+  const handle = {
+    isReady: () => true,
+    respondToHitl: async () => {},
+    run: async () => {},
+    stop: async () => remoteStop,
+  };
+  sessionRuntimeRegistry.register(operation.sessionId, handle);
+  try {
+    const stopping = sessionOperationService.stop(operation.sessionId);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const snapshot = useSessionOperationStore.getState().operationsById[operation.runId]?.snapshot;
+    assert.equal(snapshot?.status, 'cancelled');
+    releaseStop();
+    await stopping;
+  } finally {
+    releaseStop();
+    await sessionOperationService.disposeSession(operation.sessionId);
+    sessionRuntimeRegistry.unregister(operation.sessionId, handle);
     restoreChatMode();
     resetStore();
   }

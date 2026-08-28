@@ -27,12 +27,33 @@ import type {
 } from './types.ts';
 
 const OPERATION_RETAIN_MS = 30_000;
+const OPERATION_PERSIST_FAILURE_RETAIN_MS = 5 * 60_000;
+const MAX_RETAINED_TERMINAL_OPERATIONS = 50;
+const RUNTIME_HYDRATION_TEXT_LIMIT = 200;
+const REMOTE_STOP_TIMEOUT_MS = 10_000;
 const renderTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const hotSnapshots = new Map<string, RuntimeRunState>();
 const mockControllers = new Map<string, AbortController>();
 const stopPromises = new Map<string, Promise<void>>();
 const stoppingRuns = new Set<string>();
+
+const waitForRemoteStop = async (task: Promise<void>) => {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      task,
+      new Promise<void>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error('Runtime stop timed out.')),
+          REMOTE_STOP_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+};
 
 const isTerminal = (status: RuntimeRunState['status']) =>
   status === 'success' || status === 'error' || status === 'cancelled';
@@ -116,7 +137,12 @@ const pushRenderSnapshot = (runId: string, snapshot: RuntimeRunState, immediate 
 };
 
 const buildAgentMessages = async (sessionId: string): Promise<Message[]> => {
-  const history = await sessionHistoryService.getMessages(sessionId);
+  // CopilotKit Agent 只需要最近上下文；完整可见历史由 ChatPage 的 IndexedDB 分页负责。
+  // 禁止每创建一个后台 Worker 就把一个超长 Session 的全部历史复制进内存。
+  const history = await sessionHistoryService.getRecentAgentMessages(
+    sessionId,
+    RUNTIME_HYDRATION_TEXT_LIMIT,
+  );
   return history
     .filter(
       (record) =>
@@ -129,30 +155,60 @@ const buildAgentMessages = async (sessionId: string): Promise<Message[]> => {
     }));
 };
 
-const scheduleCleanup = (operation: SessionOperation) => {
+const releaseOperationResources = (
+  operation: SessionOperation,
+  options: { keepRuntime?: boolean; reason?: string } = {},
+) => {
+  const renderTimer = renderTimers.get(operation.runId);
+  if (renderTimer) clearTimeout(renderTimer);
+  renderTimers.delete(operation.runId);
+  const cleanupTimer = cleanupTimers.get(operation.runId);
+  if (cleanupTimer) clearTimeout(cleanupTimer);
+  cleanupTimers.delete(operation.runId);
+  mockControllers.get(operation.runId)?.abort();
+  mockControllers.delete(operation.runId);
+  hotSnapshots.delete(operation.runId);
+
+  const state = useSessionOperationStore.getState();
+  const isActive = state.activeRunBySession[operation.sessionId] === operation.runId;
+  state.removeOperation(operation.runId);
+  if (!isActive || options.keepRuntime) return;
+  const descriptor = useSessionOperationStore.getState().runtimeBySession[operation.sessionId];
+  useSessionOperationStore.getState().removeRuntime(operation.sessionId, descriptor?.key);
+  sessionRuntimeRegistry.reset(
+    operation.sessionId,
+    options.reason ?? 'Terminal session runtime was released.',
+  );
+};
+
+const enforceTerminalRetentionLimit = () => {
+  const terminal = Object.values(useSessionOperationStore.getState().operationsById)
+    .filter((operation) => !isOperationBusy(operation))
+    .sort((a, b) => (a.completedAt ?? a.startedAt) - (b.completedAt ?? b.startedAt));
+  const overflow = Math.max(0, terminal.length - MAX_RETAINED_TERMINAL_OPERATIONS);
+  for (const operation of terminal.slice(0, overflow)) {
+    releaseOperationResources(operation, {
+      reason: 'Terminal operation retention limit reached.',
+    });
+  }
+};
+
+const scheduleCleanup = (operation: SessionOperation, retainMs = OPERATION_RETAIN_MS) => {
   const previous = cleanupTimers.get(operation.runId);
   if (previous) clearTimeout(previous);
   cleanupTimers.set(operation.runId, setTimeout(() => {
+    // 定时器已经触发，先移除自身引用；即使 Operation 已被其他路径移除或重新进入
+    // busy 状态，也不能让已完成的 Timeout handle 永久留在模块级 Map 中。
     cleanupTimers.delete(operation.runId);
     const state = useSessionOperationStore.getState();
     if (state.activeRunBySession[operation.sessionId] !== operation.runId) {
-      state.removeOperation(operation.runId);
-      hotSnapshots.delete(operation.runId);
+      releaseOperationResources(operation, { keepRuntime: true });
       return;
     }
     const current = state.operationsById[operation.runId];
     if (!current || isOperationBusy(current)) return;
-    state.removeOperation(operation.runId);
-    state.removeRuntime(operation.sessionId, runtimeKey({
-      agentId: current.input.forwardedProps.agentId || '',
-      fab: current.input.forwardedProps.fab,
-      group: current.input.forwardedProps.group,
-      mentionAgents: current.input.forwardedProps.mentionAgents,
-      sessionId: current.sessionId,
-      threadId: current.threadId,
-    }));
-    hotSnapshots.delete(operation.runId);
-  }, OPERATION_RETAIN_MS));
+    releaseOperationResources(current);
+  }, retainMs));
 };
 
 const completeOperation = async (runId: string, snapshot: RuntimeRunState) => {
@@ -166,6 +222,8 @@ const completeOperation = async (runId: string, snapshot: RuntimeRunState) => {
     snapshot,
     status: toOperationStatus(snapshot.status),
   });
+  // 即使 IndexedDB 被阻塞，终态 Operation 的总量也不能随 Session 数无限增长。
+  enforceTerminalRetentionLimit();
   let persisted = false;
   for (let attempt = 1; attempt <= 3 && !persisted; attempt += 1) {
     if (!useSessionOperationStore.getState().operationsById[runId]) return;
@@ -187,12 +245,14 @@ const completeOperation = async (runId: string, snapshot: RuntimeRunState) => {
       }
     }
   }
-  // 落库失败时保留终态内存投影，避免 30 秒后用户刚看到的答案被清空。
-  if (!persisted) return;
   // 落库期间 Session 可能已被用户删除/dispose；此时不能重新挂清理定时器。
   const current = useSessionOperationStore.getState().operationsById[runId];
   if (!current) return;
-  scheduleCleanup({ ...current, completedAt, snapshot, status: toOperationStatus(snapshot.status) });
+  // 落库失败时延长内存可见期，但仍设置硬上限，避免存储故障导致 Worker 永久堆积。
+  scheduleCleanup(
+    { ...current, completedAt, snapshot, status: toOperationStatus(snapshot.status) },
+    persisted ? OPERATION_RETAIN_MS : OPERATION_PERSIST_FAILURE_RETAIN_MS,
+  );
 };
 
 const resolveOperation = (route: EventRoute, event: AgUiEvent) => {
@@ -330,6 +390,11 @@ const startOperation = (
   input: RunAgentInput,
   initialSnapshot?: RuntimeRunState,
 ) => {
+  const previous = getOperation(context.sessionId);
+  if (previous && !isOperationBusy(previous)) {
+    // 同 Session 开始下一轮时，上一轮已由 IndexedDB 历史接管；立即释放旧热快照。
+    releaseOperationResources(previous, { keepRuntime: true });
+  }
   const snapshot = initialSnapshot ?? createRunState(input.runId, input.threadId);
   if (!initialSnapshot) snapshot.status = 'running';
   for (const message of input.messages) {
@@ -565,27 +630,21 @@ export const sessionOperationService = {
   },
 
   async disposeSession(sessionId: string) {
-    const operation = getOperation(sessionId);
-    if (operation && isOperationBusy(operation)) {
+    const activeOperation = getOperation(sessionId);
+    if (activeOperation && isOperationBusy(activeOperation)) {
       try {
         await this.stop(sessionId);
       } catch (error) {
         console.error('[AgentDock] failed to stop disposed session', { error, sessionId });
       }
     }
-    if (operation) {
-      const renderTimer = renderTimers.get(operation.runId);
-      if (renderTimer) clearTimeout(renderTimer);
-      renderTimers.delete(operation.runId);
-      mockControllers.get(operation.runId)?.abort();
-      mockControllers.delete(operation.runId);
+    // 删除/跨标签页删除要清理这个 Session 的全部残留 Operation，而不只 active 映射。
+    const operations = Object.values(useSessionOperationStore.getState().operationsById)
+      .filter((operation) => operation.sessionId === sessionId);
+    for (const operation of operations) {
       cancelPendingCheckpoint(operation.runId);
       await waitForRunCheckpoint(operation.runId);
-      const cleanupTimer = cleanupTimers.get(operation.runId);
-      if (cleanupTimer) clearTimeout(cleanupTimer);
-      cleanupTimers.delete(operation.runId);
-      hotSnapshots.delete(operation.runId);
-      useSessionOperationStore.getState().removeOperation(operation.runId);
+      releaseOperationResources(operation, { keepRuntime: true });
     }
     const descriptor = useSessionOperationStore.getState().runtimeBySession[sessionId];
     useSessionOperationStore.getState().removeRuntime(sessionId, descriptor?.key);
@@ -662,11 +721,14 @@ export const sessionOperationService = {
     }
     stoppingRuns.add(operation.runId);
     const stopPromise = (async () => {
+      // UI 先按本地 Operation 立即终态化；远端 stop 只负责尽力释放后端执行。
+      cancelPendingCheckpoint(operation.runId);
+      applySyntheticError(operation, new Error('Run cancelled by user.'), 'CANCELLED');
       try {
         if (getChatServiceMode() === 'http') {
           const runtime = sessionRuntimeRegistry.get(sessionId);
           if (runtime?.isReady()) {
-            await runtime.stop();
+            await waitForRemoteStop(runtime.stop());
           } else {
             // 启动阶段没有可停止的远端 handle：直接终止 whenReady 等待，避免停止/删除卡 15 秒。
             sessionRuntimeRegistry.reset(sessionId, 'Run stopped before runtime became ready.');
@@ -683,9 +745,6 @@ export const sessionOperationService = {
           runId: operation.runId,
           sessionId,
         });
-      } finally {
-        cancelPendingCheckpoint(operation.runId);
-        applySyntheticError(operation, new Error('Run cancelled by user.'), 'CANCELLED');
       }
     })();
     stopPromises.set(operation.runId, stopPromise);

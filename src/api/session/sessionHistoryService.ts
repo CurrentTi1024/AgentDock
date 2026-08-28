@@ -109,7 +109,7 @@ const CHECKPOINT_MAX_WAIT_MS = 500;
 
 /**
  * 压缩 checkpoint 快照：只保留“渲染 + 断线续传”真正消费的字段。
- * 丢弃项：rawEvents（完整 AG-UI 事件日志，占空间最大且 UI 不消费，
+ * 丢弃项：rawEvents（内存诊断元数据，UI 不消费，
  * reducer 从空数组继续追加）、state（仅 STATE_SNAPSHOT 时更新，恢复后为 undefined 也正常工作）。
  */
 const compactRunSnapshot = (snapshot: RuntimeRunState): RuntimeRunState => ({
@@ -124,6 +124,7 @@ const compactRunSnapshot = (snapshot: RuntimeRunState): RuntimeRunState => ({
   reasoning: snapshot.reasoning,
   reasoningMeta: snapshot.reasoningMeta,
   runId: snapshot.runId,
+  snapshotMessageIds: snapshot.snapshotMessageIds,
   state: undefined,
   status: snapshot.status,
   steps: snapshot.steps,
@@ -329,6 +330,21 @@ export const sessionHistoryService = {
   },
   async appendMessages(records: SessionMessageRecord[]) { await db.sessionMessages.bulkPut(records); },
   async getMessages(sessionId: string) { return db.sessionMessages.where('sessionId').equals(sessionId).sortBy('sequence'); },
+  /** Runtime Worker 水合专用：只取最近 N 条用户/助手文本，不加载整轮过程块或全量历史。 */
+  async getRecentAgentMessages(sessionId: string, limit: number) {
+    const rows = await db.sessionMessages
+      .where('[sessionId+sequence]')
+      .between([sessionId, 0], [sessionId, Number.MAX_SAFE_INTEGER], true, true)
+      .reverse()
+      .filter(
+        (record) =>
+          record.kind === 'text' &&
+          (record.role === 'user' || record.role === 'assistant'),
+      )
+      .limit(Math.max(1, limit))
+      .toArray();
+    return rows.reverse();
+  },
   /**
    * 会话内消息分页（懒加载）：以“文本消息所属的 run”为最小完整单位——
    * 每页取最近 limit 条文本及其整轮过程块，避免分页边界切断一轮导致块挂错/重复。
@@ -377,7 +393,7 @@ export const sessionHistoryService = {
   },
   /**
    * checkpoint 剪枝：删除全部终态（success/cancelled/error）行，只保留 running/paused
-   * （断线续传与 HITL 恢复依赖，见 runStore.restoreSession / getLatestRecoverableRun）。
+   * （断线续传与 HITL 恢复依赖，见 sessionOperationService.restore / getLatestRecoverableRun）。
    */
   async pruneCheckpoints(sessionId: string) {
     const rows = await db.checkpoints.where('sessionId').equals(sessionId).sortBy('updatedAt');

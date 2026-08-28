@@ -38,12 +38,10 @@ AgentDock 是纯前端项目，对话能力对外只依赖两类接口：
 
 ## 2. 运行时与状态机
 
-`useAgentDockConversation` 是唯一对话运行时 hook，按模式拆成两条互斥路径：
+`useAgentDockConversation` 是页面侧 facade；真实运行所有权在常驻 `SessionRuntimeHost/sessionOperationService`，按模式拆成两条互斥路径：
 
-- **http 路径**（`useOfficialConversation`）：官方 CopilotKit v2 headless（`useAgent` + `useCopilotKit`），
-  `agent.subscribe` 订阅事件 → `applyEvent` → reducer；
-- **mock 路径**（`useMockConversation`）：自研 runStore + reducer，mock 模式下不挂载
-  CopilotKit Provider，事件与后端一致，保证页面无感。
+- **http 路径**：每个活跃 Session 一个常驻 `SessionRuntimeWorker`，使用 CopilotKit v2 headless `useAgent`，`agent.subscribe` 订阅事件 → `sessionOperationService.applyEvent` → reducer；
+- **mock 路径**：`sessionOperationService` 消费 mock async generator，经同一 reducer 与 Operation Store 投影，保证页面无感。
 
 ### 2.1 RuntimeRunState（视图模型）
 
@@ -53,7 +51,7 @@ AgentDock 是纯前端项目，对话能力对外只依赖两类接口：
 - `steps` / `toolCalls` / `reasoning` / `reasoningMeta` / `surfaces` / `activities`：过程块视图模型；
 - `orderedBlocks`：协议权威的块顺序（reasoning/tool/step/activity/surface 依次出现的位置）；
 - `status`：`idle | running | paused | success | cancelled | error`；
-- `processedStreamIds` / `latestStreamId`：SSE 去重与断线游标。
+- `processedEventIds` / `latestEventId`：顶层 AG-UI eventId 的去重窗口与断线游标。
 
 ### 2.2 防重入与并发防护（三层）
 
@@ -64,10 +62,8 @@ AgentDock 是纯前端项目，对话能力对外只依赖两类接口：
 
 ### 2.3 恢复与断线
 
-- 刷新时 `restore()` 读取最新 checkpoint：running 快照本地转 cancelled 落库（后端无 streamId 游标，
-  避免 resume 重放造成并发 run）；终态不落 checkpoint，历史完全由 messages 表渲染；
-- 断线重连：事件流中断时写入 `RUN_ERROR` 兜底（不卡 running），内容保留；协议支持
-  `lastStreamId` 游标回放，但 demo 后端适配受限时前端不自动 resume。
+- 刷新时 `restore()` 读取最新 checkpoint：running 且有 `latestEventId` 时以同一 `runId` 请求增量续传；没有游标时转 cancelled。终态不落 checkpoint，历史由 messages 表渲染；
+- 断线重连：事件流中断时写入 `RUN_ERROR` 兜底（不卡 running），内容保留；后端按 `lastEventId` 只回放缺失事件，前端按 `processedEventIds` 去重。
 
 ## 3. 历史落库与一致性
 
@@ -267,8 +263,7 @@ AgentDock 是纯前端项目，对话能力对外只依赖两类接口：
 
 - **后端群编排**：demo 后端 `tools=[]` 不处理 group forwardedProps，群聊真实后端不发消息；
   前端 UI 已按 mock 全链路就绪，等待上游支持；
-- **断线 resume**：demo 后端无完整 eventId 游标，前端不自动 resume（避免重放并发），
-  接入真实 Orchestration 后按 streamId 重连协议处理；
+- **断线 resume**：有顶层 `eventId` 的 running checkpoint 会自动按 `lastEventId` 续传；无游标时安全终结，禁止整轮重放；
 - **A2UI 多轮**：真实模型上下文下 secondary 可能偏离 forced render_a2ui，新会话单轮稳定；
 - **构建体积**：Markdown 管线 chunk 较大，可后续按需拆分。
 

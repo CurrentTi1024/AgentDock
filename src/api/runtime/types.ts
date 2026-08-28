@@ -95,6 +95,8 @@ export interface RuntimeRunState {
   reasoning: Record<string, string>;
   reasoningMeta: Record<string, RuntimeReasoningMeta>;
   runId: string;
+  /** 最近一次 MESSAGES_SNAPSHOT 投影的消息 id；仅用于下一份权威快照的有界替换。 */
+  snapshotMessageIds?: string[];
   state: unknown;
   status: RunStatus;
   steps: Record<string, RuntimeStep>;

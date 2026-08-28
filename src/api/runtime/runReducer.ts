@@ -1,4 +1,26 @@
-import { LOBE_TASK_ROLES, LOBE_VISIBLE_MESSAGE_ROLES, type RuntimeMessage, type RuntimeRunState, type StreamedEvent } from './types.ts';
+import { LOBE_TASK_ROLES, LOBE_VISIBLE_MESSAGE_ROLES, type AgUiEvent, type RuntimeMessage, type RuntimeRunState, type StreamedEvent } from './types.ts';
+const MAX_LIVE_SNAPSHOT_MESSAGES = 200;
+const DIAGNOSTIC_EVENT_KEYS = [
+  'activityType',
+  'code',
+  'messageId',
+  'name',
+  'runId',
+  'stepId',
+  'threadId',
+  'toolCallId',
+] as const;
+/** rawEvents 只用于内存诊断；禁止把 snapshot/state/result/delta 等任意大 payload 复制一份。 */
+const compactDiagnosticEvent = (event: AgUiEvent, eventId?: string): AgUiEvent => {
+  const compact: AgUiEvent = { type: event.type };
+  if (eventId) compact.eventId = eventId;
+  for (const key of DIAGNOSTIC_EVENT_KEYS) {
+    const value = event[key];
+    if (typeof value === 'string') compact[key] = value;
+  }
+  if (Array.isArray(event.messages)) compact.messageCount = event.messages.length;
+  return compact;
+};
 export const createRunState = (runId: string, threadId: string): RuntimeRunState => ({ activities: {}, messageOrder: [], messages: {}, orderedBlocks: [], processedEventIds: [], rawEvents: [], reasoning: {}, reasoningMeta: {}, runId, state: {}, status: 'idle', steps: {}, surfaces: {}, threadId, toolCalls: {} });
 /** 消息首次出现时追加到时间线（幂等）；持久化依赖 messageOrder 分配稳定序号。 */
 const appendMessageId = (next: RuntimeRunState, id: string) => {
@@ -38,19 +60,6 @@ const AGENT_DOCK_ACTIVITY_TYPES = new Set([
 /** MESSAGES_SNAPSHOT 中的 LobeHub 任务类角色 → 对应 activityType。 */
 const taskRoleToActivityType = (role: string): string | undefined =>
   LOBE_TASK_ROLES.includes(role as (typeof LOBE_TASK_ROLES)[number]) ? `agentDock.${role}` : undefined;
-const applyStateDelta = (state: unknown, delta: unknown) => {
-  if (!Array.isArray(delta) || typeof state !== 'object' || !state) return state;
-  const next = structuredClone(state) as Record<string, unknown>;
-  for (const operation of delta) {
-    if (!operation || typeof operation !== 'object') continue;
-    const { op, path, value } = operation as { op?: string; path?: string; value?: unknown };
-    const key = path?.replace(/^\//, '');
-    if (!key || key.includes('/')) continue;
-    if (op === 'remove') delete next[key];
-    if (op === 'add' || op === 'replace') next[key] = value;
-  }
-  return next;
-};
 /** 终态兜底：无论后端是否发送 REASONING_END，都收尾所有推理块的 streaming 状态，
  *  保证 run 完成后 thinking 必定折叠（ReasoningBlock 的 open 跟随 streaming）。 */
 export const finalizeReasoningMeta = (state: RuntimeRunState): RuntimeRunState => {
@@ -63,7 +72,7 @@ export const finalizeReasoningMeta = (state: RuntimeRunState): RuntimeRunState =
 };
 export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent): RuntimeRunState {
   if (input.eventId && previous.processedEventIds.includes(input.eventId)) return previous;
-  const next = structuredClone(previous); const event = input.event; const id = String(event.messageId || ''); const toolId = String(event.toolCallId || ''); next.rawEvents.push(event); if (next.rawEvents.length > 100) next.rawEvents.shift();
+  const next = structuredClone(previous); const event = input.event; const id = String(event.messageId || ''); const toolId = String(event.toolCallId || ''); next.rawEvents.push(compactDiagnosticEvent(event, input.eventId)); if (next.rawEvents.length > 100) next.rawEvents.shift();
   if (input.eventId) { next.latestEventId = input.eventId; next.processedEventIds.push(input.eventId); if (next.processedEventIds.length > 5000) next.processedEventIds.shift(); }
   switch (event.type) {
     case 'RUN_STARTED': next.status = 'running'; break;
@@ -141,10 +150,43 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
     case 'TOOL_CALL_ARGS': next.toolCalls[toolId] ||= { args: '', startedAt: Date.now(), status: 'running' }; next.toolCalls[toolId].args += String(event.delta || ''); break;
     case 'TOOL_CALL_END': if (next.toolCalls[toolId]) { next.toolCalls[toolId].status = 'called'; next.toolCalls[toolId].finishedAt = next.toolCalls[toolId].finishedAt ?? Date.now(); next.toolCalls[toolId].apiName ||= String(event.apiName || event.toolCallName || next.toolCalls[toolId].name || ''); } break;
     case 'TOOL_CALL_RESULT': next.toolCalls[toolId] ||= { args: '', startedAt: Date.now(), status: 'completed' }; next.toolCalls[toolId].result = event.content ?? event.result; next.toolCalls[toolId].status = 'completed'; next.toolCalls[toolId].finishedAt = Date.now(); next.toolCalls[toolId].resultMsgId = String(event.result_msg_id || event.resultMsgId || ''); next.toolCalls[toolId].apiName ||= String(event.apiName || event.toolCallName || next.toolCalls[toolId].name || ''); break;
-    case 'STATE_SNAPSHOT': next.state = event.snapshot ?? event.state; break;
-    case 'STATE_DELTA': next.state = applyStateDelta(next.state, event.delta); break;
+    // 当前 UI/恢复链路均不消费 AG-UI State；不复制任意大的 state payload。
+    // CopilotKit Agent 自己仍处理协议 State，本投影只负责可见消息/过程块。
+    case 'STATE_SNAPSHOT': next.state = undefined; break;
+    case 'STATE_DELTA': break;
     case 'MESSAGES_SNAPSHOT': {
-      const snapshotMessages = (event.messages as RuntimeMessage[] || []);
+      // 完整历史由 IndexedDB 分页承载；live run 只投影最近的可见消息，避免后端返回
+      // 超长全量快照后每个 token 都 structuredClone 巨大对象。
+      const snapshotMessages = (event.messages as RuntimeMessage[] || [])
+        .filter(
+          (message) =>
+            LOBE_VISIBLE_MESSAGE_ROLES.includes(message.role as never) &&
+            !String(message.id).startsWith('lc_run--'),
+        )
+        .slice(-MAX_LIVE_SNAPSHOT_MESSAGES);
+      const snapshotMessageIds = new Set(snapshotMessages.map((message) => message.id));
+      // 只淘汰“上一份快照投影”且本次已缺席的旧项。不能遍历删除所有无 runId 项：
+      // 当前用户消息可能在快照到达前已本地插入，误删会造成多轮顺序错乱和消息丢失。
+      const previousSnapshotMessageIds = new Set(next.snapshotMessageIds ?? []);
+      for (const messageId of previousSnapshotMessageIds) {
+        if (
+          !snapshotMessageIds.has(messageId) &&
+          next.messages[messageId]?.runId !== next.runId
+        ) delete next.messages[messageId];
+      }
+      const removedDiagnosticActivityIds = new Set<string>();
+      for (const [activityId, activity] of Object.entries(next.activities)) {
+        if (
+          !snapshotMessageIds.has(activityId) &&
+          (activity as { diagnosticOnly?: boolean }).diagnosticOnly
+        ) {
+          removedDiagnosticActivityIds.add(activityId);
+          delete next.activities[activityId];
+        }
+      }
+      next.orderedBlocks = next.orderedBlocks.filter(
+        (block) => block.kind !== 'activity' || !removedDiagnosticActivityIds.has(block.id),
+      );
       // 协议快照是整段会话的权威顺序：时间线按快照数组重建，本地先插入但快照未覆盖的消息追加在末尾。
       next.messageOrder = snapshotMessages.map((message) => message.id).filter(Boolean);
       for (const messageId of Object.keys(next.messages)) {
@@ -164,12 +206,6 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
             messageRole: message.role,
           };
         }
-        // LobeHub Messages/index.tsx 的可见角色原样进入消息时间线；system/developer
-        // （例如 runtime 注入的 A2UI catalog “App Context”）不得渲染。
-        if (!LOBE_VISIBLE_MESSAGE_ROLES.includes(message.role as never)) continue;
-        // 跳过 CopilotKit/checkpoint 内部重复消息（lc_run--<langgraph run id>）：
-        // 流式 TEXT 事件用 lc_run-- 占位 id，快照带规范 UUID；保留内部 id 会导致历史重复。
-        if (String(message.id).startsWith('lc_run--')) continue;
         // 快照到达时用规范 UUID 替换流式阶段产生的 lc_run-- 占位消息（按角色匹配，
         // 不要求内容相等——快照可能先于流式完成到达，此时占位内容只是部分文本）。
         // 保证同一回复只有一个规范 id，避免“我”+全文两个气泡。
@@ -195,6 +231,7 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
         const existing = next.messages[message.id];
         next.messages[message.id] = existing?.runId ? { ...message, runId: existing.runId } : message;
       }
+      next.snapshotMessageIds = [...snapshotMessageIds];
       break;
     }
     case 'ACTIVITY_SNAPSHOT': {

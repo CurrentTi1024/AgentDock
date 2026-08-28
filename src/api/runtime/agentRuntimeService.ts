@@ -2,7 +2,7 @@ import { createAgentRuntimeMockEvents } from '../../mock-data/agentRuntime.ts';
 import type { MentionAgentRef, RunAgentInput, StreamedEvent } from './types.ts';
 export interface RuntimeOptions { signal?: AbortSignal }
 export interface AgentRuntimeService { stream(input: RunAgentInput, options?: RuntimeOptions): AsyncGenerator<StreamedEvent> }
-// Chat 运行时：proxy 走官方 CopilotKit（useOfficialConversation），不经过本服务；
+// Chat 运行时：proxy 走常驻 SessionRuntimeWorker + CopilotKit useAgent，不经过本服务；
 // 本服务仅供 mock（离线 UI 测试）路径使用。direct（自研 SSE 直连上游）已移除。
 export class CopilotHeadlessMockService implements AgentRuntimeService {
   async *stream(input: RunAgentInput, options: RuntimeOptions = {}) { for await (const event of createAgentRuntimeMockEvents(input, options.signal)) yield { event, eventId: event.eventId }; }

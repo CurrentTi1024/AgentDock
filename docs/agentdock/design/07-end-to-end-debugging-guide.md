@@ -159,8 +159,8 @@ curl -sSN -X POST http://127.0.0.1:3000/api/copilotkit \
 
 刷新恢复逻辑：
 
-- http+proxy：`restore()` 读取最新 checkpoint → 回填 `agent.setMessages` → 若 `running/paused` 且有 `latestEventId`，自动 `agent.connectAgent` 携带 `action=resume + resume.lastEventId`（按 eventId 游标恢复，方向已冻结；后端需按游标过滤）。
-- mock：`runStore.restoreSession` → 若 `status === 'running'` 且 `latestEventId` 存在 → `resume(lastEventId)`。
+- http+proxy：`sessionOperationService.restore()` 读取最新 checkpoint → 若 `running` 且有 `latestEventId`，由所属 Worker 以相同 `runId` 携带 `action=resume + resume.lastEventId`；`paused` 恢复 HITL UI。
+- mock：同样由 `sessionOperationService.restore()` 恢复并按 `lastEventId` 续传；没有游标的 running checkpoint 转 cancelled。
 
 ## 5. A2UI 调试
 

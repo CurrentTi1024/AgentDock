@@ -25,7 +25,7 @@ type RunAgentInput = {
 ## 2. 事件解析（当前实现）
 
 对话实时传输只有 proxy（官方 CopilotKit transport 解析 SSE）；`direct` 自研 SSE 解析器
-（`sse.ts`）已随 direct 模式移除。`eventId` 由 `rawEvent.eventId` 携带，mock 路径直接透传。
+（`sse.ts`）已随 direct 模式移除。`eventId` 由 AG-UI 事件顶层字段携带，mock 路径直接透传。
 
 已知问题：
 

@@ -281,6 +281,9 @@ export default function ChatPage() {
   // 自动审批模式：出现新的 HITL 请求时自动批准，避免打断流式。
   const autoApprovedRef = useRef(new Set<string>());
   useEffect(() => {
+    autoApprovedRef.current.clear();
+  }, [run?.runId, sessionId]);
+  useEffect(() => {
     if (approvalMode !== 'auto' || !run) return;
     for (const activity of Object.values(run.activities || {})) {
       const value = activity as { activityType?: string; requestId?: string };
@@ -562,13 +565,20 @@ export default function ChatPage() {
       node.scrollTop = node.scrollHeight;
       if (node.scrollHeight === lastHeight) {
         stableTicks += 1;
-        if (stableTicks >= 4) window.clearInterval(settleTimer);
+        if (stableTicks >= 4) {
+          window.clearInterval(settleTimer);
+          window.clearTimeout(maxSettleTimer);
+        }
       } else {
         stableTicks = 0;
         lastHeight = node.scrollHeight;
       }
     }, 250);
-    window.setTimeout(() => window.clearInterval(settleTimer), 12_000);
+    const maxSettleTimer = window.setTimeout(() => window.clearInterval(settleTimer), 12_000);
+    return () => {
+      window.clearInterval(settleTimer);
+      window.clearTimeout(maxSettleTimer);
+    };
   }, [run?.status, scrollRef, stickToBottom]);
 
   const blocks = renderRunBlocks(run, {

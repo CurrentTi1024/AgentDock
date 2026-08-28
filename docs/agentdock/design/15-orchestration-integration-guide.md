@@ -188,8 +188,8 @@ await copilotkit.runAgent({
 
 ### 5.3 eventId / 断线恢复
 
-- Service 在 `rawEvent.eventId` 与 SSE `id:` 提供游标（如 `1723870000000-0`）。
-- **真实服务必须按 `lastEventId` 过滤回放**；在服务支持前，前端不会自动 resume（陈旧 running 快照转 cancelled），避免重放并发。
+- Service 在 AG-UI 事件顶层提供 `eventId` 游标（如 `1723870000000-000001`）。
+- **真实服务必须按 `lastEventId` 过滤回放**；前端对有游标的 running checkpoint 自动 resume，没有游标时转 cancelled，避免整轮重放并发。
 
 ### 5.4 错误码
 
@@ -208,7 +208,7 @@ await copilotkit.runAgent({
 
 demo 后端已实现 `backend/streaming.py`：
 
-- 每个事件注入 `rawEvent.eventId`（`{epoch_ms}-{seq}`，同一 run 严格递增）；
+- 每个事件注入顶层 `eventId`（`{epoch_ms}-{seq}`，同一 run 严格递增）；
 - 事件按 runId 内存缓冲（上限 100 run，FIFO）；
 - `forwardedProps.action="resume"` + `resume.lastEventId` 时只回放游标之后事件，**不重新执行 Core**；未知 run 返回 `RUN_ERROR(STREAM_EXPIRED)`。
 

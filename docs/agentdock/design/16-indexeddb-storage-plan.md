@@ -122,14 +122,14 @@ this.version(2).stores({
 
 checkpoint 是**运行状态快照**（完整 `RuntimeRunState`），用途只有两个：
 
-1. **刷新/断线恢复**：`runStore.restoreSession` 取最新 checkpoint 恢复 `input + snapshot`，`running` 且有 `latestEventId` 时按游标续跑；HITL `paused` 恢复同样依赖。
+1. **刷新/断线恢复**：`sessionOperationService.restore` 取最新 checkpoint 恢复 `input + snapshot`，`running` 且有 `latestEventId` 时按游标续跑；HITL `paused` 恢复同样依赖。
 2. **回放权威数据源**：`messages` 表只是投影渲染行，checkpoint 里才有完整 `messageOrder`、tool 结果、reasoning、activities、surfaces payload。消息历史只读（无删除/编辑/重新生成），不存在快照复活问题。
 
 **终态 checkpoint 完全不需要**：对话页 `isActiveRun` 仅对 `running/paused` 为真，终态恢复后 run 不参与渲染——历史文本与全部过程块都由 `messages` 表渲染。因此：
 
 - `saveRunCheckpoint` 只对 `running/paused` 落 checkpoint（断线续传 / HITL 恢复）；终态（success/cancelled/error）只写 `messages` 表 + 更新会话时间戳，不写 checkpoint。
 - `pruneCheckpoints` 删除会话内全部终态行（顺带回收旧格式存量）；启动时 `sweepTerminalCheckpoints` 全库清扫一次，幂等。
-- 下一轮对话上下文不再依赖 checkpoint 回填：`useOfficialConversation.restore` 改为从 `messages` 表重建 `agent.setMessages`（历史权威源）。
+- 下一轮对话上下文不再依赖 checkpoint 回填：`SessionRuntimeWorker` 从 `messages` 表读取最近 200 条用户/助手文本作为 Agent 上下文（完整历史仍分页展示）。
 - `getLatestRun` 只返回 running/paused（或 undefined）；历史渲染完全由 messages 表承担。
 
 **内容压缩（进一步缩减体积）**：`saveRunCheckpoint` 落库前对快照与输入做最小化裁剪——
@@ -223,13 +223,13 @@ type CleanupCriteria =
 - Action：`refreshSessions`、`refreshStorageUsage`、`previewCleanup`、`exportCleanup`、`exportAndDeleteCleanup`、`removeSession`、`resetCleanup`。
 - 模块级订阅 `subscribeSessionChanges`（CustomEvent + BroadcastChannel）：任何会话变更自动刷新列表与容量，页面不再各自挂监听；`focus/visibilitychange` 时刷新容量。
 
-`runStore`（运行态）与 `sessionStore`（存储态）职责分离：前者管流式 run/resume，后者管持久化与容量清理。
+`sessionOperationService/store`（运行态）与 `sessionStore`（存储态）职责分离：前者管流式 run/resume，后者管持久化与容量清理。
 
 ### 3.11 断线续传 eventId 生命周期（存储 → 取用 → 发送）
 
 - **存储**：`saveRunCheckpoint` 对 running/paused 落 checkpoint 时保存 `latestEventId`（run 游标）+ `processedEventIds`（重放精确去重）+ 快照内每条消息的 `eventId`；压缩策略保留这三者。messages 表每条消息行也冗余 `eventId`（展示/调试，不参与续传）。
-- **取用**：`runStore.restoreSession` 读最新 checkpoint → `run = checkpoint.snapshot`，若 `running && latestEventId` 则续传；http 路径将陈旧 running 转 cancelled（后端无游标回放前不自动续传）。
-- **发送**：`runStore.resume` 构造 `createRuntimeAction(input, 'resume', { resume: { lastEventId: run.latestEventId } })`，随 POST body 的 `forwardedProps.resume.lastEventId` 发往后端；demo 后端按 `eventId > lastEventId` 字符串比较回放游标后事件。
+- **取用**：`sessionOperationService.restore` 读最新 checkpoint → 恢复 snapshot；若 `running && latestEventId` 则续传，没有游标时转 cancelled。
+- **发送**：恢复逻辑以相同 `runId` 构造 `forwardedProps.action='resume'` 与 `resume.lastEventId`；后端按游标回放缺失事件。
 - **约束（重要）**：eventId 必须**字符串可排序**（序号定宽补零，如 `{epoch_ms}-{seq:06d}`）。未补零时 run 超过 9 个事件后 `"-10" < "-9"`（字符串比较），resume 会漏事件。前端只做精确去重（`processedEventIds.includes`），不做大小比较，比较完全交给后端。
 
 ### 3.12 分页与懒加载（长会话/海量会话）

@@ -61,7 +61,7 @@ type ConversationContext = {
 | `threadId` | AgentDock | 创建会话时 `crypto.randomUUID()` 固化进 `SessionRecord.threadId`；hook 兜底 `thread-${sessionId}` | DeepAgents 上下文线程；同一会话内所有 run 共用 | Dexie `sessions.threadId`；后端保存上下文 |
 | `runId` | AG-UI Client | 每次发送 `crypto.randomUUID()`（mock 在 `createRunInput`，官方在 `send()`） | 一次用户提问/Agent 执行；Orchestration 必须沿用，不得新建 | Dexie `checkpoints.runId`（主键）+ `snapshot.runId`；后端执行记录 |
 | `parentRunId` | AG-UI Client | A2UI Action 新 run 时指向产生 Surface 的 runId（mock 已设；官方 transport 暂不传，见 4.4） | 子执行（A2UI Action 新 run）的父 run | 按需 |
-| `eventId` | Orchestration/Redis | 后端 SSE `id:` 或 `rawEvent.eventId`，前端 `runReducer` 提取 | 一个 run 内事件游标；按 eventId 游标恢复（已冻结方向） | 每个 `RuntimeRunState` 独立维护 `latestEventId + processedEventIds`；Dexie `checkpoints.latestEventId` |
+| `eventId` | Orchestration/Redis | 后端 AG-UI 事件顶层字段，前端 `runReducer` 提取 | 一个 run 内事件游标；按 eventId 游标恢复（已实现） | 每个 `RuntimeRunState` 独立维护 `latestEventId + processedEventIds`；Dexie `checkpoints.latestEventId` |
 | `messageId` | 事件产生方 | 后端事件自带 | 一段文本/reasoning/activity 消息 | IndexedDB 可见历史（`messages.id`） |
 | `toolCallId` | Agent/Core | 后端事件自带 | 一次工具调用 | 可见消息块 |
 | `surfaceId` | A2UI 工具 | 后端/中间件生成 | 一个 A2UI Surface | 可见消息块/快照 |
@@ -82,7 +82,7 @@ AG-UI 规范中 `RunAgentInput.runId` 由 **调用方（Client/Application）提
 
 **维护位置**：每个 run 的 `RuntimeRunState` 独立持有：
 
-- `latestEventId`：最近一次事件的游标（SSE `id:` 优先，其次 `rawEvent.eventId`）。
+- `latestEventId`：最近一次 AG-UI 事件顶层 `eventId` 游标。
 - `processedEventIds[]`：已处理游标集合，用于幂等去重（上限 5000，超出后滚动淘汰）。
 
 落盘：`saveRunCheckpoint` 把 `latestEventId` 写入 `checkpoints`（以 `runId` 为主键、`sessionId` 为索引），消息记录也携带该 run 的 eventId。
@@ -91,10 +91,9 @@ AG-UI 规范中 `RunAgentInput.runId` 由 **调用方（Client/Application）提
 
 - 持久化层天然隔离：`messages` 按 `sessionId` 查询，`checkpoints` 按 `runId` 主键 + `sessionId` 索引，多个会话/run 的记录互不覆盖。
 - 多标签页：每个标签页是独立 JS 上下文与内存 store，IndexedDB 同源共享但按上述键隔离，互不干扰。
-- 单标签页内同一时刻只有一个可见会话：
-  - mock 路径：内存 `runStore` 是全局单例（`run/activeInput/controller`），切换会话时 `restoreSession(sessionId)` 会用该会话最新 checkpoint 替换内存状态——恢复层面隔离，但不支持同页真并发双 run。
-  - 官方路径：`useOfficialConversation` 为每个会话注册独立代理 `agentdock-${sessionId}`，`httpRun` 是组件本地 state，切换会话时 `restore()` 重新加载对应 checkpoint 并 `agent.setMessages` 回填——按会话隔离。
-- 已知边界：`scheduleRunCheckpoint` 的防抖槽是模块级单槽；若未来同页支持多会话并发运行，需要改为按 sessionId 分槽，并在文档登记（当前产品形态不触发）。
+- 单标签页内可以有多个后台 Session 同时运行：`SessionRuntimeHost` 为每个活跃 Session 保持独立 Worker/订阅，`sessionOperationStore` 按 `runId` 保存热状态，页面仅选择当前 `sessionId`。
+- mock 与 http 路径都通过同一个 `sessionOperationService` 路由；切换可见 Session 不替换其他 Session 的 Operation。
+- `scheduleRunCheckpoint` 的防抖、最大等待和串行写链均按 `runId` 分槽，不同 Session 的 checkpoint 不互相覆盖。
 
 ### 3.6 会话行、落库 id 与会话列表刷新
 

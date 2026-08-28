@@ -49,7 +49,7 @@
 - 沿用输入的 `runId`。
 - 将当前 user message、`agentId/fab/threadId` 送到 Core。
 - 将 Redis 相同 `runId` 的事件按序流式返回。
-- 在 SSE `id` 和 event `rawEvent.eventId` 中提供游标。
+- 在每个需要续传的 AG-UI event 顶层提供 `eventId` 游标。
 
 ### Orchestration Core
 
@@ -86,7 +86,7 @@
 - single-route POST 可访问。
 - 用 Mock AG-UI Server 验证远端 `HttpAgent` 代理。
 - 验证 `forwardedProps` 到达上游。
-- 验证事件 `rawEvent.eventId` 经过 Runtime 后仍存在。
+- 验证事件顶层 `eventId` 经过 Runtime 后仍存在。
 
 ### 4.3 联合检查
 
@@ -114,7 +114,7 @@
 
 - 页面进入 running 状态。
 - `runId` 与 Browser 请求一致。
-- `rawEvent.eventId` 存在。
+- 顶层 `eventId` 存在。
 
 ### Case 2：流式文本
 
