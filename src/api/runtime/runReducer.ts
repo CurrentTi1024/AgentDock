@@ -27,8 +27,27 @@ const appendMessageId = (next: RuntimeRunState, id: string) => {
   if (id && !next.messageOrder.includes(id)) next.messageOrder.push(id);
 };
 const pushOrderedBlock = (next: RuntimeRunState, kind: RuntimeRunState['orderedBlocks'][number]['kind'], id: string) => {
+  if (!id) return;
   const key = `${kind}:${id}`;
   if (!next.orderedBlocks.some((block) => `${block.kind}:${block.id}` === key)) next.orderedBlocks.push({ id, kind });
+};
+/** CopilotKit 的流式占位 id 在 MESSAGES_SNAPSHOT 到达后会被规范 id 替换。
+ *  顺序锚点必须同步改名，否则实时正文会从 orderedBlocks 时间线中消失。 */
+const replaceOrderedBlockId = (
+  next: RuntimeRunState,
+  kind: RuntimeRunState['orderedBlocks'][number]['kind'],
+  previousId: string,
+  nextId: string,
+) => {
+  const seen = new Set<string>();
+  next.orderedBlocks = next.orderedBlocks
+    .map((block) => block.kind === kind && block.id === previousId ? { ...block, id: nextId } : block)
+    .filter((block) => {
+      const key = `${block.kind}:${block.id}`;
+      if (!block.id || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 };
 /** 从 A2UI payload 提取“逻辑 surfaceId”：官方 ops 的 createSurface/updateComponents 或顶层 surfaceId。
  *  同一逻辑 surface 在协议里会以两种形态出现（a2ui.surface 活动的 a2ui_operations 与
@@ -201,17 +220,42 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
     case 'TEXT_MESSAGE_CONTENT': if (!id) break; next.messages[id] ||= { id, role: 'assistant', content: '', runId: next.runId }; appendMessageId(next, id); if (next.messages[id].role === 'assistant') pushOrderedBlock(next, 'text', id); next.messages[id].content += String(event.delta || ''); if (input.eventId) next.messages[id].eventId = input.eventId; break;
     case 'TEXT_MESSAGE_CHUNK': if (!id) break; next.messages[id] ||= { id, role: 'assistant', content: '', runId: next.runId }; appendMessageId(next, id); if (next.messages[id].role === 'assistant') pushOrderedBlock(next, 'text', id); next.messages[id].content += String(event.delta || event.content || ''); if (input.eventId) next.messages[id].eventId = input.eventId; break;
     case 'TEXT_MESSAGE_END': if (!id) break; if (input.eventId && next.messages[id]) next.messages[id].eventId = input.eventId; break;
-    case 'REASONING_START': next.reasoningMeta[id] = { ...next.reasoningMeta[id], startedAt: Date.now(), streaming: true }; break;
-    case 'REASONING_MESSAGE_START': next.reasoning[id] = ''; next.reasoningMeta[id] = { ...next.reasoningMeta[id], startedAt: Date.now(), streaming: true }; pushOrderedBlock(next, 'reasoning', id); break;
-    case 'REASONING_MESSAGE_CONTENT': next.reasoning[id] = (next.reasoning[id] || '') + String(event.delta || ''); next.reasoningMeta[id] = { ...next.reasoningMeta[id], startedAt: next.reasoningMeta[id]?.startedAt ?? Date.now(), streaming: true }; break;
-    case 'REASONING_MESSAGE_CHUNK': next.reasoning[id] = (next.reasoning[id] || '') + String(event.delta || ''); next.reasoningMeta[id] = { ...next.reasoningMeta[id], streaming: true }; break;
-    case 'REASONING_MESSAGE_END': next.reasoningMeta[id] = { ...next.reasoningMeta[id], finishedAt: Date.now(), streaming: false }; break;
+    case 'REASONING_START':
+      if (id) next.reasoningMeta[id] = { ...next.reasoningMeta[id], startedAt: Date.now(), streaming: true };
+      break;
+    case 'REASONING_MESSAGE_START':
+      if (!id) break;
+      next.reasoning[id] = '';
+      next.reasoningMeta[id] = { ...next.reasoningMeta[id], startedAt: Date.now(), streaming: true };
+      pushOrderedBlock(next, 'reasoning', id);
+      break;
+    case 'REASONING_MESSAGE_CONTENT':
+    case 'REASONING_MESSAGE_CHUNK':
+      if (!id) break;
+      next.reasoning[id] = (next.reasoning[id] || '') + String(event.delta || event.content || '');
+      next.reasoningMeta[id] = {
+        ...next.reasoningMeta[id],
+        startedAt: next.reasoningMeta[id]?.startedAt ?? Date.now(),
+        streaming: true,
+      };
+      pushOrderedBlock(next, 'reasoning', id);
+      break;
+    case 'REASONING_MESSAGE_END':
+      if (!id) break;
+      next.reasoningMeta[id] = { ...next.reasoningMeta[id], finishedAt: Date.now(), streaming: false };
+      pushOrderedBlock(next, 'reasoning', id);
+      break;
     case 'REASONING_END': {
       const targetId = id || Object.keys(next.reasoning).at(-1) || '';
       if (targetId) next.reasoningMeta[targetId] = { ...next.reasoningMeta[targetId], finishedAt: Date.now(), streaming: false };
       break;
     }
-    case 'REASONING_ENCRYPTED_VALUE': next.reasoningMeta[id] = { ...next.reasoningMeta[id], encrypted: true }; break;
+    case 'REASONING_ENCRYPTED_VALUE':
+      if (!id) break;
+      next.reasoning[id] ??= '';
+      next.reasoningMeta[id] = { ...next.reasoningMeta[id], encrypted: true };
+      pushOrderedBlock(next, 'reasoning', id);
+      break;
     case 'STEP_STARTED': {
       const stepId = String(event.stepId || event.stepName || event.messageId || `step-${Date.now()}`);
       next.steps[stepId] = { id: stepId, name: String(event.stepName || ''), status: 'running', startedAt: Date.now() }; pushOrderedBlock(next, 'step', stepId);
@@ -221,12 +265,38 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
       const stepId = String(event.stepId || event.stepName || event.messageId || Object.keys(next.steps).at(-1) || `step-${Date.now()}`);
       const existing = next.steps[stepId];
       next.steps[stepId] = { ...(existing ?? { id: stepId, name: String(event.stepName || ''), status: 'running' }), finishedAt: Date.now(), status: event.error || event.status === 'error' ? 'error' : 'completed' };
+      pushOrderedBlock(next, 'step', stepId);
       break;
     }
-    case 'TOOL_CALL_START': next.toolCalls[toolId] = { apiName: String(event.apiName || event.toolCallName || ''), args: '', name: String(event.toolCallName || ''), startedAt: Date.now(), status: 'running' }; pushOrderedBlock(next, 'tool', toolId); break;
-    case 'TOOL_CALL_ARGS': next.toolCalls[toolId] ||= { args: '', startedAt: Date.now(), status: 'running' }; next.toolCalls[toolId].args += String(event.delta || ''); break;
-    case 'TOOL_CALL_END': if (next.toolCalls[toolId]) { next.toolCalls[toolId].status = 'called'; next.toolCalls[toolId].finishedAt = next.toolCalls[toolId].finishedAt ?? Date.now(); next.toolCalls[toolId].apiName ||= String(event.apiName || event.toolCallName || next.toolCalls[toolId].name || ''); } break;
-    case 'TOOL_CALL_RESULT': next.toolCalls[toolId] ||= { args: '', startedAt: Date.now(), status: 'completed' }; next.toolCalls[toolId].result = event.content ?? event.result; next.toolCalls[toolId].status = 'completed'; next.toolCalls[toolId].finishedAt = Date.now(); next.toolCalls[toolId].resultMsgId = String(event.result_msg_id || event.resultMsgId || ''); next.toolCalls[toolId].apiName ||= String(event.apiName || event.toolCallName || next.toolCalls[toolId].name || ''); break;
+    case 'TOOL_CALL_START':
+      if (!toolId) break;
+      next.toolCalls[toolId] = { apiName: String(event.apiName || event.toolCallName || ''), args: '', name: String(event.toolCallName || ''), startedAt: Date.now(), status: 'running' };
+      pushOrderedBlock(next, 'tool', toolId);
+      break;
+    case 'TOOL_CALL_ARGS':
+      if (!toolId) break;
+      next.toolCalls[toolId] ||= { args: '', startedAt: Date.now(), status: 'running' };
+      next.toolCalls[toolId].args += String(event.delta || '');
+      pushOrderedBlock(next, 'tool', toolId);
+      break;
+    case 'TOOL_CALL_END':
+      if (!toolId) break;
+      next.toolCalls[toolId] ||= { args: '', startedAt: Date.now(), status: 'called' };
+      next.toolCalls[toolId].status = 'called';
+      next.toolCalls[toolId].finishedAt = next.toolCalls[toolId].finishedAt ?? Date.now();
+      next.toolCalls[toolId].apiName ||= String(event.apiName || event.toolCallName || next.toolCalls[toolId].name || '');
+      pushOrderedBlock(next, 'tool', toolId);
+      break;
+    case 'TOOL_CALL_RESULT':
+      if (!toolId) break;
+      next.toolCalls[toolId] ||= { args: '', startedAt: Date.now(), status: 'completed' };
+      next.toolCalls[toolId].result = event.content ?? event.result;
+      next.toolCalls[toolId].status = 'completed';
+      next.toolCalls[toolId].finishedAt = Date.now();
+      next.toolCalls[toolId].resultMsgId = String(event.result_msg_id || event.resultMsgId || '');
+      next.toolCalls[toolId].apiName ||= String(event.apiName || event.toolCallName || next.toolCalls[toolId].name || '');
+      pushOrderedBlock(next, 'tool', toolId);
+      break;
     // 当前 UI/恢复链路均不消费 AG-UI State；不复制任意大的 state payload。
     // CopilotKit Agent 自己仍处理协议 State，本投影只负责可见消息/过程块。
     case 'STATE_SNAPSHOT': next.state = undefined; break;
@@ -299,6 +369,7 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
             const placeholderRunId = next.messages[placeholderId]?.runId;
             delete next.messages[placeholderId];
             next.messageOrder = next.messageOrder.filter((id) => id !== placeholderId);
+            replaceOrderedBlockId(next, 'text', placeholderId, message.id);
             next.messages[message.id] = { ...message, runId: placeholderRunId ?? next.runId };
             continue;
           }

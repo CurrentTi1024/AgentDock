@@ -35,6 +35,7 @@
 | [16-indexeddb-storage-plan.md](16-indexeddb-storage-plan.md) | Session 本地 IndexedDB（Dexie）完整方案：现状 vs LobeHub、schema v2 迁移、lastMessageAt、容量监控预警、导出清理、跨页同步、zustand 操作中间层 | 前端 |
 | [17-chat-full-feature-architecture.md](17-chat-full-feature-architecture.md) | Chat 全功能架构与设计机制：运行时/事件投影/历史落库/消息渲染/过程可视化/输入区/消息操作/滚动/群聊复用/一致性防护（重机制轻代码） | 前端 |
 | [18-multi-session-concurrent-runs.md](18-multi-session-concurrent-runs.md) | 多 Session 独立订阅与并发运行：全局 Operation Store、常驻 Runtime Worker、按 Session 路由事件、per-run checkpoint、顶层 eventId 断点续传 | 前端架构 + 运行时联调 |
+| [19-run-control-and-html-artifact.md](19-run-control-and-html-artifact.md) | Agent Run 控制与 HTML Artifact：真实后端取消链路、API 契约、当前实现审计、侧栏预览/源码交互与安全边界 | 前端 + Runtime + Orchestration/Core |
 
 ## 3. 与权威文档的关系
 

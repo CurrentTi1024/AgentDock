@@ -248,6 +248,7 @@ test('快照先于流式完成到达：规范 UUID 按角色替换部分内容�
   assert.equal(state.messages['assistant-3'].content, '我目前无法获取实时天气数据。');
   // 时间线里只有规范 id，没有占位 id
   assert.deepEqual(state.messageOrder, ['user-3', 'assistant-3']);
+  assert.deepEqual(state.orderedBlocks, [{ id: 'assistant-3', kind: 'text' }]);
 });
 
 test('records per-message eventId and dedupes replay', () => {
@@ -276,6 +277,28 @@ test('assistant narration/text participates in orderedBlocks with tools in arriv
     { id: 'tool-between', kind: 'tool' },
     { id: 'assistant-final', kind: 'text' },
   ]);
+});
+
+test('reasoning、正文、工具、activity 与后续正文严格按首次到达顺序进入时间线', () => {
+  let state = createRunState('run-interleaved-order', 'thread-interleaved-order');
+  state = reduceRunEvent(state, { eventId: '1', event: { type: 'REASONING_MESSAGE_CONTENT', messageId: 'reasoning-1', delta: '先分析' } });
+  state = reduceRunEvent(state, { eventId: '2', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'answer-1', delta: '阶段结论一' } });
+  state = reduceRunEvent(state, { eventId: '3', event: { type: 'TOOL_CALL_ARGS', toolCallId: 'tool-1', delta: '{"q":1}' } });
+  state = reduceRunEvent(state, { eventId: '4', event: { type: 'ACTIVITY_DELTA', messageId: 'activity-1', activityType: 'agentDock.task', delta: { status: 'running' } } });
+  state = reduceRunEvent(state, { eventId: '5', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'answer-2', delta: '阶段结论二' } });
+  state = reduceRunEvent(state, { eventId: '6', event: { type: 'REASONING_ENCRYPTED_VALUE', messageId: 'reasoning-2' } });
+
+  assert.deepEqual(state.orderedBlocks, [
+    { id: 'reasoning-1', kind: 'reasoning' },
+    { id: 'answer-1', kind: 'text' },
+    { id: 'tool-1', kind: 'tool' },
+    { id: 'activity-1', kind: 'activity' },
+    { id: 'answer-2', kind: 'text' },
+    { id: 'reasoning-2', kind: 'reasoning' },
+  ]);
+  assert.equal(state.reasoning['reasoning-1'], '先分析');
+  assert.equal(state.toolCalls['tool-1'].args, '{"q":1}');
+  assert.equal(state.reasoningMeta['reasoning-2'].encrypted, true);
 });
 
 test('tracks reasoning streaming state and duration across REASONING events', () => {

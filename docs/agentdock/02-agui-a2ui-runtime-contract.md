@@ -327,7 +327,16 @@ State Delta 使用 RFC 6902 JSON Patch。
 
 用于长生命周期、可增量更新的 Agent delegation、Task、Plan 和 A2UI Surface，不用文本消息模拟结构化状态。
 
-### 6.7 扩展
+### 6.7 Browser 展示顺序与过程分段
+
+- Browser 必须按业务事件首次到达的顺序维护单轮时间线，禁止在渲染层把 reasoning、tool、activity、step 和正文重新按类型分组。
+- 相邻的 reasoning、tool call、普通 activity、workflow step 与 HITL 组成一个“过程段”；助手文本和 A2UI Surface 是正文段，也是过程段边界。
+- 正文可以在一轮 run 中出现多次。页面必须保持 `过程 1 → 正文 1 → 过程 2 → 正文 2` 的真实顺序，刷新后从本地历史恢复时顺序不变。
+- 流式期间只自动展开时间线上最后一个、且尚未被后续正文截断的过程段。正文开始后，前一个过程段立即自动折叠；后续过程段开始时只展开新过程段。
+- Error Alert 与 A2UI Surface 属于用户可见输出，不收入过程折叠；`generate_a2ui` / `render_a2ui` 等仅服务于 Surface 的内部工具仍隐藏。
+- 同一事件实体的增量（例如 `TOOL_CALL_ARGS`、`ACTIVITY_DELTA`）更新该实体，不因每个 token/delta 重复创建卡片；顺序锚点取该可见实体首次出现的位置。
+
+### 6.8 扩展
 
 - `CUSTOM`
 - `RAW`
@@ -528,12 +537,55 @@ Runtime Adapter 使用相同 `runId` 请求 `/ag-ui`（官方 `agent/connect`）
 
 ## 11. Stop/Cancel
 
-- Browser stop 调用 Copilot Runtime stop。
-- Runtime Adapter 通知 Orchestration Service。
-- Service 通知 Core 取消对应 `runId`。
-- 取消后返回 `RUN_ERROR(code=CANCELLED)` 或双方最终确认的标准终止事件。
-- 取消必须停止继续写入普通 content delta。
-- 是否保留已经产生的部分文本：保留并标记 interrupted。
+- Stop 是 Run 控制操作，不是 Chat Message；禁止发送 `message="Agent stop"` 或让模型解释停止意图。
+- Browser 使用 Copilot Runtime single-route `agent/stop`，请求以 `agentId + threadId` 定位当前运行；不发送 `RunAgentInput` body。
+- Runtime 必须根据 active-run registry 把 `threadId` 解析为原始 `runId + fab + upstreamBaseUrl`，再调用同一 FAB Orchestration 的
+  `POST /ag-ui/runs/{runId}/cancel`。多 Runtime 副本时 registry 必须共享，或保证 thread 粘滞路由。
+- 关闭 Browser SSE/fetch 只属于即时 UX，不能作为后端停止的证据。Orchestration 必须登记真实 task handle/cancellation token，
+  并通知 Core 停止 LLM stream、后续 loop、新 tool/step；长工具应实现 cancel hook 和超时。
+- Orchestration cancel 接口必须幂等：`pending/running → cancel_requested → cancelled`；重复请求返回当前状态，不得误取消同 thread 的下一次 run。
+- 权威终态统一为 `RUN_ERROR(code=CANCELLED)`，随后关闭流。已经产生的部分文本和 Artifact 保留并标记 interrupted；终态后不得继续写普通 content delta。
+- Browser 应显示 `cancel_requested` 中间态；只有收到 cancel API 确认/终态后才宣称远端已停止。远端失败允许重试，不得只吞掉异常后伪造成功。
+- 完整请求/响应、错误码、状态机、当前代码缺口和验收证据见 `design/19-run-control-and-html-artifact.md`。
+
+### 11.1 Orchestration Cancel 请求
+
+```http
+POST {orchestrationBaseUrl}/ag-ui/runs/{runId}/cancel
+Content-Type: application/json
+```
+
+```json
+{
+  "threadId": "thread-001",
+  "reason": "user_requested",
+  "mode": "interrupt",
+  "requestedAt": "2026-09-09T10:00:00+08:00"
+}
+```
+
+首次接受建议返回 HTTP 202：
+
+```json
+{
+  "runId": "run-001",
+  "threadId": "thread-001",
+  "status": "cancel_requested",
+  "accepted": true
+}
+```
+
+接口必须校验 `runId + threadId + principal`。FAB 与上游地址从 run 启动记录读取，不能相信取消请求重新提交的 FAB。
+
+### 11.2 HTML Artifact
+
+- 完整 HTML 页面使用 `ACTIVITY_SNAPSHOT(activityType="agentDock.artifact")`，不使用普通文本或 A2UI Surface 承载。
+- A2UI 只用于 Catalog 约束的原生组件；Artifact 是具有 MIME、版本、预览、源码、下载和持久化语义的资产。
+- 首期无对象存储时允许 `storage="inline" + body`，UTF-8 内容建议上限 512 KiB；后续可无损扩展为 object storage。
+- 最小 payload 必须包含 `artifactId`、`revision`、`title`、`mimeType=text/html`、`storage`、`body`、`sizeBytes` 和 `sha256`。
+- Browser 正文显示 Artifact 文件卡，点击打开右栏；右栏默认预览，可切换源码。历史 Activity 必须能恢复文件卡和面板。
+- HTML 必须视为不受信代码：使用不带 `allow-same-origin/allow-scripts` 的 iframe sandbox，注入严格 CSP，执行 sanitize 和大小校验。
+- 完整字段、兼容结构、安全策略和当前迁移审计见 `design/19-run-control-and-html-artifact.md`。
 
 ## 12. 错误码建议
 

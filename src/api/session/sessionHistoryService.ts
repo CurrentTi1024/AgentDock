@@ -483,8 +483,8 @@ export const sessionHistoryService = {
       });
     };
     // 顶层消息时间线以 messageOrder 为准。当前 run 若产生多段 assistant 文本，
-    // 只把最后一段作为最终答案，前面的段落按 orderedBlocks 转成 narration，
-    // 与 reasoning/tool/step 保持真实到达顺序（LobeHub AssistantGroup 语义）。
+    // 最后一段保留为该轮历史宿主（分页/操作栏），每一段同时按 orderedBlocks 落为
+    // timelineText narration 记录，使正文与 reasoning/tool/activity 在刷新后仍保持真实顺序。
     const messageIds = snapshot.messageOrder?.length
       ? snapshot.messageOrder
       : Object.keys(snapshot.messages);
@@ -565,10 +565,18 @@ export const sessionHistoryService = {
       persistedBlocks.add(key);
       switch (kind) {
         case 'text': {
-          if (!intermediateAssistantIds.has(id)) return;
           const message = snapshot.messages[id];
-          if (message?.content) {
-            push('narration', id, { content: message.content, runId: snapshot.runId, eventId: message.eventId ?? snapshot.latestEventId });
+          if (
+            message?.role === 'assistant' &&
+            message.runId === snapshot.runId &&
+            message.content !== undefined
+          ) {
+            push('narration', id, {
+              content: message.content,
+              eventId: message.eventId ?? snapshot.latestEventId,
+              payload: { timelineText: true },
+              runId: snapshot.runId,
+            });
           }
           return;
         }

@@ -11,11 +11,11 @@ import { findLogicalSurfaceId } from '@/api/runtime/runReducer';
 import type { RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
 import type { SessionMessageRecord } from '@/api/session/sessionHistoryService';
 import ErrorAlert from '@/features/chat/components/lobehub/ErrorAlert';
+import { Markdown } from '@/features/chat/components/Markdown';
 import {
   ActivityBlock,
   formatProcessDuration,
   HitlBlock,
-  NarrationBlock,
   ProcessFold,
   ReasoningBlock,
   ToolCallBlock,
@@ -58,59 +58,41 @@ export const stripRunErrorText = (content: string, errorMessage?: string): strin
   return content.endsWith(suffix) ? content.slice(0, -suffix.length) : content;
 };
 
-/** 收集一轮 run 的过程块（思考/工具/步骤），完成后折叠为 ProcessFold 汇总行。 */
-const createProcessCollector = (streaming: boolean) => {
+/** 收集一段连续的过程事件。正文/A2UI/error 是边界，会先 flush 当前过程段。
+ *  只有时间线最后一个过程段会以 active=true 自动展开。 */
+const createProcessCollector = () => {
   let flushIndex = 0;
   const state = {
     finishedAt: undefined as number | undefined,
-    hasReasoning: false,
-    hasWork: false,
     nodes: [] as React.ReactNode[],
-    // 推理（thinking）与过程分开：正文出来后 thinking 也要常驻显示（默认折叠），
-    // 不藏进 ProcessFold；工具/步骤/中间叙述才进过程折叠。
-    reasoningNodes: [] as React.ReactNode[],
     startedAt: undefined as number | undefined,
     stepCount: 0,
   };
   const track = (startedAt?: number, finishedAt?: number) => {
-    if (startedAt && (!state.startedAt || startedAt < state.startedAt)) state.startedAt = startedAt;
-    if (finishedAt && (!state.finishedAt || finishedAt > state.finishedAt)) state.finishedAt = finishedAt;
+    if (Number.isFinite(startedAt) && (!state.startedAt || startedAt! < state.startedAt)) state.startedAt = startedAt;
+    if (Number.isFinite(finishedAt) && (!state.finishedAt || finishedAt! > state.finishedAt)) state.finishedAt = finishedAt;
   };
-  const flush = (target: React.ReactNode[]) => {
-    if (!state.nodes.length && !state.reasoningNodes.length) return;
+  const flush = (target: React.ReactNode[], active = false) => {
+    if (!state.nodes.length) return;
     // 快照节点副本再传给组件：state.nodes 随后会被 length=0 原地清空，
     // 若按引用传递，React 渲染时 children 已变成空数组（折叠有标题无内容）。
     const nodes = [...state.nodes];
-    const reasoningNodes = [...state.reasoningNodes];
-    // 推理独立常驻：正文出来后 thinking 也显示，默认折叠（Thinking 完成自动收起）。
-    if (reasoningNodes.length) target.push(...reasoningNodes);
-    state.reasoningNodes.length = 0;
-    if (nodes.length) {
-      // 只有真实步骤/工具（stepCount>0）才汇总为折叠，
-      // 避免 narration/HITL 等 0 步过程渲染出「已处理 0 步 · –」的空折叠卡。
-      if (state.stepCount > 0) {
-        const processKey = `process-${state.startedAt ?? 'untimed'}-${flushIndex}`;
-        flushIndex += 1;
-        target.push(
-          <ProcessFold
-            durationText={formatProcessDuration(state.startedAt, state.finishedAt)}
-            key={processKey}
-            stepCount={state.stepCount}
-            streaming={streaming}
-          >
-            {nodes}
-          </ProcessFold>,
-        );
-      } else {
-        target.push(...nodes);
-      }
-    }
+    const processKey = `process-${state.startedAt ?? 'untimed'}-${flushIndex}`;
+    flushIndex += 1;
+    target.push(
+      <ProcessFold
+        durationText={formatProcessDuration(state.startedAt, state.finishedAt)}
+        key={processKey}
+        stepCount={Math.max(1, state.stepCount)}
+        streaming={active}
+      >
+        {nodes}
+      </ProcessFold>,
+    );
     state.nodes.length = 0;
     state.stepCount = 0;
     state.startedAt = undefined;
     state.finishedAt = undefined;
-    state.hasReasoning = false;
-    state.hasWork = false;
   };
   return { flush, state, track };
 };
@@ -289,7 +271,22 @@ export interface StoredTextMessage {
   record: SessionMessageRecord;
 }
 
-/** 单个展示单元：同一轮 run 的连续助手文本合并（内容取最终答案，中间文本作 narration）。 */
+/** 新格式历史把每段 assistant 正文也作为时间线记录落库；宿主 text 行只用于分页和操作栏。 */
+export const hasStoredTextTimeline = (blocks: SessionMessageRecord[]): boolean =>
+  blocks.some((record) => record.kind === 'narration' && record.payload?.timelineText === true);
+
+/** 实时态存在可用 assistant text 顺序锚点时，ChatItem 不再额外把最终正文固定追加到底部。 */
+export const hasRunTextTimeline = (
+  run: RuntimeRunState | undefined,
+  deletedKeys?: Set<string>,
+): boolean => Boolean(run?.orderedBlocks?.some(
+  (ref) =>
+    ref.kind === 'text' &&
+    !deletedKeys?.has(`text:${ref.id}`) &&
+    run.messages[ref.id]?.role === 'assistant',
+));
+
+/** 单个展示单元：同一轮 run 的连续助手文本共用一个 ChatItem；正文仍由 blocks 时间线定位。 */
 export interface DisplayUnit {
   blocks: SessionMessageRecord[];
   narration: string[];
@@ -332,7 +329,7 @@ export const renderStoredBlocks = (
 ): React.ReactNode[] => {
   const nodes: React.ReactNode[] = [];
   const stepRecords: SessionMessageRecord[] = [];
-  const process = createProcessCollector(false);
+  const process = createProcessCollector();
   // 旧数据防御：同一逻辑 surface 可能以多个记录键落库（a2ui.surface 活动键 + render_a2ui
   // 工具键），按逻辑 surfaceId 去重，只渲染一次。
   const seenSurfaces = new Set<string>();
@@ -342,9 +339,8 @@ export const renderStoredBlocks = (
       : blocks;
   if (options.narration?.length) {
     for (const text of options.narration) {
-      process.state.nodes.push(<NarrationBlock key={`narration-${text.slice(0, 12)}`} text={text} />);
+      nodes.push(<Markdown content={text} key={`legacy-text-${text.slice(0, 12)}`} />);
     }
-    process.state.hasWork = true;
   }
   const pushStepsIntoProcess = () => {
     if (!stepRecords.length) return;
@@ -359,7 +355,6 @@ export const renderStoredBlocks = (
       };
     });
     process.state.nodes.push(<WorkflowStepsBlock key={`steps-${stepRecords[0].id}`} steps={steps} />);
-    process.state.hasWork = true;
     process.state.stepCount += steps.length;
     process.track(
       Math.min(...steps.map((step) => step.startedAt ?? Number.POSITIVE_INFINITY)),
@@ -369,7 +364,7 @@ export const renderStoredBlocks = (
   };
   const flushSteps = () => {
     pushStepsIntoProcess();
-    process.flush(nodes);
+    process.flush(nodes, false);
   };
 
   for (const record of visibleBlocks) {
@@ -381,21 +376,21 @@ export const renderStoredBlocks = (
       continue;
     }
     if (record.kind === 'narration') {
-      pushStepsIntoProcess();
+      flushSteps();
       if (record.content?.trim()) {
-        process.state.nodes.push(<NarrationBlock key={record.id} text={record.content} />);
-        process.state.hasWork = true;
+        nodes.push(<Markdown content={record.content} key={record.id} />);
       }
       continue;
     }
     const payload = (record.payload || {}) as Record<string, unknown>;
     if (record.kind === 'reasoning') {
+      pushStepsIntoProcess();
       if (options.showReasoning !== false) {
-        // 推理独立常驻（默认折叠）；空内容不渲染，避免“空已深度思考”噪声块。
+        // Reasoning 是过程段内的二级详情；空且非加密内容不生成噪声卡。
         if (record.content?.trim()) {
-          process.state.reasoningNodes.push(<ReasoningBlock id={record.id} key={record.id} text={record.content} />);
+          process.state.nodes.push(<ReasoningBlock id={record.id} key={record.id} text={record.content} />);
+          process.state.stepCount += 1;
         }
-        process.state.hasReasoning = true;
       }
     } else if (record.kind === 'tool') {
       pushStepsIntoProcess();
@@ -415,7 +410,6 @@ export const renderStoredBlocks = (
           key={record.id}
         />,
       );
-      process.state.hasWork = true;
       process.state.stepCount += 1;
       process.track(
         typeof payload.startedAt === 'number' ? payload.startedAt : undefined,
@@ -465,13 +459,12 @@ export const renderStoredBlocks = (
             requestId={requestId}
           />,
         );
-        process.state.hasWork = true;
+        process.state.stepCount += 1;
         continue;
       }
       // 所有普通 AG-UI Activity 都是执行过程任务卡，统一进入 assistant workflow 折叠区；
       // 不以 agentDock.* 为前提，真实后端的自定义 activityType 也必须可见。
       process.state.nodes.push(<ActivityBlock activity={payload} key={record.id} />);
-      process.state.hasWork = true;
       process.state.stepCount += 1;
       continue;
     } else if (record.kind === 'surface') {
@@ -510,11 +503,10 @@ export const renderRunBlocks = (
   const stepBuffer: RuntimeStep[] = [];
   const seenSurfaces = new Set<string>();
   const streaming = run.status === 'running' || run.status === 'paused';
-  const process = createProcessCollector(streaming);
+  const process = createProcessCollector();
   const pushStepsIntoProcess = () => {
     if (!stepBuffer.length) return;
     process.state.nodes.push(<WorkflowStepsBlock key={`steps-${stepBuffer[0].id}`} steps={[...stepBuffer]} streaming={streaming} />);
-    process.state.hasWork = true;
     process.state.stepCount += stepBuffer.length;
     process.track(
       Math.min(...stepBuffer.map((step) => step.startedAt ?? Number.POSITIVE_INFINITY)),
@@ -522,14 +514,11 @@ export const renderRunBlocks = (
     );
     stepBuffer.length = 0;
   };
-  const flushSteps = () => {
+  const flushSteps = (active = false) => {
     pushStepsIntoProcess();
-    process.flush(blocks);
+    process.flush(blocks, active);
   };
   const ordered = run.orderedBlocks?.length ? run.orderedBlocks : [];
-  const finalAssistantId = [...(run.messageOrder || [])]
-    .reverse()
-    .find((messageId) => run.messages[messageId]?.role === 'assistant');
   const visibleOrdered = options.deletedKeys?.size
     ? ordered.filter((ref) => !options.deletedKeys!.has(`${ref.kind}:${ref.id}`))
     : ordered;
@@ -538,17 +527,16 @@ export const renderRunBlocks = (
     if (options.showReasoning !== false) {
       for (const [id, text] of Object.entries(run.reasoning || {})) {
         const meta = run.reasoningMeta?.[id];
-        if (text?.trim() || meta?.streaming) {
-          process.state.reasoningNodes.push(<ReasoningBlock id={id} key={`reasoning-${id}`} meta={meta} text={text} />);
+        if (text?.trim() || meta?.streaming || meta?.encrypted) {
+          process.state.nodes.push(<ReasoningBlock id={id} key={`reasoning-${id}`} meta={meta} text={text} />);
+          process.state.stepCount += 1;
         }
-        process.state.hasReasoning = true;
         process.track(meta?.startedAt, meta?.finishedAt);
       }
     }
     for (const [id, call] of Object.entries(run.toolCalls || {})) {
       if (isA2uiTool(call.apiName)) continue;
       process.state.nodes.push(<ToolCallBlock call={call} key={`tool-${id}`} />);
-      process.state.hasWork = true;
       process.state.stepCount += 1;
       process.track(call.startedAt, call.finishedAt);
     }
@@ -556,7 +544,6 @@ export const renderRunBlocks = (
     const visibleSteps = steps.filter((step) => !isInternalStep(step.name));
     if (visibleSteps.length) {
       process.state.nodes.push(<WorkflowStepsBlock key="steps" steps={visibleSteps} streaming={streaming} />);
-      process.state.hasWork = true;
       process.state.stepCount += visibleSteps.length;
       process.track(
         Math.min(...visibleSteps.map((step) => step.startedAt ?? Number.POSITIVE_INFINITY)),
@@ -590,13 +577,20 @@ export const renderRunBlocks = (
             requestId={String(value.requestId || id)}
           />,
         );
+        process.state.stepCount += 1;
       } else {
         process.state.nodes.push(<ActivityBlock activity={value} key={`fallback-activity-${id}`} />);
         process.state.stepCount += 1;
       }
-      process.state.hasWork = true;
     }
-    flushSteps();
+    const hasRenderableSurface = options.showSurfaces !== false && Object.entries(run.surfaces || {}).some(
+      ([surfaceId, payload]) =>
+        typeof payload === 'object' &&
+        payload !== null &&
+        hasSurfaceContent(payload as Record<string, unknown>) &&
+        Boolean(findLogicalSurfaceId(payload) || surfaceId),
+    );
+    flushSteps(streaming && !hasRenderableSurface);
     if (options.showSurfaces !== false) {
       for (const [surfaceId, payload] of Object.entries(run.surfaces || {})) {
         if (typeof payload === 'object' && payload !== null) {
@@ -614,33 +608,37 @@ export const renderRunBlocks = (
     for (const ref of visibleOrdered) {
       if (ref.kind === 'text') {
         const message = run.messages?.[ref.id];
-        if (
-          message?.role === 'assistant' &&
-          ref.id !== finalAssistantId &&
-          message.content?.trim()
-        ) {
-          pushStepsIntoProcess();
-          process.state.nodes.push(
-            <NarrationBlock key={`narration-${ref.id}`} text={message.content} />,
-          );
-          process.state.hasWork = true;
+        if (message?.role === 'assistant') {
+          // TEXT_MESSAGE_START 本身就是过程边界：即使首 token 尚未到达，也要立刻
+          // 收起前一个过程段；内容随后在同一位置增量更新。
+          flushSteps(false);
+          const content = stripRunErrorText(message.content || '', run.error?.message);
+          if (content.trim()) {
+            blocks.push(
+              <Markdown
+                content={content}
+                enableStream={streaming && visibleOrdered.at(-1) === ref}
+                key={`text-${ref.id}`}
+              />,
+            );
+          }
         }
       } else if (ref.kind === 'reasoning') {
         if (options.showReasoning === false) continue;
+        pushStepsIntoProcess();
         const text = run.reasoning?.[ref.id];
         if (text !== undefined) {
           const meta = run.reasoningMeta?.[ref.id];
-          if (text?.trim() || meta?.streaming) {
-            process.state.reasoningNodes.push(<ReasoningBlock id={ref.id} key={`reasoning-${ref.id}`} meta={meta} text={text} />);
+          if (text?.trim() || meta?.streaming || meta?.encrypted) {
+            process.state.nodes.push(<ReasoningBlock id={ref.id} key={`reasoning-${ref.id}`} meta={meta} text={text} />);
+            process.state.stepCount += 1;
           }
-          process.state.hasReasoning = true;
           process.track(meta?.startedAt, meta?.finishedAt);
         }
       } else if (ref.kind === 'step') {
         const step = run.steps?.[ref.id];
         if (step && !isInternalStep(step.name)) {
           stepBuffer.push(step);
-          process.state.hasWork = true;
           process.track(step.startedAt, step.finishedAt);
         }
       } else if (ref.kind === 'tool') {
@@ -648,7 +646,6 @@ export const renderRunBlocks = (
         const call = run.toolCalls?.[ref.id];
         if (call && !isA2uiTool(call.apiName)) {
           process.state.nodes.push(<ToolCallBlock call={call} key={`tool-${ref.id}`} />);
-          process.state.hasWork = true;
           process.state.stepCount += 1;
           process.track(call.startedAt, call.finishedAt);
         }
@@ -660,11 +657,11 @@ export const renderRunBlocks = (
         // reducer 仅保留 diagnosticOnly activity 供诊断，不能再塞进 assistant workflow 重复显示。
         if (value.diagnosticOnly === true) continue;
         if (value.activityType === 'a2ui.surface' || value.activityType === 'a2ui-surface' || value.activityType === 'agentDock.artifact') {
-          flushSteps();
+          flushSteps(false);
           continue;
         }
         if (value.activityType === 'agentDock.error') {
-          flushSteps();
+          flushSteps(false);
           blocks.push(
             <ErrorAlert
               code={typeof value.code === 'string' ? value.code : undefined}
@@ -696,7 +693,7 @@ export const renderRunBlocks = (
               requestId={value.requestId}
             />,
           );
-          process.state.hasWork = true;
+          process.state.stepCount += 1;
         } else if (value.activityType === 'agentDock.hitl') {
           process.state.nodes.push(
             <HitlBlock
@@ -716,15 +713,14 @@ export const renderRunBlocks = (
               requestId={String(value.requestId || ref.id)}
             />,
           );
-          process.state.hasWork = true;
+          process.state.stepCount += 1;
         } else {
           // 所有普通 AG-UI Activity（包括非 agentDock.* 自定义类型）都作为任务卡并入折叠。
           process.state.nodes.push(<ActivityBlock activity={value} key={`activity-${ref.id}`} />);
-          process.state.hasWork = true;
           process.state.stepCount += 1;
         }
       } else if (ref.kind === 'surface') {
-        flushSteps();
+        flushSteps(false);
         if (options.showSurfaces === false) continue;
         const payload = run.surfaces?.[ref.id];
         if (typeof payload === 'object' && payload !== null) {
@@ -739,9 +735,11 @@ export const renderRunBlocks = (
         }
       }
     }
-    flushSteps();
+    // 只有最后仍处于时间线末端的过程段自动展开；任何正文/surface/error 都会在上面
+    // 以 active=false 提前 flush，从结构上保证同一时刻最多自动展开一个过程段。
+    flushSteps(streaming);
   }
-  // RUN_ERROR 的错误文本已由 reducer 作为 assistant 消息内容（最后一个 chunk）渲染，
-  // 不再额外推 ErrorBlock，避免同一错误在气泡正文与过程区重复显示。
+  // RUN_ERROR 的错误文本会剥离 reducer 追加到 assistant 文本的同值后缀；这里保留一个
+  // 结构化 ErrorAlert，避免正文与错误提示重复，同时仍让错误占据真实事件位置。
   return blocks;
 };

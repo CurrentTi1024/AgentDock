@@ -23,6 +23,8 @@ import type { OpStatusActivity } from '@/features/chat/components/OpStatusTray';
 import NavHeader from '@/components/shell/NavHeader';
 import {
   buildDisplayUnits,
+  hasRunTextTimeline,
+  hasStoredTextTimeline,
   HistoryDivider,
   renderRunBlocks,
   renderStoredBlocks,
@@ -201,15 +203,17 @@ const GroupChatPage = () => {
   const orderedLiveMessages = run?.messageOrder?.length
     ? run.messageOrder.map((messageId) => run.messages[messageId]).filter(Boolean)
     : Object.values(run?.messages || {});
-  const liveMessages = orderedLiveMessages.filter(
+  const visibleLiveMessages = orderedLiveMessages.filter(
     (message) =>
-      !String(message.id).startsWith('lc_run--') &&
       !deletedKeys.has(`text:${message.id}`) &&
       !deletedKeys.has(`tool:${message.id}`),
   );
-  const answer = liveMessages
-    .filter((message) => message.role === 'assistant')
-    .at(-1)?.content;
+  const liveAssistantMessages = visibleLiveMessages.filter((message) => message.role === 'assistant');
+  const liveMessages = visibleLiveMessages.filter((message) => !String(message.id).startsWith('lc_run--'));
+  const answer = liveAssistantMessages
+    .map((message) => message.content)
+    .filter((content) => content?.trim())
+    .join('\n\n') || undefined;
   const currentUserMessage = liveMessages
     .filter((message) => message.role === 'user')
     .at(-1)?.content;
@@ -250,7 +254,7 @@ const GroupChatPage = () => {
     return 'generating';
   }, [run]);
   const opStepCount = useMemo(() => Object.values(run?.steps || {}).length, [run]);
-  const lastLiveMessageId = Object.keys(run?.messages || {}).at(-1) || '';
+  const lastLiveMessageId = liveAssistantMessages.at(-1)?.id || '';
 
   useEffect(() => {
     loadingOlderRef.current = false;
@@ -420,9 +424,10 @@ const GroupChatPage = () => {
       }),
     onRegenerateError: () => regenerateError(),
   }, { deletedKeys, showReasoning });
-  const hasLiveAssistant = liveMessages.some((message) => message.role === 'assistant');
+  const hasLiveAssistant = liveAssistantMessages.length > 0;
   const liveProcessHostId = findLiveProcessHostId(liveSpecialRecords, hasLiveAssistant);
   const hasLiveBlocks = Array.isArray(blocks) && blocks.length > 0;
+  const hasLiveTimelineText = hasRunTextTimeline(run, deletedKeys);
   const showLiveAssistant = Boolean(answer) || (
     !liveProcessHostId && (hasLiveBlocks || liveSpecialRecords.length === 0)
   );
@@ -647,6 +652,14 @@ const GroupChatPage = () => {
                   ? errorActivity.payload.message
                   : undefined,
               );
+              const storedTimelineText = hasStoredTextTimeline(storedBlocks);
+              const actionContent = storedTimelineText
+                ? storedBlocks
+                    .filter((block) => block.kind === 'narration' && block.payload?.timelineText === true)
+                    .map((block) => block.content || '')
+                    .filter((content) => content.trim())
+                    .join('\n\n')
+                : originalContent;
               const renderedStoredBlocks = record.role === 'user' ? null : renderStoredBlocks(storedBlocks, {
                 onApproveHitl: (requestId, payload) =>
                   void respondToHitl({
@@ -660,9 +673,9 @@ const GroupChatPage = () => {
                   }),
                 onRejectHitl: (requestId) =>
                   void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
-                onSurfaceAction: (surfaceId) =>
+                onSurfaceAction: (actionName, surfaceId) =>
                   void sendA2uiAction({
-                    actionName: 'open_report',
+                    actionName: actionName || 'open_report',
                     context: { reportId: 'artifact-report' },
                     sourceComponentId: 'open',
                     surfaceId,
@@ -671,7 +684,7 @@ const GroupChatPage = () => {
               }, { deletedKeys, narration, showReasoning });
               const assistantActions = (
                 <MessageActions
-                  content={originalContent}
+                  content={actionContent}
                   onCopy={(content) => void navigator.clipboard.writeText(content || '')}
                   onDislike={() =>
                     setFeedbackModal({
@@ -717,7 +730,7 @@ const GroupChatPage = () => {
                     <ChatItem
                       actions={assistantActions}
                       avatar="👥"
-                      content={record.content}
+                      content={storedTimelineText ? undefined : displayContent}
                       id={record.id}
                       name={session?.title || t('nav.group')}
                       role="assistant"
@@ -797,7 +810,7 @@ const GroupChatPage = () => {
                     )
                   }
                   avatar="👥"
-                  content={displayAnswer}
+                  content={hasLiveTimelineText ? undefined : displayAnswer}
                   enableStream={running}
                   id="current-group-assistant"
                   loading={running}

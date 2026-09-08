@@ -102,12 +102,13 @@ AgentDock 是纯前端项目，对话能力对外只依赖两类接口：
 
 ### 4.1 展示单元（buildDisplayUnits）
 
-协议里一轮 run 可能产生多条助手文本（工具调用前的中转文本 + 最终答案）。为避免"两个气泡"，
-`buildDisplayUnits` 把同一 `runId` 的连续助手文本合并为一个展示单元：
+协议里一轮 run 可能产生多条助手文本（工具调用前的阶段正文 + 最终答案）。为避免重复头像与
+割裂的消息操作栏，`buildDisplayUnits` 把同一 `runId` 的连续助手文本合并为一个展示单元：
 
-- 气泡内容取**最后一条**（最终答案）；
-- 中间文本作为 `narration` 收进过程折叠（展开可见），不单独成气泡；
-- 过程块（折叠/工具/A2UI）只挂载一次，杜绝重复渲染。
+- 气泡内部按 `orderedBlocks` 的权威顺序渲染全部正文段和过程段；
+- 助手文本是正文段，不收入过程折叠；正文可以自然出现在多个过程段之间；
+- 最后一条文本记录只作为该轮历史宿主、分页锚点和操作栏目标；有时间线文本记录时不再重复渲染宿主正文；
+- 过程块（折叠/工具/A2UI）只挂载一次，杜绝重复渲染，刷新后保持同一顺序。
 
 单聊与群聊共用该函数（`MessageBlocks.tsx` 导出）。
 
@@ -117,8 +118,8 @@ AgentDock 是纯前端项目，对话能力对外只依赖两类接口：
 
 - 用户：右侧气泡 + 本人头像（`variant="bubble"`）；
 - 助手：docs 变体（无外边框），头像/标题/时间；
-- 助手正文走带 @Agent 提及插件的 Markdown 管线；过程块（children）渲染在正文**上方**
-  （LobeHub 顺序：思考/工具过程在正文之上）；
+- 助手正文走带 @Agent 提及插件的 Markdown 管线；过程段与正文段都由 children 时间线驱动，
+  不再固定为“全部过程在上、最终正文在下”；
 - 支持编辑态（`editing`）、双击进入编辑、hover 操作栏。
 
 ### 4.3 消息操作栏（MessageActions）
@@ -150,7 +151,8 @@ AgentDock 是纯前端项目，对话能力对外只依赖两类接口：
 
 - 24×24 轮廓状态块：思考中旋转 Loader，完成显示 Atom（展开态紫色）；
 - 标题：思考中 shinyText"深度思考中…"，完成 secondary"已深度思考（用时 X 秒）"；
-- 内容区 ScrollArea 式（max-height 40vh/320px、`colorTextDescription`），思考中自动展开、完成自动收起。
+- 内容区 ScrollArea 式（max-height 40vh/320px、`colorTextDescription`）；作为过程段内的二级详情，
+  当前 reasoning 流式时展开，完成后收起。
 
 ### 5.3 工具卡（ToolCallBlock）
 
@@ -162,9 +164,12 @@ AgentDock 是纯前端项目，对话能力对外只依赖两类接口：
 
 ### 5.4 过程折叠（ProcessFold）
 
-- 只有真实步骤/工具（`stepCount > 0`）才渲染折叠卡，杜绝"已处理 0 步 · –"空卡；
-- 完成态折叠为一行"已处理 N 步 · 耗时"，运行中展开；一级=过程汇总，二级=单个块展开；
-- HITL、narration、委派树/技能卡、工作流步骤都收进过程折叠。
+- 相邻 reasoning、工具、普通 activity、workflow step 与 HITL 合并为一个过程段；纯 reasoning/activity
+  也必须形成过程段，不生成空卡；
+- 助手文本与 A2UI Surface 会结束当前过程段。流式期间只自动展开最后一个未被正文截断的过程段，
+  正文到达即折叠前段，后续过程开始时只展开新段；
+- 完成态折叠为一行"已处理 N 步 · 耗时"；一级=过程汇总，二级=Reasoning/Tool/Activity/HITL/步骤详情；
+- Error Alert 与 A2UI Surface 直接作为输出段显示，不收入过程折叠。
 
 ### 5.5 A2UI Surface
 

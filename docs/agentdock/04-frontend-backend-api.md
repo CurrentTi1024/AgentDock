@@ -1268,6 +1268,14 @@ env:
 
 完整请求字段、SSE 格式、事件清单、幂等、断线恢复、HITL 与 A2UI 规则以 `02-agui-a2ui-runtime-contract.md` 为唯一权威来源，本文件不复制另一份事件协议。
 
+### 9.3 Stop 与 HTML Artifact 边界
+
+- Stop 是独立 Run 控制操作，不是消息内容。Browser 仍复用 `/api/copilotkit` 物理入口，但必须使用 `method=agent/stop`；
+  Runtime 再以 active `runId` 调用 Orchestration 的 `POST /ag-ui/runs/{runId}/cancel`。只关闭 SSE 不等于后端任务已停止。
+- HTML 页面作为 `ACTIVITY_SNAPSHOT(activityType="agentDock.artifact")` 传输，正文只显示摘要与文件卡；不要把 HTML code 放入普通助手正文，
+  也不要把任意 HTML 包装成 A2UI。A2UI 只承载前端 Catalog 允许的原生组件。
+- 完整接口和实现方案见 `02-agui-a2ui-runtime-contract.md` §11 与 `design/19-run-control-and-html-artifact.md`。
+
 ## 10. 前端 Service 边界
 
 建议目录：

@@ -78,10 +78,13 @@ AG-UI / CopilotKit events
   - `system/developer` 与 `lc_run--` 内部占位不显示。
 - `src/api/session/sessionHistoryService.ts`
   - 原生角色和 payload 原样持久化。
-  - AssistantGroup 中间助手文本落为 `narration`，最终助手文本仍为 `text`。
+  - 当前 run 的每段 assistant 文本都以带 `timelineText` 标记的 `narration` 顺序记录落库；最终
+    `text` 行只承担消息宿主、分页和操作栏职责，不再决定正文的固定渲染位置。
   - 过程块按 `orderedBlocks` 顺序落库，刷新后顺序不变。
 - `src/features/chat/components/MessageBlocks.tsx`
-  - 实时/历史投影共用；负责 process collector、A2UI surface、错误和逻辑 surface 去重。
+  - 实时/历史投影共用；按 `orderedBlocks` 逐项投影正文与过程事件，不按类型重排。
+  - 连续的 reasoning/tool/step/activity/HITL 合为一个过程折叠段；正文、A2UI surface 和错误是
+    分段边界。仅时间线末端正在输出的过程段默认展开，正文开始后上一过程段立即收起。
 - `src/features/chat/messageBlockOwnership.ts`
   - 每个 run 只选择一个流程块宿主：优先最终 `assistant`，没有普通助手时回退到 `assistantGroup/supervisor`。
   - 实时和历史使用同一规则，避免特殊消息旁出现空助手卡，也避免流程折叠重复或刷新后丢失。

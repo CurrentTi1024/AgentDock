@@ -70,8 +70,8 @@ export const ReasoningBlock = ({ id, meta, text }: { id: string; meta?: RuntimeR
   );
 };
 
-// LobeHub ProcessFold：一轮 run 的思考+工具+步骤在完成后折叠为一行
-// “共执行 N 步 · 点击查看完整记录”，运行中展开；一级=过程汇总，二级=单个块。
+// LobeHub ProcessFold：一段连续的思考/工具/步骤/activity 在遇到正文边界后折叠为一行；
+// 时间线末端的当前过程段展开，之前的过程段收起。一级=过程汇总，二级=单个块。
 export const ProcessFold = ({
   children,
   durationText,
@@ -352,13 +352,6 @@ export const WorkflowStepsBlock = ({ steps, streaming }: { steps: RuntimeStep[];
     </Accordion>
   );
 };
-
-// 一轮 run 内的中间助手文本（最终答案之前的叙述）收进过程折叠，展开可见。
-export const NarrationBlock = ({ text }: { text: string }) => (
-  <Text type="secondary">
-    <Markdown content={text} />
-  </Text>
-);
 
 const ACTIVITY_TYPE_META: Record<string, { icon: typeof ListTodo; labelKey: string }> = {
   'agentDock.agentDelegation': { icon: Users, labelKey: 'chat.activity.agentDelegation' },

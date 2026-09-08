@@ -208,7 +208,7 @@ test('LobeHub 扩展消息角色与结构化 payload 原样落库（不降级为
   );
 });
 
-test('AssistantGroup 中间文本按 narration 落库，并与工具保持事件顺序', async () => {
+test('多段助手正文都按 timelineText 落库，并与工具保持真实事件顺序', async () => {
   const sessionId = 'session-assistant-group-order';
   await sessionHistoryService.createSession({
     agentId: 'flight-analysis',
@@ -235,10 +235,14 @@ test('AssistantGroup 中间文本按 narration 落库，并与工具保持事件
   const rows = await sessionHistoryService.getMessages(sessionId);
   assert.equal(rows.some((record) => record.id === 'text:intro-order'), false);
   assert.equal(rows.find((record) => record.id === 'text:final-order')?.content, '搜索完成。');
+  const timeline = rows.filter((record) => record.kind !== 'text');
+  assert.deepEqual(timeline.map((record) => record.kind), ['narration', 'tool', 'narration']);
   assert.deepEqual(
-    rows.filter((record) => record.kind !== 'text').map((record) => record.kind),
-    ['narration', 'tool'],
+    timeline.map((record) => record.id),
+    ['narration:intro-order', 'tool:tool-order', 'narration:final-order'],
   );
+  assert.equal(timeline[0].payload?.timelineText, true);
+  assert.equal(timeline[2].payload?.timelineText, true);
 });
 
 test('流式防抖：空闲 350ms 后自动落盘，无需手动 flush', async () => {

@@ -24,6 +24,8 @@ import type { OpStatusActivity } from '@/features/chat/components/OpStatusTray';
 import Welcome from '@/features/chat/components/Welcome';
 import {
   buildDisplayUnits,
+  hasRunTextTimeline,
+  hasStoredTextTimeline,
   HistoryDivider,
   renderStoredBlocks,
   renderRunBlocks,
@@ -193,15 +195,19 @@ export default function ChatPage() {
   const orderedLiveMessages = run?.messageOrder?.length
     ? run.messageOrder.map((messageId) => run.messages[messageId]).filter(Boolean)
     : Object.values(run?.messages || {});
-  const liveMessages = orderedLiveMessages.filter(
+  const visibleLiveMessages = orderedLiveMessages.filter(
     (message) =>
-      !String(message.id).startsWith('lc_run--') &&
       !deletedKeys.has(`text:${message.id}`) &&
       !deletedKeys.has(`tool:${message.id}`),
   );
-  const answer = liveMessages
-    .filter((message) => message.role === 'assistant')
-    .at(-1)?.content;
+  // 占位 assistant 文本是当前真实流，规范 UUID 快照到达前也必须参与时间线；
+  // special message 列表仍过滤占位，避免把协议占位当独立消息卡。
+  const liveAssistantMessages = visibleLiveMessages.filter((message) => message.role === 'assistant');
+  const liveMessages = visibleLiveMessages.filter((message) => !String(message.id).startsWith('lc_run--'));
+  const answer = liveAssistantMessages
+    .map((message) => message.content)
+    .filter((content) => content?.trim())
+    .join('\n\n') || undefined;
   const currentUserMessage = liveMessages
     .filter((message) => message.role === 'user')
     .at(-1)?.content;
@@ -604,14 +610,15 @@ export default function ChatPage() {
       }),
     onRegenerateError: () => regenerateError(),
   }, { deletedKeys, showReasoning, showSurfaces: true });
-  const hasLiveAssistant = liveMessages.some((message) => message.role === 'assistant');
+  const hasLiveAssistant = liveAssistantMessages.length > 0;
   const liveProcessHostId = findLiveProcessHostId(liveSpecialRecords, hasLiveAssistant);
   const hasLiveBlocks = Array.isArray(blocks) && blocks.length > 0;
+  const hasLiveTimelineText = hasRunTextTimeline(run, deletedKeys);
   const showLiveAssistant = Boolean(answer) || (
     !liveProcessHostId && (hasLiveBlocks || liveSpecialRecords.length === 0)
   );
 
-  const lastLiveMessageId = Object.keys(run?.messages || {}).at(-1) || '';
+  const lastLiveMessageId = liveAssistantMessages.at(-1)?.id || '';
   const feedbackTarget = {
     messageId: lastLiveMessageId,
     runId: run?.runId || '',
@@ -710,6 +717,14 @@ export default function ChatPage() {
                   ? errorActivity.payload.message
                   : undefined,
               );
+              const storedTimelineText = hasStoredTextTimeline(storedBlocks);
+              const actionContent = storedTimelineText
+                ? storedBlocks
+                    .filter((block) => block.kind === 'narration' && block.payload?.timelineText === true)
+                    .map((block) => block.content || '')
+                    .filter((content) => content.trim())
+                    .join('\n\n')
+                : originalContent;
               const renderedStoredBlocks = record.role === 'user' ? null : renderStoredBlocks(storedBlocks, {
                 onApproveHitl: (requestId, payload) =>
                   void respondToHitl({
@@ -734,7 +749,7 @@ export default function ChatPage() {
               }, { deletedKeys, narration, showReasoning, showSurfaces: true });
               const assistantActions = (
                 <MessageActions
-                  content={originalContent}
+                  content={actionContent}
                   onCopy={copyMessage}
                   onDislike={() =>
                     setFeedbackModal({
@@ -776,7 +791,7 @@ export default function ChatPage() {
                     <ChatItem
                       actions={assistantActions}
                       avatar={agentIcon}
-                      content={record.content}
+                      content={storedTimelineText ? undefined : displayContent}
                       id={record.id}
                       name={agent}
                       role="assistant"
@@ -852,7 +867,7 @@ export default function ChatPage() {
                     )
                   }
                   avatar={agentIcon}
-                  content={displayAnswer}
+                  content={hasLiveTimelineText ? undefined : displayAnswer}
                   enableStream={running}
                   id="current-assistant"
                   loading={running}
