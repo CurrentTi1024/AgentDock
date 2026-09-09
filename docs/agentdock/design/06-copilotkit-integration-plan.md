@@ -53,7 +53,7 @@ import { CopilotKit } from '@copilotkit/react-core/v2';
 | `createRunInput` | 官方 `RunAgentInput`（forwardedProps 保留 AgentDock 字段） |
 | `runReducer` | 官方 transport（single-route envelope） |
 | `runReducer` | 官方 messages/state 模型 + 自定义投影层 |
-| `runStore.execute/resume/stop` | 官方 run/connect/stop + 本地 IndexedDB 投影保存 |
+| `runStore.execute/resume/stop` | 官方 run/connect + 自有 cancel/status 权威取消 + 原生 stop 本地清理 + IndexedDB 投影保存 |
 
 ### 阶段 2：信息粒度 hooks（P0/P1）
 

@@ -10,8 +10,12 @@
 ### 1.1 Stop
 
 - **Stop 不是一条 Chat Message**，不得发送 `message = "Agent stop"`，也不得让模型解释控制命令。
-- Browser 继续使用 CopilotKit single-route 的同一个物理地址 `POST /api/copilotkit`，但发送独立逻辑方法 `agent/stop`。
-- Copilot Runtime 必须把 `agent/stop` 映射为 Orchestration 的独立取消接口，并以 `runId` 精确取消 Core task。
+- CopilotKit 原生 `agent/stop` 只有 Runtime `agentId + threadId`，缺少本项目真实取消必需的业务 `runId + fab`，因此**不能作为权威远端取消接口**。
+- Browser 新增 AgentDock 自有控制接口 `POST /api/agent-runtime/runs/{runId}/cancel`，显式提交 `threadId + sessionId + agentId + fab`。
+- AgentDock App Server 只做无状态 FAB 白名单路由，不保存 `threadId → runId/FAB` 映射；它把请求转发到对应厂区的
+  `POST /ag-ui/runs/{runId}/cancel`。
+- Browser 绝不拼接或接触真实 Orchestration Base URL；`fab → baseUrl` 仍只有服务端一份配置。
+- `copilotkit.stopAgent({agent})` 保留为浏览器流、frontend tools 与 CopilotKit 本地生命周期清理，与权威取消并行执行；两条 Stop 路径必须幂等。
 - 关闭 SSE/Abort HTTP 只能停止接收，不足以证明后端任务停止；真正的取消需要后端任务注册表、取消令牌和终态确认。
 - P0 采用协作式取消：停止 LLM 流、阻止下一轮 loop、在工具边界检查取消；对可控子进程再做强制终止和超时兜底。
 
@@ -23,162 +27,185 @@
 - 首期无 MinIO 时允许 inline HTML；必须设置大小上限、持久化到 IndexedDB，并在 sandbox iframe 中执行严格 CSP。
 - 当前代码已经具备 live Activity 自动打开右栏和 `iframe.srcDoc` 渲染骨架，但尚缺稳定契约、历史恢复、源码切换、Artifact Service 归档和足够安全的 sandbox/CSP。
 
-## 2. 为什么不使用消息模拟控制命令
+## 2. 本项目需要开发哪些 API
 
-| 方案 | 优点 | 问题 | 结论 |
-|---|---|---|---|
-| 普通消息 `"Agent stop"` | 表面上复用发送接口 | 会进入上下文、依赖模型理解、无法精确定位 run、运行通道拥塞时可能无法处理 | 禁止 |
-| `RunAgentInput.forwardedProps.action=stop` 再 POST `/ag-ui` | 可复用 schema 和 FAB 路由 | 把控制面混入执行面；可能启动第二个 run；同一 worker 忙时无法及时取消 | 仅可作旧后端兼容，不作为正式方案 |
-| 仅 Abort SSE/fetch | 前端响应快 | 只证明连接断开，后台 loop、工具或队列任务可能继续运行 | 只能作为本地 UX |
-| 独立 run cancel API | 精确、幂等、可鉴权、可观测、可确认终态 | 后端需维护 task/run registry | **推荐** |
-| WebSocket 双向控制帧 | 延迟低、适合大量实时命令 | 基础设施和重连状态机复杂，首期没有必要 | 后续可选 |
+只新增下列接口；其他场景全部复用现有链路或留在 Core 内部。
 
-这里的“独立”指**逻辑资源和语义独立**，不要求 Browser 增加第二个公网 URL。CopilotKit single-route 可以在同一个 `/api/copilotkit` 上通过不同 `method` 承载 run/connect/stop。
+| 优先级 | 场景 | Browser API | 内部 Orchestration API | 是否新开发 | 原因与边界 |
+|---|---|---|---|---|---|
+| P0 | 真正停止当前 Run | `POST /api/agent-runtime/runs/{runId}/cancel` | `POST /ag-ui/runs/{runId}/cancel` | **是** | 原生 CopilotKit Stop 缺 `runId/fab`，只能作为本地清理；取消必须精确路由到厂区和 task |
+| P0 | 异步取消后的状态确认 | `POST /api/agent-runtime/runs/{runId}/status` | `POST /ag-ui/runs/{runId}/status` | **是** | cancel 可能返回 `cancel_requested`；浏览器关闭 SSE 后仍需确认后端真正成为终态 |
+| 已有 | 发送消息/新 Run | `/api/copilotkit` `agent/run` | `POST /ag-ui` | 否 | 当前链路已传 `runId/threadId/agentId/fab` 并消费 AG-UI SSE |
+| 已有 | 断线重连 | `/api/copilotkit` `agent/connect` | `POST /ag-ui` resume/connect 语义 | 否 | 当前 checkpoint + `lastEventId` 方案已实现；只有真实联调证明 connect 丢参数时才另立 `/events`，本次不预建 |
+| 已有 | HITL 回应 | `/api/copilotkit` `agent/run` + `resume[]` | `POST /ag-ui` | 否 | 请求 body 能携带 FAB、interruptId 和 payload；缺口在公司 adapter 的 resume 映射，不是缺 API |
+| 已有 | A2UI Action | `/api/copilotkit` `agent/run` + `a2uiAction` | `POST /ag-ui` | 否 | 属于继续执行 Agent，现有 RunAgentInput 足够 |
+| 内部 | Agent loop/工具取消 | 无 Browser API | cancellation token | 否（但要改 Core） | loop 是同一 Run 内部行为；每个 node/tool 边界检查 token，不能由前端逐步控制 |
+| 本地已有 | Session History | IndexedDB Service | 无 | 否 | 当前产品明确本地存储，不新增公司后端 CRUD |
+| 后续 P1 | HTML Artifact | AG-UI `agentDock.artifact` + 既有 Artifact Service 规划 | 既有 `/ag-ui` 事件 | 本次只冻结协议 | 与 Stop 无关，不阻塞 P0；不新增另一条“HTML API” |
 
-## 3. 推荐架构
+明确不开发：单独 `continue`、`retry`、`loop`、`a2uiAction`、`hitlResponse` API；它们都应继续创建/恢复 CopilotKit Run。也不开发 Runtime 的 `threadId → runId/FAB` 映射。
+
+## 3. 最终架构：无状态 AgentDock Control Gateway
 
 ```text
 Browser
-  ├─ agent/run  ───────────────┐
-  ├─ agent/connect ────────────┤ POST /api/copilotkit (single-route)
-  └─ agent/stop ───────────────┘
-                 │
-                 ▼
-Copilot Runtime
-  ├─ FAB route + auth/audit
-  ├─ ActiveRunRegistry: threadId -> runId/fab/upstream/status
-  ├─ run/connect -> POST {fabBaseUrl}/ag-ui
-  └─ stop        -> POST {fabBaseUrl}/ag-ui/runs/{runId}/cancel
-                 │
-                 ▼
-Orchestration Service
-  ├─ persistent/distributed Run Registry
-  ├─ cancel_requested flag + task handle
-  ├─ publish terminal AG-UI event
-  └─ Core cancellation token
-                 │
-                 ▼
-DeepAgents / Core / Tool workers
-  ├─ LLM stream abort
-  ├─ loop/step boundary checks
-  ├─ tool timeout/cancel hook
-  └─ no new content after terminal cancellation
+  ├─ Run/Connect/HITL/A2UI ── POST /api/copilotkit ── Copilot Runtime ── {FAB}/ag-ui
+  │
+  ├─ Cancel ──────────────── POST /api/agent-runtime/runs/{runId}/cancel ─┐
+  └─ Status ──────────────── POST /api/agent-runtime/runs/{runId}/status ─┤
+                                                                          ▼
+AgentDock App Server（无状态 Control Gateway）
+  ├─ 校验 runId/threadId/agentId/fab
+  ├─ 只允许 AGENT_ORCHESTRATION_BASE_URLS_JSON 中的 FAB
+  ├─ 透传 SSO principal / request-id / traceparent
+  └─ 根据 fab 转发，不保存 thread/run 映射
+                                                                          ▼
+FAB Orchestration
+  ├─ runId → task/cancellation token（权威）
+  ├─ 校验 threadId/agentId/principal 与启动记录一致
+  ├─ cancel_requested → cancelled
+  └─ Core 停止 LLM、loop、未开始的 tool/step
 ```
 
-### 3.1 ID 责任
+这个 Gateway 可以与 `server/index.ts` 的 Copilot Runtime 部署在同一个进程，但使用独立路径和 handler；它不是 CopilotKit AgentRunner 的一部分。OAuth2 Proxy 必须按最长路径优先路由：
 
-- `sessionId`：AgentDock UI/本地历史标识，不用于后端精确取消。
-- `threadId`：会话上下文标识。CopilotKit 标准 stop 路由以它定位当前运行。
-- `runId`：一次执行的唯一标识，是 Orchestration/Core 取消的最终主键。
-- `agentId`：Runtime 注册的代理为 `orchestration`；业务 Agent 保留在 forwarded props。
-- `fab`：决定 Orchestration Base URL；取消必须路由到启动该 run 的同一 FAB，不能相信 Stop 时由用户重新提交的 FAB。
+```text
+/api/agent-runtime/* -> AgentDock App Server
+/api/copilotkit*     -> AgentDock App Server
+/api/*               -> Agent Registry
+```
 
-Runtime 应在 run 开始时记录 `threadId -> { runId, fab, upstreamBaseUrl, principal }`。多副本部署不能只依赖进程内 Map，应使用 Redis/共享 registry，或者至少保证同一 thread 的 run/stop 粘滞到同一 Runtime 实例。
+### 3.1 为什么不在 Browser Axios 拼真实 URL
 
-## 4. Stop API 文档
+- 前端 bundle 不应包含每个厂区的内部拓扑。
+- 浏览器直连会把 CORS、Cookie/SSO、CSRF、TLS 和厂区网络可达性扩散到每套 Orchestration。
+- FAB 映射会出现前端/服务端两份配置并发生漂移。
+- 服务端无法统一做白名单、防 SSRF、权限、审计、限流和 trace。
+- Browser 只提交 `fab="F15B"`，绝不能提交 `orchestrationBaseUrl`；Base URL 必须来自服务端白名单。
 
-### 4.1 Browser → Copilot Runtime
+### 3.2 ID 责任
 
-**HTTP**：`POST /api/copilotkit`  
-**Content-Type**：`application/json`  
-**认证**：同源 SSO Cookie  
-**幂等性**：同一 active thread 重复调用安全
+- `runId`：Browser 创建并贯穿现有 Run；取消主键，放在 URL。
+- `threadId`：用于 Orchestration 校验 Run 归属，不能替代 runId。
+- `sessionId`：AgentDock UI/审计关联，不作为 Core 取消主键。
+- `agentId`：业务 Agent ID，用于权限和启动记录一致性校验。
+- `fab`：无状态 Gateway 的路由键；请求值只用于选候选服务，Orchestration 必须再用 Run 启动记录校验。
+- `principal`：由 SSO/可信 Header 注入，Browser body 不得提交 userId。
 
-请求：
+## 4. API 契约
+
+### 4.1 Browser → AgentDock：取消 Run（P0）
+
+**HTTP**：`POST /api/agent-runtime/runs/{runId}/cancel`
+**认证**：同源 SSO Cookie
+**Content-Type**：`application/json`
+**幂等性**：同一个 `runId` 重复调用返回相同或更后的状态，不得返回 500
+**超时**：Browser 3 秒；Orchestration 应在 2 秒内返回已接受，真实退出由 status API 确认
 
 ```json
 {
-  "method": "agent/stop",
-  "params": {
-    "agentId": "orchestration",
-    "threadId": "thread-001"
+  "sessionId": "session-001",
+  "threadId": "thread-001",
+  "agentId": "flight-analysis-agent",
+  "fab": "F15B",
+  "reason": "user_requested",
+  "mode": "interrupt"
+}
+```
+
+`mode` 首期只接受 `interrupt`：停止后保留已产生的文本、工具结果和 Artifact。不要在首期实现 rollback。
+
+真实任务已经退出时返回 HTTP 200：
+
+```json
+{
+  "code": 0,
+  "message": "",
+  "data": {
+    "runId": "run-001",
+    "threadId": "thread-001",
+    "fab": "F15B",
+    "accepted": true,
+    "status": "cancelled",
+    "terminal": true
   }
 }
 ```
 
-说明：这是 CopilotKit single-route 的标准逻辑方法。当前 `copilotkit.stopAgent({ agent })` 会发出该请求；不需要构造聊天消息，也不需要 `RunAgentInput` body。
+取消已接受但工具仍在退出时返回 HTTP 202，响应 envelope 相同，但 `status="cancel_requested"`、`terminal=false`；Browser 随后调用 status API。
 
-成功响应：
+### 4.2 Browser → AgentDock：查询 Run 状态（P0）
 
-```json
-{
-  "stopped": true,
-  "runId": "run-001",
-  "status": "cancel_requested"
-}
-```
-
-已终止或不存在 active run 时也返回 HTTP 200，以支持重试：
-
-```json
-{
-  "stopped": false,
-  "status": "not_running"
-}
-```
-
-Runtime 不得在未向 Orchestration 发出取消请求时返回 `stopped: true`。
-
-### 4.2 Copilot Runtime → Orchestration
-
-**HTTP**：`POST {orchestrationBaseUrl}/ag-ui/runs/{runId}/cancel`  
-**用途**：真实取消一个 pending/running run  
-**认证**：Runtime 透传受信身份与 trace headers  
-**推荐超时**：请求确认 2 秒；后台完成取消最长 10 秒
-
-请求：
-
-```json
-{
-  "threadId": "thread-001",
-  "reason": "user_requested",
-  "mode": "interrupt",
-  "requestedAt": "2026-09-09T10:00:00+08:00"
-}
-```
-
-响应（首次接受）：
+使用 POST 是为了与本项目普通 API 约定一致，并让 FAB/身份信息不进入 URL query/log。
 
 ```http
-HTTP/1.1 202 Accepted
+POST /api/agent-runtime/runs/{runId}/status
 Content-Type: application/json
 ```
 
 ```json
 {
-  "runId": "run-001",
   "threadId": "thread-001",
-  "status": "cancel_requested",
-  "accepted": true
+  "agentId": "flight-analysis-agent",
+  "fab": "F15B"
 }
 ```
 
-响应（已完成/幂等重试）：
-
 ```json
 {
-  "runId": "run-001",
-  "threadId": "thread-001",
-  "status": "cancelled",
-  "accepted": true
+  "code": 0,
+  "message": "",
+  "data": {
+    "runId": "run-001",
+    "threadId": "thread-001",
+    "fab": "F15B",
+    "status": "cancelled",
+    "terminal": true,
+    "startedAt": "2026-09-09T10:00:00+08:00",
+    "cancelRequestedAt": "2026-09-09T10:00:08+08:00",
+    "completedAt": "2026-09-09T10:00:08.420+08:00"
+  }
 }
+```
+
+允许状态：`pending | running | paused | cancel_requested | cancelled | success | error`。Browser 最多轮询 10 秒，间隔建议 `250ms → 500ms → 1s`，页面进入后台或 Operation 已被替换时立即停止轮询。
+
+### 4.3 AgentDock → Orchestration 内部接口
+
+路径分别为：
+
+```text
+POST {fabBaseUrl}/ag-ui/runs/{runId}/cancel
+POST {fabBaseUrl}/ag-ui/runs/{runId}/status
+```
+
+Gateway 移除普通业务 envelope 后转发必要字段，并追加可信身份/追踪 Header。Orchestration 返回相同 `data` 对象，Gateway 再包装 AgentDock envelope。
+
+Orchestration 必须校验：
+
+```text
+URL runId == 启动记录 runId
+body.threadId == 启动记录 threadId
+body.agentId == 启动记录 agentId
+认证 principal == 启动记录 owner/authorized principal
+请求路由 FAB == 当前 Orchestration 部署 FAB
 ```
 
 错误：
 
-| HTTP | code | 含义 |
+| HTTP | code | Browser 行为 |
 |---|---|---|
-| 400 | `INVALID_REQUEST` | ID 或 mode 非法 |
-| 403 | `RUN_PERMISSION_DENIED` | 当前身份不能取消该 run |
-| 404 | `RUN_NOT_FOUND` | run 不存在或已过期 |
-| 409 | `RUN_NOT_CANCELLABLE` | run 已成功/失败终止，不可转换为 cancelled |
-| 503 | `CANCEL_UNAVAILABLE` | registry/worker 暂不可用，调用方可重试 |
+| 400 | `INVALID_REQUEST` | 不重试，记录协议错误 |
+| 403 | `RUN_PERMISSION_DENIED` | 不重试，显示无权限 |
+| 404 | `RUN_NOT_FOUND` | 查询一次 status；仍 404 则显示“运行不存在或已过期” |
+| 409 | `RUN_ROUTE_MISMATCH` | 不重试，记录 FAB/thread/agent 不一致 |
+| 409 | `RUN_NOT_CANCELLABLE` | 若返回现有终态则按终态显示 |
+| 502 | `FAB_ENDPOINT_UNAVAILABLE` | 允许人工重试 |
+| 503 | `CANCEL_UNAVAILABLE` | 退避重试，不能宣称已停止 |
 
-取消接口必须校验 `runId + threadId + principal`；FAB 和上游地址取启动记录，不取客户端自由输入。
+### 4.4 权威终态事件
 
-### 4.3 终态事件
-
-Orchestration 接受取消后，原 SSE 或 connect 重连流最终输出：
+Orchestration 完成取消后持久化 `cancelled`，并在仍存在的原 SSE/connect 流输出：
 
 ```json
 {
@@ -191,45 +218,174 @@ Orchestration 接受取消后，原 SSE 或 connect 重连流最终输出：
 }
 ```
 
-随后关闭流。已经产生的文本和 Artifact 保留；终态后不得再写 `TEXT_MESSAGE_CONTENT`、启动新 step、启动新 tool 或开始下一次 loop。
+随后关闭流。终态之后不得再写 `TEXT_MESSAGE_CONTENT`，不得启动新 step/tool/loop。status API 与 AG-UI 终态冲突时，以 Orchestration 持久化的终态为准，并记录协议告警。
 
-> CopilotKit Runtime 当前内置 stop 响应使用过 `STOPPED`，AgentDock 投影使用 `CANCELLED`。联调时应在 Runtime/Orchestration 边界统一成 `CANCELLED`，不要让 UI 同时解释两套业务终态。
+## 5. Agent Stop 关键实现
 
-### 4.4 状态机和前端 UX
+### 5.1 前端 Service（建议新增 `src/api/runtime/runControlService.ts`）
 
-```text
-running -> cancel_requested -> cancelled
-                       \----> cancel_failed (仍允许重试)
-running --------------------> success/error (与取消并发时，以后端首个持久化终态为准)
+```ts
+export type AgentRunStatus =
+  | 'pending' | 'running' | 'paused' | 'cancel_requested'
+  | 'cancelled' | 'success' | 'error';
+
+export interface RunControlContext {
+  runId: string;
+  sessionId: string;
+  threadId: string;
+  agentId: string;
+  fab: string;
+}
+
+export interface RunControlResult {
+  runId: string;
+  threadId: string;
+  fab: string;
+  status: AgentRunStatus;
+  terminal: boolean;
+}
+
+export const cancelAgentRun = async (
+  input: RunControlContext,
+  signal?: AbortSignal,
+): Promise<RunControlResult> => {
+  const { runId, ...body } = input;
+  return postApi(`agent-runtime/runs/${encodeURIComponent(runId)}/cancel`, {
+    ...body,
+    mode: 'interrupt',
+    reason: 'user_requested',
+  }, { signal });
+};
+
+export const getAgentRunStatus = async (
+  input: Omit<RunControlContext, 'sessionId'>,
+  signal?: AbortSignal,
+): Promise<RunControlResult> => {
+  const { runId, ...body } = input;
+  return postApi(`agent-runtime/runs/${encodeURIComponent(runId)}/status`, body, { signal });
+};
 ```
 
-- 点击停止后按钮立即进入“正在停止”，禁用重复点击，但不要立刻伪造“后端已停止”。
-- 收到 cancel API 确认后可显示“停止请求已发送”；收到 `RUN_ERROR/CANCELLED` 后显示“已停止”。
-- 2 秒未确认时提示“停止请求仍在处理”；10 秒仍无终态时允许重试并通过 run status/connect 查证。
-- 前端 Abort 流用于即时 UX；取消 API 是资源释放的权威路径，两者都要执行。
+实际 `postApi` 签名应按 `src/lib/httpClient.ts` 适配；关键点是组件不直接 Axios/fetch、URL 只含同源路径、`runId` 必须编码、支持 AbortSignal。
 
-### 4.5 Core 实现要求
+### 5.2 前端 Stop 编排
 
-1. Run 创建时登记 task handle、owner、thread、FAB、status 和 cancellation token。
-2. Cancel 使用 compare-and-set：只有 `pending/running` 可转 `cancel_requested`。
-3. LLM SDK 使用 AbortSignal/cancel scope；生成器收到取消后停止读取 token。
-4. 每个 loop、node、tool 前后检查 cancellation token，禁止再启动下一步。
-5. 长工具必须支持超时和取消 hook；无法取消的外部副作用要记录为 `cancellation_pending_external`，不能谎报已完全停止。
-6. 持久化唯一终态并发布 `RUN_ERROR/CANCELLED`；重复 cancel 返回当前状态。
-7. 指标至少包含 cancel latency、cancel success/failure、late event count、仍在运行的孤儿 task 数。
+```ts
+async function stopRun(operation: SessionOperation, runtime: SessionRuntimeHandle) {
+  if (operation.status === 'cancel_requested' || operation.status === 'cancelled') return;
+  markCancelRequested(operation.runId);
 
-## 5. 当前 Stop 实现审计
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 3_000);
+  try {
+    // 权威远端取消先启动；不能等待 CopilotKit 原生 stop 帮忙补 FAB。
+    const cancelPromise = runControlService.cancel(operation, controller.signal);
 
-| 层 | 当前状态 | 缺口 |
-|---|---|---|
-| ChatInput | 已有 Stop 按钮 | 无 `cancel_requested` 中间态 |
-| `sessionOperationService.stop` | 调用 Runtime stop，并本地投影 cancelled | 在远端确认前先本地终态；失败被吞掉，只写 console |
-| CopilotKit Browser Agent | 会发送 single-route `agent/stop` | 标准 stop 只带 threadId，Runtime 需解析 active run |
-| Copilot Runtime runner | 内置 runner 能按 thread 找到运行 | 当前 FAB Agent 的真正上游取消需验证/扩展 |
-| `FabRoutingAgent` | 只实现 `run()` | 未持有上游 task/cancel API，不能证明 Core 停止 |
-| Orchestration/Core | 仓库中无实现 | 需要 run registry、cancel endpoint、token 和终态事件 |
+    // 仅清理浏览器流、frontend tools 和 CopilotKit 本地生命周期。
+    // 它会额外发出原生 agent/stop；服务端应让重复 Stop 幂等。
+    const localStopPromise = runtime.stop().catch((error) => {
+      console.warn('CopilotKit local stop failed', error);
+    });
 
-因此，当前 UI “已停止”只能说明本地状态和 Runtime 调用发生，不是后端任务已停止的验收证据。
+    const result = await cancelPromise;
+    await localStopPromise;
+    if (result.terminal) {
+      markCancelled(operation.runId);
+      return;
+    }
+    await pollUntilTerminal(operation, 10_000);
+  } catch (error) {
+    if (!isCurrentOperation(operation)) return;
+    markCancelFailed(operation.runId, error);
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+```
+
+生产实现不能沿用当前“先本地写 cancelled、远端错误只 console”的逻辑。请求失败时保留部分内容，但 UI 必须显示“停止未确认，可重试”。
+
+### 5.3 AgentDock App Server 无状态 Handler
+
+```ts
+const RUN_CONTROL_PATH =
+  /^\/api\/agent-runtime\/runs\/([^/]+)\/(cancel|status)$/;
+
+async function handleRunControl(request: Request): Promise<Response> {
+  const match = new URL(request.url).pathname.match(RUN_CONTROL_PATH);
+  if (!match || request.method !== 'POST') return jsonError(404, 'NOT_FOUND');
+
+  const runId = decodeURIComponent(match[1]);
+  const action = match[2];
+  const body = await readAndValidateRunControlBody(request, action);
+  const baseUrl = fabEndpoints[body.fab];
+  if (!baseUrl) return jsonError(422, 'FAB_ENDPOINT_NOT_CONFIGURED');
+
+  // baseUrl 只能来自服务端白名单，严禁从 body 读取 URL。
+  const upstream = `${baseUrl.replace(/\/+$/, '')}/ag-ui/runs/` +
+    `${encodeURIComponent(runId)}/${action}`;
+  const response = await fetch(upstream, {
+    method: 'POST',
+    headers: buildTrustedHeaders(request),
+    body: JSON.stringify({
+      threadId: body.threadId,
+      agentId: body.agentId,
+      ...(action === 'cancel'
+        ? { mode: 'interrupt', reason: body.reason ?? 'user_requested' }
+        : {}),
+    }),
+    signal: AbortSignal.timeout(2_500),
+  });
+  return wrapRunControlResponse(response);
+}
+```
+
+代码审查必须确认：JSON body 有字节上限；只允许 UUID/项目规定格式的 ID；FAB 用 own-property 查表防原型键；上游非 JSON/超时统一转结构化 502；不回传内部 URL、堆栈和凭据。
+
+### 5.4 Orchestration/Core 取消伪代码
+
+```python
+@app.post('/ag-ui/runs/{run_id}/cancel')
+async def cancel_run(run_id: str, body: CancelRunInput, principal=Depends(auth)):
+    run = await run_repository.get_for_update(run_id)
+    verify_run_scope(run, body.thread_id, body.agent_id, principal)
+
+    if run.status in {'cancelled', 'success', 'error'}:
+        return to_result(run)  # 幂等：返回已有终态
+
+    await run_repository.compare_and_set_status(
+        run_id, expected={'pending', 'running', 'paused'}, new='cancel_requested'
+    )
+    await cancellation_bus.publish(run.worker_id, run_id)
+
+    # 不等待 worker 真正退出；Browser 用 status API 确认终态。
+    current = await run_repository.get(run_id)
+    return JSONResponse(to_result(current), status_code=200 if current.terminal else 202)
+```
+
+Core 的每个可取消边界都必须检查同一个 token：
+
+```python
+cancel_token.raise_if_cancelled()       # 调模型前
+async for chunk in model_stream:
+    cancel_token.raise_if_cancelled()   # token 流中
+    await publish(chunk)
+cancel_token.raise_if_cancelled()       # 启动 tool/下一 loop 前
+```
+
+Orchestration 的 `runId → worker/task/cancellation token` 是执行服务自身的权威状态，不能省略；被删除的是不可靠的 Copilot Runtime `threadId → runId/FAB` 映射。
+
+### 5.5 并发与无 Bug 约束
+
+- Stop 使用捕获到的 `operation`，异步过程中禁止重新读取当前页面 session/FAB，避免切换会话后取消错 Run。
+- Run 完成与 Cancel 并发时，数据库只允许第一个合法终态成功；`success/error/cancelled` 互不覆盖。
+- 迟到的 Stop 必须携带旧 `runId`，因此不会误杀同 thread 的新 Run。
+- 重复 Stop、CopilotKit 原生 Stop 与自有 Cancel 并发必须幂等。
+- `cancel_requested` 时禁止发送新消息；确认终态或明确 cancel_failed 后再允许用户处理。
+- status 轮询绑定 `runId`，路由切换、组件卸载、新 Run 开始时 Abort。
+- 如果不可取消工具已产生外部副作用，状态不能假装 rollback；首期 `interrupt` 只保证停止后续执行。
+- Orchestration 只有在 task/worker 确认退出后才写 `cancelled`，收到请求不能直接写终态。
 
 ## 6. HTML Artifact API 文档
 
@@ -342,10 +498,11 @@ HTML 来自模型，必须按不受信代码处理：
 ### P0：真正 Stop
 
 1. Orchestration 增加 run registry 与 `POST /ag-ui/runs/{runId}/cancel`。
-2. Core 贯通 cancellation token、loop/tool 边界和唯一终态。
-3. Runtime 增加 active-run registry，并让 runner `stop(threadId)` 等待上游 cancel 接受。
-4. 前端增加 `cancel_requested`/失败重试，不再远端未确认即宣称完成。
-5. E2E：启动 30 秒 loop，点击 Stop 后 2 秒内收到 accepted，10 秒内 task 不再运行；Redis/日志无后续 token/tool/loop。
+2. Orchestration 增加 `POST /ag-ui/runs/{runId}/status`；Core 贯通 cancellation token、loop/tool 边界和唯一终态。
+3. AgentDock App Server 增加无状态 `/api/agent-runtime/runs/{runId}/cancel|status` handler，复用现有 FAB 白名单配置。
+4. 前端增加 `runControlService`、`cancel_requested`、终态轮询和失败重试；远端未确认前不得宣称完成。
+5. 保留 `copilotkit.stopAgent` 只做本地生命周期清理；不建设 Runtime active-run registry。
+6. E2E：启动 30 秒 loop，点击 Stop 后 2 秒内收到 accepted，10 秒内 task 不再运行；Redis/日志无后续 token/tool/loop。
 
 ### P1：HTML Artifact
 
@@ -357,10 +514,9 @@ HTML 来自模型，必须按不受信代码处理：
 
 ### Stop 验收证据
 
-- Browser Network 出现 `method=agent/stop`。
-- Runtime 日志包含 threadId/runId/FAB 和 upstream cancel status。
+- Browser Network 出现 `/api/agent-runtime/runs/{runId}/cancel`，body 含 `threadId/agentId/fab`；原生 `agent/stop` 仅作为可选本地清理证据。
+- AgentDock Control Gateway 日志包含 request-id、runId、FAB 和 upstream cancel status，且不泄漏内部 URL。
 - Orchestration run 状态最终为 `cancelled`。
 - Core worker/task 退出，取消后无新普通事件。
 - SSE/connect 可观察到唯一 `RUN_ERROR code=CANCELLED`。
 - 重复 Stop 不产生 500，不取消同 thread 的下一次新 run。
-

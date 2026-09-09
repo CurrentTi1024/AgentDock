@@ -74,9 +74,9 @@ type MarketListMode = 'all' | 'permissioned';
 
 - Agent、Skill、MCP 的市场查询和 Skill 创建统一由 **Agent Registry** 提供。它不区分 FAB；OAuth2 Proxy 使用单一环境变量 `AGENT_REGISTRY_BASE_URL` 配置上游地址。
 - 除 Agent Chat 的实时接口外，所有普通 REST API 都使用各自固定的后端入口，不得因请求中的 FAB 切换 Base URL。
-- Agent Chat 的 Orchestration Service 按 FAB 部署。生产默认使用 **Copilot Runtime proxy**：Browser 始终访问同源 `/api/copilotkit`，Runtime 根据 `forwardedProps.fab` 选择对应 Base URL 并请求 `{baseUrl}/ag-ui`。
+- Agent Chat 的 Orchestration Service 按 FAB 部署。Run/Connect/HITL/A2UI 使用 **Copilot Runtime proxy**：Browser 访问同源 `/api/copilotkit`，Runtime 根据 `forwardedProps.fab` 选择 Base URL 并请求 `{baseUrl}/ag-ui`。权威 Stop/Status 访问同源 `/api/agent-runtime/*`，由同一 App Server 无状态转发。
 - FAB 映射由 Copilot Runtime/CD 的服务端变量 `AGENT_ORCHESTRATION_BASE_URLS_JSON` 配置。这样保留 Runtime middleware、认证透传、A2UI Catalog、审计、限流和统一错误处理。
-- 对话实时传输只有 `proxy` 一种方式（direct 直连联调已移除）：Browser 始终访问同源 `/api/copilotkit`，不直接选择 FAB endpoint。
+- 对话实时传输只有 `proxy` 一种方式（direct 直连联调已移除）：Browser 不直接选择 FAB endpoint，也不接触 Orchestration Base URL。
 - 未配置请求 FAB 的 Orchestration URL 时必须拒绝执行并返回明确错误，不得静默路由到其他 FAB。
 
 CD 环境变量示例：
@@ -117,7 +117,9 @@ env:
 | P0 | `getAgentsReferencingMcpServerByMcpServerId` | MCP 详情中的“使用此 MCP 的 Agent” |
 | P0 | `submitMessageFeedback` | 助手消息点赞/点踩 |
 | P1 | `getSupportedAgentGroupOrchestrationModes` | 临时 Agent Group 编排方式 |
-| P0 | Copilot Runtime single-route | Agent run、stop、resume、HITL、A2UI Action |
+| P0 | Copilot Runtime single-route | Agent run、connect/resume、HITL、A2UI Action；原生 stop 仅本地清理 |
+| P0 | `cancelAgentRun` | 按 `runId + fab` 权威取消 Orchestration/Core 任务 |
+| P0 | `getAgentRunStatus` | SSE 已关闭或 cancel 异步接受后确认真实终态 |
 
 本地 Session History 不在此表中：它只通过 IndexedDB Service 读写，不调用后端。IndexedDB 保存全部会话消息（单 Agent 与 Agent Group 的所有可见消息，包括 reasoning/tool/activity/A2UI/step），每次打开从本地恢复；用户清空浏览器存储后历史为空（不内置 Mock 种子会话）。
 
@@ -1251,7 +1253,7 @@ env:
 - `fab = F15B` 只允许转发至映射中的 F15B Base URL；其他 FAB 同理。
 - Runtime 必须对映射值做 URL 校验，并统一追加 `/ag-ui`，配置值本身只保存 Base URL。
 - FAB 未配置时不发起上游请求，返回 `FAB_ENDPOINT_NOT_CONFIGURED`；上游不可达时返回 `FAB_ENDPOINT_UNAVAILABLE`。
-- `run`、`resume`、`stop`、`hitlResponse` 和 `a2uiAction` 均携带 `fab`，并路由到同一 FAB 的上游。
+- `run`、`resume`、`hitlResponse` 和 `a2uiAction` 通过 `RunAgentInput.forwardedProps` 携带 `fab`。权威 Stop 不走原生 envelope，而走 §9.3 自有控制 API 并显式携带 `runId + fab`。
 - Agent Registry 的所有普通 REST API 继续使用 `AGENT_REGISTRY_BASE_URL`，不按 FAB 切换。
 
 ### 9.2 single-route 支持的动作
@@ -1262,7 +1264,7 @@ env:
 |---|---|---|
 | 发起执行 | `agent/run` | `sessionId`、`agentId` 或 `group`、`fab`、当前 message（在 `forwardedProps`） |
 | 断线恢复 | `agent/connect` | 相同 `runId`/`threadId`；`lastEventId` 语义由后端决定 |
-| 停止执行 | `agent/stop` | `agentId`、`threadId` |
+| 本地停止/释放 CopilotKit 生命周期 | `agent/stop` | `agentId`、`threadId`；不代表后端权威取消 |
 | HITL 响应 | `agent/run` + `RunAgentInput.resume[]`（标准 interrupt）或 `forwardedProps.hitlResponse`（后备） | `requestId`、mode 和对应输入 |
 | A2UI Action | `agent/run` + `forwardedProps.a2uiAction.userAction` | `surfaceId`、`actionName`、`context`、`sourceComponentId` |
 
@@ -1270,8 +1272,12 @@ env:
 
 ### 9.3 Stop 与 HTML Artifact 边界
 
-- Stop 是独立 Run 控制操作，不是消息内容。Browser 仍复用 `/api/copilotkit` 物理入口，但必须使用 `method=agent/stop`；
-  Runtime 再以 active `runId` 调用 Orchestration 的 `POST /ag-ui/runs/{runId}/cancel`。只关闭 SSE 不等于后端任务已停止。
+- Stop 是独立 Run 控制操作，不是消息内容。Browser 调用 `POST /api/agent-runtime/runs/{runId}/cancel`，body 为
+  `{sessionId, threadId, agentId, fab, reason:"user_requested", mode:"interrupt"}`；若返回 HTTP 202/`cancel_requested`，再调用
+  `POST /api/agent-runtime/runs/{runId}/status`，body 为 `{threadId, agentId, fab}`，直至终态或 10 秒超时。
+- AgentDock App Server 是无状态 Control Gateway：用现有 `AGENT_ORCHESTRATION_BASE_URLS_JSON[fab]` 转发到
+  `{baseUrl}/ag-ui/runs/{runId}/cancel|status`，不维护 `threadId → runId/FAB`。Browser 不得接触或提交真实 Base URL。
+- `copilotkit.stopAgent` 可并行执行，但仅清理 Browser 流、frontend tools 与 CopilotKit 本地生命周期；只关闭 SSE 不等于后端任务已停止。
 - HTML 页面作为 `ACTIVITY_SNAPSHOT(activityType="agentDock.artifact")` 传输，正文只显示摘要与文件卡；不要把 HTML code 放入普通助手正文，
   也不要把任意 HTML 包装成 A2UI。A2UI 只承载前端 Catalog 允许的原生组件。
 - 完整接口和实现方案见 `02-agui-a2ui-runtime-contract.md` §11 与 `design/19-run-control-and-html-artifact.md`。
@@ -1288,7 +1294,7 @@ src/api/market/mcpMarketService.ts
 src/api/market/marketService.ts
 src/api/conversation/messageFeedbackService.ts
 src/api/agent-group/agentGroupService.ts
-src/api/runtime/{agentRuntimeService,runReducer,sse}.ts
+src/api/runtime/{agentRuntimeService,runControlService,runReducer,sse}.ts
 src/api/session/sessionHistoryService.ts
 src/lib/{httpClient,mock}.ts
 src/mock-data/{user,agentMarket,skillMarket,mcpMarket,...}.ts
@@ -1306,7 +1312,7 @@ src/mock-data/{user,agentMarket,skillMarket,mcpMarket,...}.ts
 - Agent、Skill、MCP 的 HTTP Service 经 OAuth2 Proxy 访问同一个 Agent Registry（同源 `/api/*`），不自行按 FAB 选择地址。
 - 市场页面先通过 `getFabOptions` 获取 FAB 选项与默认 FAB，Agent/Skill/MCP 分类/列表/详情请求必须携带当前 FAB。
 - 生产 proxy 由 `@copilotkit/react-core/v2` transport 直接消费 `/api/copilotkit`（single-route envelope）；`agentRuntimeService`（mock runStore）仅用于离线 UI 测试，不套普通业务 API envelope。
-- 生产环境中 `agentRuntimeService` 只提交 `fab`；FAB 到 Orchestration Base URL 的选择由 App Server Runtime 完成。
+- 生产 Run 只提交 `fab`；FAB 到 Orchestration Base URL 的选择由 App Server 完成。`runControlService` 只能请求同源 `/api/agent-runtime/*`。
 - IndexedDB 由 `sessionHistoryService` 封装，不模拟成 FastAPI 接口。
 
 ## 11. 本月明确不提供的 API
@@ -1336,7 +1342,7 @@ Memory 自动注入 Agent context 属于后端运行逻辑，不允许前端把 
 ## 13. 联调前待确认
 
 - [x] Agent Registry 使用单一 `AGENT_REGISTRY_BASE_URL`，由 OAuth2 Proxy 路由 `/api/*`（仓库不自建反向代理），不区分 FAB。
-- [x] Agent Chat 使用 `AGENT_ORCHESTRATION_BASE_URLS_JSON` 按 FAB 配置上游，Browser 仍只访问 `/api/copilotkit`。
+- [x] Agent Chat 使用 `AGENT_ORCHESTRATION_BASE_URLS_JSON` 按 FAB 配置上游；Browser Run 访问 `/api/copilotkit`，权威 Stop/Status 访问 `/api/agent-runtime/*`。
 - [ ] 非零业务码的具体编号及其多语言错误 key。
 - [ ] 公司 SSO 使用 Cookie 还是授权头，以及 Runtime 到 FastAPI 的透传方式。
 - [ ] Skill 创建是同步完成仓库校验，还是需要异步导入任务契约。

@@ -70,7 +70,7 @@ flowchart LR
   → LobeHub 组件按 orderedBlocks 顺序渲染
 ```
 
-- **AG-UI**：run/connect/stop/info 全走 single-route envelope；`RUN_STARTED / STEP_* / REASONING_* / TEXT_* / TOOL_CALL_* / ACTIVITY_* / STATE_* / MESSAGES_SNAPSHOT / RUN_FINISHED` 逐类投影到对应组件。
+- **AG-UI**：run/connect/info 走 CopilotKit single-route envelope；原生 stop 只清理本地生命周期，权威后端取消按 `docs/agentdock/design/19-run-control-and-html-artifact.md` 走自有 cancel/status API。AG-UI 事件逐类投影到对应组件。
 - **A2UI**：Runtime `a2ui` middleware 把 `render_a2ui` 流式参数转成 `a2ui-surface` activity（`createSurface → updateComponents → updateDataModel`）；前端 Provider `a2ui={{ catalog }}` + 官方 renderer 渲染 catalog 组件；action 以 `forwardedProps.a2uiAction.userAction` 回传。
 - **HITL**：标准 `RUN_FINISHED(outcome=interrupt)` 与 legacy `on_interrupt` 双 wire 均投影为暂停块，approve/reject 回传 requestId。
 - **信息粒度渲染（fully copy LobeHub）**：文本（Markdown）、Reasoning 折叠卡、Tool 参数/结果卡、Workflow 步骤、Task/Delegation Activity、HITL 审批、A2UI 组件、错误卡，全部按事件顺序渲染（`orderedBlocks`）。
@@ -80,7 +80,7 @@ flowchart LR
 | 动作 | 入口 | mock（自研 runStore） | http + proxy（官方 CopilotKit） | 携带 ID |
 |---|---|---|---|
 | 发送消息 | ChatInput 发送 | `forwardedProps.action=run` | envelope `agent/run` | `sessionId / agentId / fab / threadId / runId` |
-| 停止生成 | 输入框停止按钮 | `action=stop` + 本地 abort | `agent/stop` + 本地 CANCELLED 终态 | `threadId / runId / sessionId` |
+| 停止生成 | 输入框停止按钮 | `action=stop` + 本地 abort | P0：自有 cancel/status 权威取消 + `agent/stop` 本地清理 | `fab / agentId / threadId / runId / sessionId` |
 | HITL 审批 | HITL 同意按钮 | `hitlResponse decision=approve` | `RunAgentInput.resume[] status=resolved` | `requestId / threadId / runId` |
 | HITL 拒绝（取消） | HITL 拒绝按钮 | `hitlResponse decision=reject` → `RUN_ERROR(CANCELLED)` | `resume[] status=cancelled` | `requestId / threadId / runId` |
 | A2UI Action | A2UI 组件点击 | `a2uiAction`（新 runId + parentRunId） | renderer bridge `forwardedProps.a2uiAction.userAction` | `surfaceId / actionName / context` |

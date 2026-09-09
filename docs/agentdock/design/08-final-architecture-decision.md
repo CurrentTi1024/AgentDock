@@ -36,7 +36,7 @@
 
 Copilot Runtime（`server/index.ts` 同进程挂载）不是简单的“端口配置”，它承担以下职责，缺一不可：
 
-1. **协议翻译**：前端 CopilotKit transport 使用 single-route JSON envelope（`{method, params, body}`）；Runtime 负责把它还原成 AG-UI 的 `run/connect/stop/info` 调用，并把后端 AG-UI SSE 转回前端可消费的 envelope。没有它，前端只能自研一套协议客户端（方案 B，已否决）。
+1. **协议翻译**：前端 CopilotKit transport 使用 single-route JSON envelope（`{method, params, body}`）；Runtime 负责 AG-UI 的 `run/connect/info` 与 SSE。原生 stop 只清理本地生命周期，权威取消使用同进程自有 cancel/status API（见 `19-run-control-and-html-artifact.md`）。
 2. **FAB 路由**：浏览器只知道同源 `/api/copilotkit`；Runtime 根据 `forwardedProps.fab` 选择 `AGENT_ORCHESTRATION_BASE_URLS_JSON[fab]` 并调用 `{baseUrl}/ag-ui`。OAuth2 Proxy 只做固定 path 转发，无法按 FAB 选择上游。
 3. **A2UI Middleware**：后端 `render_a2ui` 的 `TOOL_CALL_ARGS` 流到达 Runtime 后，官方 A2UIMiddleware 将其转换为 surface 事件（`createSurface/updateComponents/updateDataModel`），前端 renderer 才能渲染。开源版中该能力只在 Runtime 路径提供。
 4. **HITL Bridge**：interrupt 事件需要 Runtime 侧的 bridge 才能用 `resume` 数组续跑（legacy `on_interrupt` 或 AG-UI 标准 outcome）。前端 `useInterrupt` 的 `resolve/cancel` 最终都通过 Runtime 提交。

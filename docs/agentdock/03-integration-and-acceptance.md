@@ -306,7 +306,7 @@
 | Case 4 Reasoning | ⚠️ 受限 | DeepSeek reasoning 加密，ag_ui-langgraph 0.0.40 无 REASONING 事件；组件渲染/自动折叠由 mock 流验证 |
 | Case 5 Tool Call | ✅ | ls / render_a2ui 工具块（参数/结果/耗时/状态） |
 | Case 6 错误 | ✅ 兜底 | `runAgent` 失败写 RUN_ERROR；停止→cancelled |
-| Case 7 Stop | ✅ | 停止生成退出 running，保留部分内容 |
+| Case 7 Stop | ⚠️ UI 已有 / P0 后端待实现 | 当前可停止 Browser 流并保留部分内容；真实后端取消必须按 `design/19` 新增 `/api/agent-runtime/runs/{runId}/cancel|status`，以 Orchestration task 退出为验收依据 |
 | Case 8 断线恢复 | ✅ 服务层 / ⚠️ 端到端 | demo 后端已实现 eventId 注入 + 游标回放（69 事件全带 eventId；resume 第 40 条精确回放 29 条、无重执行；未知 run→STREAM_EXPIRED）；CopilotKit single-route 纯尾回放受其 SSE 校验限制（须 RUN_STARTED 开头），真实接入用 agent/connect 或全量回放+去重（见 02 §10.5） |
 | Case 9 HITL | ✅ 展示与请求 / ⚠️ 续跑 | 真实 interrupt（write_file）已触发：页面渲染 HitlBlock、批准携带真实 interruptId + decisions payload 到达后端；纯 deepagents 层 resume 后工具执行成功；ag_ui-langgraph 0.0.40 的 HTTP resume 映射与 langchain interrupt() 返回值约定不兼容，续跑执行需公司服务层实现/升级适配器（见 02 §8.2） |
 | Case 10 A2UI | ✅ 单轮 | 指标卡片叶子节点渲染 + render_a2ui 工具块 + a2ui-surface 事件；多轮上下文受 DeepSeek 偏离影响 |
@@ -315,6 +315,7 @@
 
 - 断线恢复（eventId 游标）端到端注入测试。
 - 真实 HITL wire 冻结（样本已抓取；续跑执行依赖公司服务层实现 resume 映射或升级 ag_ui-langgraph）。
+- Agent Stop 权威取消：无状态 Control Gateway、Orchestration cancel/status、Core cancellation token 与终态确认。
 - A2UI 多轮上下文稳定性（模型 forced tool_choice 偏离）。
 - 刷新后 A2UI surface 持久化恢复。
 ```

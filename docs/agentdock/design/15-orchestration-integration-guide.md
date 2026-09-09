@@ -8,8 +8,8 @@
 
 | 角色 | 职责 | 本仓库实现 |
 |---|---|---|
-| Browser | CopilotKit Provider + `useAgent`，提交 runId/threadId/fab，渲染 AG-UI 事件 | `src/app/providers.tsx`、`useAgentDockConversation.ts`、`runReducer.ts` |
-| Copilot Runtime | single-route envelope、A2UI 注入、按 fab 路由、SSE 回传 | `server/index.ts` |
+| Browser | CopilotKit Provider + `useAgent`，提交 runId/threadId/fab，渲染 AG-UI 事件；权威 Stop 调自有控制 API | `src/app/providers.tsx`、`useAgentDockConversation.ts`、`runReducer.ts` |
+| AgentDock App Server | `/api/copilotkit` Runtime；无状态 `/api/agent-runtime/*` 控制网关；按 fab 路由 | `server/index.ts`（待实现控制 handler） |
 | Orchestration Adapter | `FabRoutingAgent`：按 `AGENT_ORCHESTRATION_BASE_URLS_JSON[fab]` → `{base}/ag-ui` | `server/copilot-runtime/fabRoutingAgent.ts` |
 | Orchestration Service | 校验、沿用 runId、SSE 输出、eventId 游标（真实服务需 Redis Message Hub） | demo：FastAPI `/ag-ui` |
 | Core | DeepAgents + CopilotKitMiddleware，动态 `generate_a2ui`、执行 agent | demo：`backend/agent.py`、`backend/main.py` |
@@ -51,14 +51,16 @@ flowchart LR
   C["Core / DeepAgents + CopilotKitMiddleware"]
   B -->|"普通 REST /api/*"| P
   B -->|"实时 /api/copilotkit"| P
+  B -->|"控制 /api/agent-runtime/*"| P
   P -->|"/api/market/* 等"| A
   P -->|"/api/copilotkit"| R
+  P -->|"/api/agent-runtime/*"| R
   R --> F
   F -->|"{fab}/ag-ui"| O
   O --> C
 ```
 
-接入真实服务时，只需把 `AGENT_ORCHESTRATION_BASE_URLS_JSON` 的 value 指向公司 Orchestration Service 的 base URL（`/ag-ui` 后缀由 Adapter 自动拼接），前端与 Runtime 无需改动。
+接入真实服务时，把 `AGENT_ORCHESTRATION_BASE_URLS_JSON` 的 value 指向公司 Orchestration Service 的 base URL。Run 的 `/ag-ui` 后缀由 Adapter 拼接；Stop/Status 的 `/ag-ui/runs/{runId}/*` 由无状态控制 handler 拼接。两条链路共用同一份 FAB 白名单，Browser 不得拼真实 URL。
 
 ## 3. 关键代码
 
@@ -124,6 +126,29 @@ await copilotkit.runAgent({
   runId,
 });
 ```
+
+### 3.5 Agent Stop 控制路径（P0 待实现）
+
+权威取消不能只调用 CopilotKit 原生 `agent/stop`：它只有 `agentId/threadId`，没有本项目路由所需的 `fab` 和精确取消所需的 `runId`。
+
+```ts
+// Browser：同源自有 API；组件应通过 runControlService 调用。
+await postApi(`agent-runtime/runs/${encodeURIComponent(runId)}/cancel`, {
+  sessionId, threadId, agentId, fab,
+  reason: 'user_requested',
+  mode: 'interrupt',
+});
+
+// 同时仅做本地清理；失败不能覆盖权威 cancel 结果。
+await copilotkit.stopAgent({ agent }).catch(logLocalStopError);
+```
+
+AgentDock App Server 从服务端 `AGENT_ORCHESTRATION_BASE_URLS_JSON[fab]` 选择上游并转发到
+`POST {baseUrl}/ag-ui/runs/{runId}/cancel`。它不保存 `threadId → runId/FAB`；Orchestration 自身必须保存权威
+`runId → worker/task/cancellation token`，并校验 threadId、agentId、principal 与启动记录一致。若 cancel 返回
+`cancel_requested`，Browser 调用 `/api/agent-runtime/runs/{runId}/status` 确认 `cancelled` 后再显示“已停止”。
+
+完整契约和可直接落地的 Gateway/Core 伪代码见 `19-run-control-and-html-artifact.md` §4–5。
 
 ## 4. 期望 payload 约定（Browser → Orchestration）
 
@@ -203,6 +228,7 @@ await copilotkit.runAgent({
 4. Tool Call / Reasoning / HITL / A2UI 事件形状与 §5.2 一致（HITL wire 需公司后端真实样本冻结）。
 5. 断线重连：Service 按 eventId 只补缺失事件；未支持前前端自动转 cancelled，不重放。
 6. 并发：同一 runId 重复请求被拒（FAB_DUPLICATE_RUN 或 Thread already running），Core 不重复执行。
+7. Stop：Network 有自有 cancel 请求且 body 含 runId/threadId/agentId/fab；错误不被吞掉；后端 task 退出后 status 为 cancelled，终态后没有新 token/tool/loop。
 
 ## 6.1 断线重连（eventId 游标）实测
 

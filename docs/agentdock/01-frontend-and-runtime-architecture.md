@@ -50,7 +50,7 @@ Orchestration Core + DeepAgents + CopilotKitMiddleware
 - single-route 模式。
 - 一个远端 Orchestration Agent Adapter，调用 FastAPI `/ag-ui`。
 - 不配置模型，不直接运行 Agent。
-- 负责 Catalog、A2UI Middleware、AG-UI run/connect/stop 和上游断线恢复适配。
+- 负责 Catalog、A2UI Middleware、AG-UI run/connect 和上游断线恢复适配；权威 stop 由同进程无状态 Control Gateway 处理。
 - **不负责 SSO 与普通 API 转发**：SSO 登录态注入与 `/api/*` 到 Agent Registry 的路由由 OAuth2 Proxy 统一完成（见 `design/08` §7）；仓库不自建反向代理。
 
 ## 3. 建议仓库结构

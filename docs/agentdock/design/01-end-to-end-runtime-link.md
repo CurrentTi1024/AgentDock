@@ -128,17 +128,17 @@ AG-UI 规范中 `RunAgentInput.runId` 由 **调用方（Client/Application）提
 
 ### 4.2 浏览器传输层
 
-对话实时传输只有 `proxy` 一种方式：Browser 固定走 `/api/copilotkit`，FAB 路由由 Runtime 完成。
+对话实时传输只有 `proxy` 一种方式：Browser Run 固定走 `/api/copilotkit`；权威 Stop/Status 走同源 `/api/agent-runtime/*`，FAB 路由均由 App Server 完成。
 `direct`（自研 SSE 直连上游 `/ag-ui`）已移除；`agentRuntimeService` 仅用于 mock（离线 UI 测试）。
 
 ### 4.3 Runtime（Copilot Runtime Node 服务）转发
 
 `server/index.ts`（官方 single-route handler）+ `server/copilot-runtime/fabRoutingAgent.ts`：
 
-1. 前端 POST `/api/copilotkit`，body 为官方 envelope `{ method, params, body }`（`agent/run` / `agent/connect` / `agent/stop` / `info`）。
+1. 前端 Run/Connect POST `/api/copilotkit`，body 为官方 envelope `{ method, params, body }`；原生 `agent/stop` 仅清理本地生命周期，权威取消使用自有 cancel/status API。
 2. `FabRoutingAgent.run(input)` 读取 `forwardedProps.fab`，从 `AGENT_ORCHESTRATION_BASE_URLS_JSON` 选择 base URL（协议由公司内网规范决定，不强制校验），委托 `HttpAgent` 请求 `${base}/ag-ui`。
 3. `CopilotRuntime({ a2ui: {} })` 提供 A2UI Middleware 与认证透传；事件流原样回传。
-4. 上游不可达/非 2xx 由 Runtime 错误处理转为 `FAB_ENDPOINT_UNAVAILABLE` 等错误；取消返回 `CANCELLED`。
+4. 上游不可达/非 2xx 由 App Server 错误处理转为 `FAB_ENDPOINT_UNAVAILABLE` 等错误；权威取消终态由 Orchestration 返回 `CANCELLED`。
 
 ### 4.4 动作矩阵
 
@@ -146,7 +146,7 @@ AG-UI 规范中 `RunAgentInput.runId` 由 **调用方（Client/Application）提
 |---|---|---|---|
 | 发起执行 | `run` | `sessionId`、`agentId` 或 `group`、`fab`、当前 message | ✅ 官方 `agent/run`（proxy）/ 自研 runStore（mock） |
 | 断线恢复 | `resume` | `fab`、相同 `runId`、`resume.lastEventId` | ✅ mock `resume(lastEventId)`；http+proxy `connectAgent` 携带 `lastEventId`（方向已冻结：按 eventId 游标恢复） |
-| 停止 | `stop` | `fab`、相同 `threadId/runId` | ✅ 官方 `agent/stop`（proxy）/ 本地 abort（mock） |
+| 停止 | `stop` | `fab`、`agentId`、相同 `threadId/runId` | ⚠️ 本地清理已有；P0 自有 cancel/status 权威取消待实现 |
 | HITL 响应 | `hitlResponse` | `fab`、`requestId`、mode、decision/input 等 | ✅ 标准 `resume[]` + legacy 后备；wire 待冻结 |
 | A2UI Action | `a2uiAction` | `fab`、`surfaceId`、`actionName`、`context`、`sourceComponentId` | ✅ 官方 `a2uiAction.userAction`（renderer bridge）/ 自研后备 |
 
@@ -196,7 +196,7 @@ env:
 | R3 | ~~HITL requestId 硬编码~~ | ✅ | activity/interrupt 中读取并回传 |
 | R4 | ~~新会话 threadId 退化~~ | ✅ | `createSession` 固化 `crypto.randomUUID()` |
 | R5 | ~~direct mock 回退死链~~ | ✅ | `useOfficial` 仅 proxy；mock 统一走 `agentRuntimeService`（mock stream / 自研 runStore） |
-| R6 | `stop` 终态确认 | P1(联调) | 官方 `agent/stop` 已接入；上游终止事件形态待后端确认 |
+| R6 | `stop` 终态确认 | P0 | 实现 `/api/agent-runtime/runs/{runId}/cancel|status`、Core token 与唯一终态；详见 `design/19` |
 | R7 | ~~无 /info 发现端点~~ | ✅ | 官方 Runtime `/info` 已验证（agents + a2uiEnabled） |
 
 > 渲染侧：AG-UI/A2UI 事件 → LobeHub 组件不做事件 Adapter，统一走投影层（`design/09-agui-lobehub-rendering-adapter.md`）。

@@ -35,7 +35,7 @@ Orchestration Service → Runtime → Browser
 
 ### Browser
 
-- 产生或提交 `runId`；生产只访问同源 Runtime，并在 `forwardedProps.fab` 中声明 FAB。
+- 产生或提交 `runId`；生产只访问同源 App Server：Run 在 `forwardedProps.fab` 中声明 FAB，权威 Stop 在自有控制 API body 中声明 FAB。
 - 提交当前 user message 和业务运行参数。
 - 消费 CopilotKit 已归并的消息、state 和 activity。
 - 渲染 LobeHub 风格消息、HITL 和 A2UI。
@@ -45,10 +45,10 @@ Orchestration Service → Runtime → Browser
 
 - 生产 proxy 模式使用 single-route POST，并根据 FAB 路由（唯一真实传输；direct 直连联调已移除）。
 - Browser 与 Runtime 之间使用官方 envelope：`{ method: "agent/run" | "agent/connect" | "agent/stop" | "info", params: { agentId, threadId }, body: RunAgentInput }`；只有 `body` 是标准 `RunAgentInput`。
-- 负责 Catalog definitions、A2UI Middleware、Agent proxy 和 Browser-facing run/connect/stop。
+- 负责 Catalog definitions、A2UI Middleware、Agent proxy 和 Browser-facing run/connect；原生 stop 只清理 CopilotKit 生命周期。
 - 将 SSO 凭据安全传递到 Orchestration Service。
 - 不修改标准 AG-UI 事件语义和关联 ID。
-- Runtime Adapter 负责把 connect/stop 映射到 Orchestration Service。
+- Runtime Adapter 负责 run/connect；App Server 的无状态 Control Gateway 负责 cancel/status，并复用同一 FAB 白名单。
 
 ### Orchestration Service
 
@@ -541,9 +541,9 @@ Runtime Adapter 使用相同 `runId` 请求 `/ag-ui`（官方 `agent/connect`）
 ## 11. Stop/Cancel
 
 - Stop 是 Run 控制操作，不是 Chat Message；禁止发送 `message="Agent stop"` 或让模型解释停止意图。
-- Browser 使用 Copilot Runtime single-route `agent/stop`，请求以 `agentId + threadId` 定位当前运行；不发送 `RunAgentInput` body。
-- Runtime 必须根据 active-run registry 把 `threadId` 解析为原始 `runId + fab + upstreamBaseUrl`，再调用同一 FAB Orchestration 的
-  `POST /ag-ui/runs/{runId}/cancel`。多 Runtime 副本时 registry 必须共享，或保证 thread 粘滞路由。
+- CopilotKit 原生 `agent/stop` 只有 `agentId + threadId`，缺少本项目权威取消需要的 `runId + fab`，因此只用于清理 Browser 流、frontend tools 与 CopilotKit 本地生命周期。
+- Browser 必须另行调用 AgentDock 自有 `POST /api/agent-runtime/runs/{runId}/cancel`，body 显式携带 `sessionId/threadId/agentId/fab`；取消未立即完成时调用同一 Run 的 `/status`。
+- AgentDock App Server 根据 body 的 `fab` 查询服务端白名单，转发至同一 FAB Orchestration 的 `POST /ag-ui/runs/{runId}/cancel|status`；不得保存或依赖 Runtime `threadId → runId/FAB` 映射。
 - 关闭 Browser SSE/fetch 只属于即时 UX，不能作为后端停止的证据。Orchestration 必须登记真实 task handle/cancellation token，
   并通知 Core 停止 LLM stream、后续 loop、新 tool/step；长工具应实现 cancel hook 和超时。
 - Orchestration cancel 接口必须幂等：`pending/running → cancel_requested → cancelled`；重复请求返回当前状态，不得误取消同 thread 的下一次 run。
@@ -553,6 +553,8 @@ Runtime Adapter 使用相同 `runId` 请求 `/ag-ui`（官方 `agent/connect`）
 
 ### 11.1 Orchestration Cancel 请求
 
+Browser-facing 契约、status 接口、错误码和关键实现见 `04-frontend-backend-api.md` §9.3 与 `design/19-run-control-and-html-artifact.md`。以下是 Gateway 转发到 Orchestration 的内部请求：
+
 ```http
 POST {orchestrationBaseUrl}/ag-ui/runs/{runId}/cancel
 Content-Type: application/json
@@ -561,6 +563,7 @@ Content-Type: application/json
 ```json
 {
   "threadId": "thread-001",
+  "agentId": "flight-analysis-agent",
   "reason": "user_requested",
   "mode": "interrupt",
   "requestedAt": "2026-09-09T10:00:00+08:00"
