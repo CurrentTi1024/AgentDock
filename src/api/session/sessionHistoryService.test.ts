@@ -227,8 +227,18 @@ test('多段助手正文都按 timelineText 落库，并与工具保持真实事
   snapshot = reduceRunEvent(snapshot, { eventId: '2', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'intro-order', delta: '我先搜索页面。' } });
   snapshot = reduceRunEvent(snapshot, { eventId: '3', event: { type: 'TOOL_CALL_START', toolCallId: 'tool-order', toolCallName: 'browser.search' } });
   snapshot = reduceRunEvent(snapshot, { eventId: '4', event: { type: 'TOOL_CALL_END', toolCallId: 'tool-order' } });
+  snapshot.status = 'running';
+  await sessionHistoryService.persistRunSnapshot(sessionId, snapshot);
+  assert.equal(
+    (await sessionHistoryService.getMessages(sessionId)).some((record) => record.id === 'text:intro-order'),
+    true,
+    '流式中第一段正文暂作当前宿主',
+  );
   snapshot = reduceRunEvent(snapshot, { eventId: '5', event: { type: 'TEXT_MESSAGE_START', messageId: 'final-order', role: 'assistant' } });
   snapshot = reduceRunEvent(snapshot, { eventId: '6', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'final-order', delta: '搜索完成。' } });
+  // 模拟 CopilotKit 终态规范快照覆盖消息且没有保留前端 runId：orderedBlocks 仍是本轮权威。
+  delete snapshot.messages['intro-order'].runId;
+  delete snapshot.messages['final-order'].runId;
   snapshot.status = 'success';
   await sessionHistoryService.persistRunSnapshot(sessionId, snapshot);
 
@@ -243,6 +253,66 @@ test('多段助手正文都按 timelineText 落库，并与工具保持真实事
   );
   assert.equal(timeline[0].payload?.timelineText, true);
   assert.equal(timeline[2].payload?.timelineText, true);
+});
+
+test('两个 Session 并发完成多段正文时各自收敛宿主且时间线互不污染', async () => {
+  const sessionIds = ['session-concurrent-timeline-a', 'session-concurrent-timeline-b'];
+  await Promise.all(sessionIds.map((sessionId) => sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: sessionId,
+    type: 'agent',
+  })));
+
+  const buildConcurrentSnapshot = (sessionId: string, prefix: string) => {
+    const runId = `run-${prefix}`;
+    let snapshot = createRunState(runId, `thread-${sessionId}`);
+    snapshot.messages.user = { content: `${prefix}-问题`, id: 'user', role: 'user', runId };
+    snapshot.messageOrder.push('user');
+    snapshot = reduceRunEvent(snapshot, { eventId: `${prefix}-1`, event: { type: 'TEXT_MESSAGE_START', messageId: 'part-1', role: 'assistant' } });
+    snapshot = reduceRunEvent(snapshot, { eventId: `${prefix}-2`, event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'part-1', delta: `${prefix}-正文1` } });
+    snapshot = reduceRunEvent(snapshot, { eventId: `${prefix}-3`, event: { type: 'TOOL_CALL_START', toolCallId: 'shared-tool', toolCallName: 'shared.query' } });
+    snapshot = reduceRunEvent(snapshot, { eventId: `${prefix}-4`, event: { type: 'TOOL_CALL_END', toolCallId: 'shared-tool' } });
+    snapshot = reduceRunEvent(snapshot, { eventId: `${prefix}-5`, event: { type: 'TEXT_MESSAGE_START', messageId: 'part-2', role: 'assistant' } });
+    snapshot = reduceRunEvent(snapshot, { eventId: `${prefix}-6`, event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'part-2', delta: `${prefix}-正文2` } });
+    delete snapshot.messages['part-1'].runId;
+    delete snapshot.messages['part-2'].runId;
+    snapshot.status = 'success';
+    const input: RunAgentInput = {
+      context: [],
+      forwardedProps: { action: 'run', agentId: 'flight-analysis', fab: 'F15B', sessionId },
+      messages: [],
+      runId,
+      state: {},
+      threadId: `thread-${sessionId}`,
+      tools: [],
+    };
+    return { input, snapshot };
+  };
+  const runs = [
+    buildConcurrentSnapshot(sessionIds[0], 'A'),
+    buildConcurrentSnapshot(sessionIds[1], 'B'),
+  ];
+  await Promise.all(runs.map(({ input, snapshot }, index) =>
+    sessionHistoryService.saveRunCheckpoint(sessionIds[index], input, snapshot)));
+
+  const [rowsA, rowsB] = await Promise.all(sessionIds.map((sessionId) =>
+    sessionHistoryService.getMessages(sessionId)));
+  for (const [prefix, rows] of [['A', rowsA], ['B', rowsB]] as const) {
+    const assistantHosts = rows.filter((row) => row.kind === 'text' && row.role === 'assistant');
+    assert.deepEqual(assistantHosts.map((row) => row.id), ['text:part-2']);
+    const timeline = rows.filter((row) => row.kind !== 'text');
+    assert.deepEqual(timeline.map((row) => row.kind), ['narration', 'tool', 'narration']);
+    assert.deepEqual(
+      timeline.filter((row) => row.kind === 'narration').map((row) => row.content),
+      [`${prefix}-正文1`, `${prefix}-正文2`],
+    );
+    assert.equal(rows.every((row) => row.sessionId === `session-concurrent-timeline-${prefix.toLowerCase()}`), true);
+  }
 });
 
 test('A2UI Delta 生成的 Surface 作为正文级时间线节点落库，刷新后仍位于两段正文之间', async () => {

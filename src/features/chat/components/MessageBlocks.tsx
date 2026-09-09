@@ -11,6 +11,11 @@ import { findLogicalSurfaceId } from '@/api/runtime/runReducer';
 import type { RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
 import type { SessionMessageRecord } from '@/api/session/sessionHistoryService';
 import ErrorAlert from '@/features/chat/components/lobehub/ErrorAlert';
+import {
+  buildDisplayUnits,
+  type DisplayUnit,
+  type StoredTextMessage,
+} from '@/features/chat/messageTimeline';
 import { Markdown } from '@/features/chat/components/Markdown';
 import {
   ActivityBlock,
@@ -266,10 +271,7 @@ const HttpStoredA2uiSurface = ({
   return null;
 };
 
-export interface StoredTextMessage {
-  blocks: SessionMessageRecord[];
-  record: SessionMessageRecord;
-}
+export { buildDisplayUnits, type DisplayUnit, type StoredTextMessage };
 
 /** 新格式历史把每段 assistant 正文也作为时间线记录落库；宿主 text 行只用于分页和操作栏。 */
 export const hasStoredTextTimeline = (blocks: SessionMessageRecord[]): boolean =>
@@ -286,37 +288,6 @@ export const hasRunTextTimeline = (
     run.messages[ref.id]?.role === 'assistant',
 ));
 
-/** 单个展示单元：同一轮 run 的连续助手文本共用一个 ChatItem；正文仍由 blocks 时间线定位。 */
-export interface DisplayUnit {
-  blocks: SessionMessageRecord[];
-  narration: string[];
-  record: SessionMessageRecord;
-}
-
-/** 单聊/群聊共用：把 storedMessages 合并为展示单元，blocks 只挂一次。 */
-export const buildDisplayUnits = (storedMessages: StoredTextMessage[]): DisplayUnit[] => {
-  const units: DisplayUnit[] = [];
-  for (const item of storedMessages) {
-    const previous = units.at(-1);
-    if (
-      previous &&
-      previous.record.role === 'assistant' &&
-      item.record.role === 'assistant' &&
-      previous.record.runId &&
-      previous.record.runId === item.record.runId
-    ) {
-      if (previous.record.content && previous.record.content !== item.record.content) {
-        previous.narration.push(previous.record.content);
-      }
-      previous.record = item.record;
-      previous.blocks = item.blocks;
-    } else {
-      units.push({ blocks: item.blocks, narration: [], record: item.record });
-    }
-  }
-  return units;
-};
-
 export const renderStoredBlocks = (
   blocks: SessionMessageRecord[],
   handlers: {
@@ -325,7 +296,7 @@ export const renderStoredBlocks = (
     onSurfaceAction: (actionName: string, surfaceId: string) => void;
     onRegenerateError?: (runId?: string) => void;
   },
-  options: { deletedKeys?: Set<string>; narration?: string[]; showReasoning?: boolean; showSurfaces?: boolean } = {},
+  options: { deletedKeys?: Set<string>; showReasoning?: boolean; showSurfaces?: boolean } = {},
 ): React.ReactNode[] => {
   const nodes: React.ReactNode[] = [];
   const stepRecords: SessionMessageRecord[] = [];
@@ -337,11 +308,6 @@ export const renderStoredBlocks = (
     options.deletedKeys?.size
       ? blocks.filter((record) => !options.deletedKeys!.has(record.id))
       : blocks;
-  if (options.narration?.length) {
-    for (const text of options.narration) {
-      nodes.push(<Markdown content={text} key={`legacy-text-${text.slice(0, 12)}`} />);
-    }
-  }
   const pushStepsIntoProcess = () => {
     if (!stepRecords.length) return;
     const steps: RuntimeStep[] = stepRecords.map((record) => {
@@ -522,90 +488,7 @@ export const renderRunBlocks = (
   const visibleOrdered = options.deletedKeys?.size
     ? ordered.filter((ref) => !options.deletedKeys!.has(`${ref.kind}:${ref.id}`))
     : ordered;
-  if (visibleOrdered.length === 0) {
-    // 旧检查点兼容：按 map 分组渲染
-    if (options.showReasoning !== false) {
-      for (const [id, text] of Object.entries(run.reasoning || {})) {
-        const meta = run.reasoningMeta?.[id];
-        if (text?.trim() || meta?.streaming || meta?.encrypted) {
-          process.state.nodes.push(<ReasoningBlock id={id} key={`reasoning-${id}`} meta={meta} text={text} />);
-          process.state.stepCount += 1;
-        }
-        process.track(meta?.startedAt, meta?.finishedAt);
-      }
-    }
-    for (const [id, call] of Object.entries(run.toolCalls || {})) {
-      if (isA2uiTool(call.apiName)) continue;
-      process.state.nodes.push(<ToolCallBlock call={call} key={`tool-${id}`} />);
-      process.state.stepCount += 1;
-      process.track(call.startedAt, call.finishedAt);
-    }
-    const steps = Object.values(run.steps || {}).sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0));
-    const visibleSteps = steps.filter((step) => !isInternalStep(step.name));
-    if (visibleSteps.length) {
-      process.state.nodes.push(<WorkflowStepsBlock key="steps" steps={visibleSteps} streaming={streaming} />);
-      process.state.stepCount += visibleSteps.length;
-      process.track(
-        Math.min(...visibleSteps.map((step) => step.startedAt ?? Number.POSITIVE_INFINITY)),
-        Math.max(...visibleSteps.map((step) => step.finishedAt ?? 0)),
-      );
-    }
-    // 旧 checkpoint 可能没有 orderedBlocks；普通 Activity 仍必须进入过程折叠区。
-    for (const [id, activity] of Object.entries(run.activities || {})) {
-      if (!activity || typeof activity !== 'object') continue;
-      const value = activity as { activityType?: string; requestId?: string; [key: string]: unknown };
-      if (
-        value.diagnosticOnly === true ||
-        value.activityType === 'a2ui.surface' ||
-        value.activityType === 'a2ui-surface' ||
-        value.activityType === 'agentDock.artifact' ||
-        value.activityType === 'agentDock.error'
-      ) continue;
-      if (value.requestId || value.activityType === 'agentDock.hitl') {
-        process.state.nodes.push(
-          <HitlBlock
-            description={typeof value.description === 'string' ? value.description : undefined}
-            key={`fallback-hitl-${id}`}
-            mode={typeof value.mode === 'string' ? value.mode : 'toolAuthorization'}
-            onApprove={(requestId, approvePayload) =>
-              handlers.onApproveHitl(requestId, {
-                ...approvePayload,
-                mode: value.mode || 'toolAuthorization',
-              })
-            }
-            onReject={handlers.onRejectHitl}
-            requestId={String(value.requestId || id)}
-          />,
-        );
-        process.state.stepCount += 1;
-      } else {
-        process.state.nodes.push(<ActivityBlock activity={value} key={`fallback-activity-${id}`} />);
-        process.state.stepCount += 1;
-      }
-    }
-    const hasRenderableSurface = options.showSurfaces !== false && Object.entries(run.surfaces || {}).some(
-      ([surfaceId, payload]) =>
-        typeof payload === 'object' &&
-        payload !== null &&
-        hasSurfaceContent(payload as Record<string, unknown>) &&
-        Boolean(findLogicalSurfaceId(payload) || surfaceId),
-    );
-    flushSteps(streaming && !hasRenderableSurface);
-    if (options.showSurfaces !== false) {
-      for (const [surfaceId, payload] of Object.entries(run.surfaces || {})) {
-        if (typeof payload === 'object' && payload !== null) {
-          const logicalId = findLogicalSurfaceId(payload) || surfaceId;
-          if (hasSurfaceContent(payload as Record<string, unknown>) && !seenSurfaces.has(logicalId)) {
-            seenSurfaces.add(logicalId);
-            blocks.push(
-              <A2uiStoredSurface key={`surface-${surfaceId}`} onAction={handlers.onSurfaceAction} payload={{ ...(payload as Record<string, unknown>), surfaceId }} />,
-            );
-          }
-        }
-      }
-    }
-  } else {
-    for (const ref of visibleOrdered) {
+  for (const ref of visibleOrdered) {
       if (ref.kind === 'text') {
         const message = run.messages?.[ref.id];
         if (message?.role === 'assistant') {
@@ -734,11 +617,10 @@ export const renderRunBlocks = (
           }
         }
       }
-    }
-    // 只有最后仍处于时间线末端的过程段自动展开；任何正文/surface/error 都会在上面
-    // 以 active=false 提前 flush，从结构上保证同一时刻最多自动展开一个过程段。
-    flushSteps(streaming);
   }
+  // 只有最后仍处于时间线末端的过程段自动展开；任何正文/surface/error 都会在上面
+  // 以 active=false 提前 flush，从结构上保证同一时刻最多自动展开一个过程段。
+  flushSteps(streaming);
   // RUN_ERROR 的错误文本会剥离 reducer 追加到 assistant 文本的同值后缀；这里保留一个
   // 结构化 ErrorAlert，避免正文与错误提示重复，同时仍让错误占据真实事件位置。
   return blocks;

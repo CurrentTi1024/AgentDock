@@ -698,7 +698,7 @@ export default function ChatPage() {
                 onSuggestion={(suggestion) => setInput(t(suggestion))}
               />
             )}
-            {displayUnits.map(({ blocks: storedBlocks, narration, record }, index) => {
+            {displayUnits.map(({ blocks: storedBlocks, record }, index) => {
               const previous = index > 0 ? displayUnits[index - 1].record : undefined;
               const gap = previous
                 ? new Date(record.createdAt).getTime() - new Date(previous.createdAt).getTime()
@@ -746,7 +746,7 @@ export default function ChatPage() {
                     surfaceId,
                   }),
                 onRegenerateError: (runId) => regenerateError(runId),
-              }, { deletedKeys, narration, showReasoning, showSurfaces: true });
+              }, { deletedKeys, showReasoning, showSurfaces: true });
               const assistantActions = (
                 <MessageActions
                   content={actionContent}
@@ -791,7 +791,7 @@ export default function ChatPage() {
                     <ChatItem
                       actions={assistantActions}
                       avatar={agentIcon}
-                      content={storedTimelineText ? undefined : displayContent}
+                      content={undefined}
                       id={record.id}
                       name={agent}
                       role="assistant"

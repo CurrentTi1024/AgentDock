@@ -634,7 +634,7 @@ const GroupChatPage = () => {
                 </Button>
               </Flexbox>
             )}
-            {displayUnits.map(({ blocks: storedBlocks, narration, record }, index) => {
+            {displayUnits.map(({ blocks: storedBlocks, record }, index) => {
               const previous = index > 0 ? displayUnits[index - 1].record : undefined;
               const gap = previous
                 ? new Date(record.createdAt).getTime() - new Date(previous.createdAt).getTime()
@@ -681,7 +681,7 @@ const GroupChatPage = () => {
                     surfaceId,
                   }),
                 onRegenerateError: (runId) => regenerateError(runId),
-              }, { deletedKeys, narration, showReasoning });
+              }, { deletedKeys, showReasoning });
               const assistantActions = (
                 <MessageActions
                   content={actionContent}
@@ -730,7 +730,7 @@ const GroupChatPage = () => {
                     <ChatItem
                       actions={assistantActions}
                       avatar="👥"
-                      content={storedTimelineText ? undefined : displayContent}
+                      content={undefined}
                       id={record.id}
                       name={session?.title || t('nav.group')}
                       role="assistant"

@@ -556,3 +556,16 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   会话与默认 inbox）、群聊未命名会话三处统一改用该规则（原 32 字符与「标题==新对话」判断移除）。
 - **验证**：`mentions.test.ts` 新增 3 例（20 字符截断/mention 清理/空白折叠与回退），
   `sessionHistoryService.test.ts` 新增 hasMessages 用例；全套 80/80、typecheck、build 通过。
+
+第十八轮（2026-09-10，事件时间线终态去重与多 Session 隔离）：
+
+- **单一真相源**：移除 `buildDisplayUnits.narration` 旧正文聚合和 live map fallback；实时与历史统一
+  只按 `orderedBlocks` / `timelineText` 渲染，assistant text 行仅作分页与操作栏宿主。
+- **终态收敛**：持久化按本 Run 的 `orderedBlocks.text` 识别正文，即使 CopilotKit 规范快照未带
+  `runId`，仍删除前序正文宿主并只保留最后宿主，修复 success 后顶部突然重复正文 1..N-1。
+- **快照归属**：整段 `MESSAGES_SNAPSHOT` 中的本轮 `lc_run--` 占位改为从尾部按角色有序匹配，
+  防止误绑上一轮 assistant 导致跨 Run 串序。
+- **并发隔离**：新增两个 Session 并发完成、复用相同 message/tool id 的落库回归；验证复合主键、
+  narration 顺序、唯一宿主均互不污染。
+- **验证**：全量测试 134/134、typecheck、生产 build、`git diff --check` 通过；本地 Mock 浏览器实测
+  发送 → HITL → 继续 → success，并在刷新后确认最终正文只渲染一次。

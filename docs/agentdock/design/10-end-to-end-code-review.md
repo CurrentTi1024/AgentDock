@@ -143,6 +143,20 @@ Browser（CopilotKit transport）
 | ~~sequence 用 `Date.now()+index`，同毫秒跨 run 可能乱序~~ | P2 | ✅ 改 `Date.now()*1000 + 自增序列` |
 | 恢复后的 A2UI surface 只渲染 raw JSON | P1 | 联调后按 catalog 渲染器重建（见清单） |
 
+### 4.8 单一事件时间线终态审查（2026-09-10）
+
+| 发现 | 级别 | 处理 |
+|---|---|---|
+| `buildDisplayUnits` 把前序 assistant 宿主正文收集到 `narration[]`，历史渲染又从 `timelineText` 渲染同一正文 | P0 | ✅ 删除旧聚合字段与前置渲染路径；同 Run 仅保留最后宿主 |
+| 终态宿主清理依赖 `message.runId`，规范 `MESSAGES_SNAPSHOT` 不带该字段时中间正文宿主残留 | P0 | ✅ 以本 Run `orderedBlocks.text` 为权威集合，删除除最后一条外的宿主 |
+| 整段历史快照从头匹配 `lc_run--` 占位，可能把本轮正文误绑定到上一轮 assistant | P0 | ✅ 从快照尾部按角色、按顺序一一替换 |
+| live 渲染保留无 `orderedBlocks` 的 map 分组兼容分支，形成第二套顺序规则 | P1 | ✅ 删除兼容分支，live/history 统一只按时间线投影 |
+| 多 Session 同时完成可能在正文收敛时串库 | P0 验证项 | ✅ `[sessionId+id]` 复合主键隔离；新增 A/B 并发同 message/tool id 回归 |
+
+验证结果：`pnpm run test` 134/134、`pnpm run build`、`pnpm run typecheck`、`git diff --check`
+全部通过。Mock 浏览器实测发送 → HITL → 正文 → A2UI/Artifact → success，生成中仅当前过程段活跃；
+终态正文只出现一次，刷新后同一正文 DOM 匹配数仍为 1。
+
 ## 5. 待办清单
 
 ### P0（已全部完成）

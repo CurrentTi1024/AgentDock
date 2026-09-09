@@ -488,13 +488,21 @@ export const sessionHistoryService = {
     const messageIds = snapshot.messageOrder?.length
       ? snapshot.messageOrder
       : Object.keys(snapshot.messages);
-    const currentAssistantIds = messageIds.filter((messageId) => {
-      const message = snapshot.messages[messageId];
-      return message?.role === 'assistant' && message.runId === snapshot.runId;
-    });
-    const hasOrderedTextBlocks = snapshot.orderedBlocks.some((block) => block.kind === 'text');
+    // orderedBlocks 是本轮 Run 独享的可视时间线，因此 text 引用比消息上的 runId 更权威。
+    // CopilotKit 的终态 MESSAGES_SNAPSHOT 可能用规范消息覆盖流式消息且不携带 runId；若继续
+    // 依赖 message.runId，会把前几段 assistant text 误留成独立宿主，终态切换后重复正文。
+    const orderedAssistantTextIds = snapshot.orderedBlocks
+      .filter((block) => block.kind === 'text')
+      .map((block) => block.id)
+      .filter((messageId) => snapshot.messages[messageId]?.role === 'assistant');
+    const currentAssistantIds = orderedAssistantTextIds.length > 0
+      ? [...new Set(orderedAssistantTextIds)]
+      : messageIds.filter((messageId) => {
+          const message = snapshot.messages[messageId];
+          return message?.role === 'assistant' && message.runId === snapshot.runId;
+        });
     const intermediateAssistantIds = new Set(
-      hasOrderedTextBlocks && currentAssistantIds.length > 1
+      currentAssistantIds.length > 1
         ? currentAssistantIds.slice(0, -1)
         : [],
     );
@@ -566,11 +574,7 @@ export const sessionHistoryService = {
       switch (kind) {
         case 'text': {
           const message = snapshot.messages[id];
-          if (
-            message?.role === 'assistant' &&
-            message.runId === snapshot.runId &&
-            message.content !== undefined
-          ) {
+          if (message?.role === 'assistant' && message.content !== undefined) {
             push('narration', id, {
               content: message.content,
               eventId: message.eventId ?? snapshot.latestEventId,

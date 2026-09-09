@@ -53,6 +53,10 @@ AgentDock 是纯前端项目，对话能力对外只依赖两类接口：
 - `status`：`idle | running | paused | success | cancelled | error`；
 - `processedEventIds` / `latestEventId`：顶层 AG-UI eventId 的去重窗口与断线游标。
 
+`MESSAGES_SNAPSHOT` 若携带整段历史，流式阶段的 `lc_run--*` 正文占位只允许与快照尾部、角色匹配的
+最新 assistant 消息一一对应；不得从历史头部寻找第一个 assistant，否则会把本轮 `orderedBlocks`
+错误替换成上一轮消息 id，造成跨 Run 重复或串序。
+
 ### 2.2 防重入与并发防护（三层）
 
 1. **前端 hook 门禁**：`send()` 在 `running/paused` 时忽略新发送（含 UI 层 `running` 判断）；
@@ -76,6 +80,17 @@ AgentDock 是纯前端项目，对话能力对外只依赖两类接口：
 - **只落用户可见内容**：过滤 system/developer 上下文（如 A2UI catalog）与流式占位 id（`lc_run--`）；
 - **checkpoint 剪枝**：终态只保留最近 3 条，running/paused 始终保留（刷新回放依赖）；
 - **`agentdock:run-persisted` 广播**：落库完成后发事件，页面确定性刷新历史，避免与异步落库竞态。
+
+正文历史采用单一时间线模型，不保留旧版“从多条 assistant text 行聚合正文”的兼容路径：
+
+- `orderedBlocks` 中属于本轮的 `text` 引用是本轮正文段的权威集合，即使
+  `MESSAGES_SNAPSHOT` 返回的规范消息没有 `runId`，也按这些引用识别为本轮正文；
+- 每个正文段落为 `narration:*`（`payload.timelineText=true`），并与 reasoning、tool、activity、
+  surface 共享同一顺序落库；
+- 仅最后一个正文消息保留 `text:*` 宿主，用于分页锚点、操作栏、反馈、重试和消息级操作；
+  其余本轮 assistant text 宿主在每次快照收敛时删除；
+- `text:*` 宿主内容绝不作为时间线正文再次渲染。终态从 live 切换到历史时只能更换数据来源，
+  不能改变可见节点数量或顺序。
 
 ### 3.2 历史分页
 
@@ -107,10 +122,12 @@ AgentDock 是纯前端项目，对话能力对外只依赖两类接口：
 
 - 气泡内部按 `orderedBlocks` 的权威顺序渲染全部正文段和过程段；
 - 助手文本是正文段，不收入过程折叠；正文可以自然出现在多个过程段之间；
-- 最后一条文本记录只作为该轮历史宿主、分页锚点和操作栏目标；有时间线文本记录时不再重复渲染宿主正文；
+- 最后一条文本记录只作为该轮历史宿主、分页锚点和操作栏目标；assistant 正文始终由
+  `timelineText` 节点渲染，宿主正文不提供旧版聚合或前置回退；
 - 过程块（折叠/工具/A2UI）只挂载一次，杜绝重复渲染，刷新后保持同一顺序。
 
-单聊与群聊共用该函数（`MessageBlocks.tsx` 导出）。
+单聊与群聊共用该函数。历史即使因异常残留多个同 Run assistant text 宿主，也只选择最后一条作为
+展示宿主，不复制前序宿主内容；因此不会生成“正文 1、正文 2、完整时间线”的双重投影。
 
 ### 4.2 ChatItem（气泡外壳）
 

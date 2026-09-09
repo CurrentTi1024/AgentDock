@@ -361,6 +361,25 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
       for (const messageId of Object.keys(next.messages)) {
         if (!next.messageOrder.includes(messageId)) next.messageOrder.push(messageId);
       }
+      // 快照通常携带整段线程历史，而 lc_run-- 占位只属于本轮最新回复。按占位时间线倒序，
+      // 从快照尾部寻找同角色消息一一配对，防止把本轮占位误替换成最早的历史 assistant。
+      const placeholderIds = next.orderedBlocks
+        .filter((block) => block.kind === 'text' && block.id.startsWith('lc_run--'))
+        .map((block) => block.id);
+      const placeholderBySnapshotId = new Map<string, string>();
+      let snapshotCursor = snapshotMessages.length - 1;
+      for (let index = placeholderIds.length - 1; index >= 0; index -= 1) {
+        const placeholderId = placeholderIds[index];
+        const placeholderRole = next.messages[placeholderId]?.role;
+        while (snapshotCursor >= 0) {
+          const candidate = snapshotMessages[snapshotCursor];
+          snapshotCursor -= 1;
+          if (candidate.role === placeholderRole) {
+            placeholderBySnapshotId.set(candidate.id, placeholderId);
+            break;
+          }
+        }
+      }
       for (const message of snapshotMessages) {
         // 任务/编排角色同时保留一份 activity 诊断投影；真正展示仍走原始消息角色，
         // 不能再降级成通用 ActivityBlock，否则 LobeHub 的 Task/Tasks/GroupTasks/Supervisor
@@ -379,12 +398,7 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
         // 不要求内容相等——快照可能先于流式完成到达，此时占位内容只是部分文本）。
         // 保证同一回复只有一个规范 id，避免“我”+全文两个气泡。
         if (message.role === 'assistant' || message.role === 'assistantGroup') {
-          const placeholderId = Object.keys(next.messages).find(
-            (existingId) =>
-              existingId.startsWith('lc_run--') &&
-              (next.messages[existingId].role === 'assistant' ||
-                next.messages[existingId].role === 'assistantGroup'),
-          );
+          const placeholderId = placeholderBySnapshotId.get(message.id);
           if (placeholderId) {
             // 占位替换为规范 UUID：继承占位消息的 runId（属于当前 run），
             // 保证后续 RUN_ERROR 仍能识别为“本轮 assistant”并正确追加。

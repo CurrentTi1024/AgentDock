@@ -204,6 +204,17 @@ success / error / cancelled / 无 live run → 发送按钮
 
 历史加载不启用流式动画；只有当前 live Run 使用 `enableStream`。终态落库事件包含 `sessionId/runId/status`，页面只刷新自己的 Session。
 
+### 7.1 多 Session 时间线隔离
+
+- 每个 Run 的 `orderedBlocks` 只描述该 Run 的实时可视节点；正文宿主选择和中间宿主清理不得扫描或
+  推断其他 Run 的 assistant 消息。
+- IndexedDB 消息以 `[sessionId+id]` 为复合主键；正文时间线落库、宿主删除和分页整轮查询都必须同时
+  限定 `sessionId`，不同 Session 可以合法复用 message/tool/step id。
+- checkpoint 队列与写链以 `runId` 分槽，落库通知同时携带 `sessionId` 和 `runId`；ChatPage 与
+  GroupChatPage 只响应当前 Session 的终态通知。
+- A/B Session 并发完成时，各自只保留一个 assistant text 宿主，并分别按自己的 `orderedBlocks`
+  生成 narration/process/surface 时间线，不共享展开状态、live run 或历史刷新状态。
+
 `ACTIVITY_SNAPSHOT / ACTIVITY_DELTA` 会按事件顺序进入 `orderedBlocks`；Delta 的 `patch` 按 RFC 6902 `add/replace/remove` 应用。除 A2UI Surface、错误和 HITL 使用专用组件外，所有普通 Activity（不要求 `activityType` 以 `agentDock.` 开头）都计为一个执行步骤，并显示为助手过程折叠区内的任务卡片；实时态和 IndexedDB 历史态遵循同一规则。
 
 ## 8. 明确非目标与运行边界
@@ -223,7 +234,7 @@ success / error / cancelled / 无 live run → 发送按钮
 - `src/api/session/sessionHistoryService.test.ts`
 - `src/api/session/sessionStorageService.test.ts`
 
-必须覆盖：A/B 独立路由与迟到事件隔离、顶层 `eventId` 终态、stream 关闭兜底、error/cancelled/paused、防重复 stop、HITL/stop 竞态、checkpoint 恢复、删除清理、终态缓存上限、历史水合上限和 snapshot live 投影上限。
+必须覆盖：A/B 独立路由与迟到事件隔离、顶层 `eventId` 终态、stream 关闭兜底、error/cancelled/paused、防重复 stop、HITL/stop 竞态、checkpoint 恢复、删除清理、终态缓存上限、历史水合上限、snapshot live 投影上限，以及多段正文终态不重复、刷新/分页顺序不变、A/B Session 并发落库互不污染。
 
 提交前最低门槛：
 
