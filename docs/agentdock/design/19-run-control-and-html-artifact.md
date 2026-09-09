@@ -391,7 +391,7 @@ Orchestration 的 `runId → worker/task/cancellation token` 是执行服务自�
 
 ### 6.1 AG-UI 事件
 
-后端在正文摘要之后（也可流式过程中）发送 `ACTIVITY_SNAPSHOT`：
+后端在正文摘要之后发送一个完整 `ACTIVITY_SNAPSHOT`。HTML 不使用 `ACTIVITY_DELTA` 逐字符传输：不完整 DOM 会造成预览闪烁，也会放大持久化与安全检查成本；更新文档时重新发送同一 `artifactId`、更高 `revision` 的 Snapshot：
 
 ```json
 {
@@ -430,6 +430,9 @@ Orchestration 的 `runId → worker/task/cancellation token` 是执行服务自�
 - `sha256` 用于完整性、去重和缓存校验。
 - `presentation` 只是显示建议，Browser 可因用户设置或安全策略不自动打开。
 - 不使用 `TEXT_MESSAGE_CONTENT` 承载 HTML，不使用 Markdown 裸标签猜测 Artifact。
+- `presentation.autoOpen=true` 只对当前 live run 的该 `artifactId + revision` 生效一次；用户手动关闭后不得因 React 重渲染重复抢焦点。历史恢复只显示文件卡，不自动打开。
+
+兼容公司 Agent 暂时只能输出普通文本的场景：允许在 `TEXT_MESSAGE_*` 中返回 fenced code block（` ```html` 或 ` ```htm`）。前端继续把它作为正文代码块展示并保留复制能力，只在该代码块工具栏增加“预览”按钮；用户点击后才打开同一个安全侧栏。不得用“正文含 `<div>`”之类的模糊规则识别，避免把讲解文字、XML、模板片段误执行为页面。该兼容路径不自动打开、不生成持久 Artifact ID；后端具备结构化事件能力后仍应迁移到 `agentDock.artifact`。
 
 兼容期可读取当前 `{ title, html }`，但新后端只应生成上面的规范结构；前端归一化后再渲染。
 
@@ -504,13 +507,13 @@ HTML 来自模型，必须按不受信代码处理：
 5. 保留 `copilotkit.stopAgent` 只做本地生命周期清理；不建设 Runtime active-run registry。
 6. E2E：启动 30 秒 loop，点击 Stop 后 2 秒内收到 accepted，10 秒内 task 不再运行；Redis/日志无后续 token/tool/loop。
 
-### P1：HTML Artifact
+### P1：HTML Artifact（本次实现）
 
-1. 冻结规范 payload 和兼容归一化器。
-2. 实现正文 ArtifactCard 与 Portal tabs。
-3. 实现严格 sandbox/CSP/sanitize/大小限制。
-4. 统一 IndexedDB artifact store、历史恢复和 `/artifact` 页面。
-5. E2E：生成、自动打开、源码切换、关闭后不抢焦点、刷新恢复、恶意脚本/外连被阻断。
+1. 冻结规范 payload 和兼容 `{title, html}` 归一化器。
+2. 实现正文 ArtifactCard 与共用 Portal 的“预览 / 源码”、复制和下载。
+3. 实现无权限 sandbox、CSP、危险节点/属性清理和 512 KiB 大小限制。
+4. 当前会话沿用既有 Activity IndexedDB 落库实现历史恢复；后续 Artifact 列表跨会话检索时再拆独立 object store，避免本次双写。
+5. E2E：生成、自动打开一次、源码切换、复制/下载、关闭后不抢焦点、刷新后从文件卡打开、恶意脚本/外连被阻断。
 
 ### Stop 验收证据
 

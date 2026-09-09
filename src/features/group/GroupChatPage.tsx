@@ -17,6 +17,7 @@ import {
 import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
 import FeedbackModal, { type FeedbackTarget } from '@/features/chat/components/FeedbackModal';
+import { HtmlArtifactPanel } from '@/features/chat/components/HtmlArtifact';
 import { MessageActions } from '@/features/chat/components/MessageActions';
 import { buildSessionTitle, parseMentionedAgents } from '@/features/chat/mentions';
 import type { OpStatusActivity } from '@/features/chat/components/OpStatusTray';
@@ -46,12 +47,25 @@ import { messageFeedbackService } from '@/api/conversation/messageFeedbackServic
 import type { RuntimeStep } from '@/api/runtime/types';
 import { useI18n } from '@/i18n';
 import { useUiStore } from '@/stores/uiStore';
+import { findLatestHtmlArtifact, htmlArtifactKey, type HtmlArtifact } from '@/features/chat/htmlArtifact';
 import {
   runtimeMessageToSessionRecord,
   SpecialMessage,
 } from '@/features/chat/components/lobehub/SpecialMessages';
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
+  artifactPanel: css`
+    flex: none;
+    width: min(520px, 45vw);
+    border-inline-start: 1px solid ${token.colorBorderSecondary};
+    background: ${token.colorBgContainer};
+    @media (max-width: 800px) {
+      position: fixed;
+      z-index: 20;
+      inset: 0;
+      width: 100vw;
+    }
+  `,
   panel: css`
     flex: none;
     width: 300px;
@@ -116,6 +130,9 @@ const GroupChatPage = () => {
   const [members, setMembers] = useState(DEFAULT_GROUP_MEMBERS);
   const [mentions, setMentions] = useState<MentionAgent[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [artifact, setArtifact] = useState<HtmlArtifact>();
+  const [artifactOpen, setArtifactOpen] = useState(false);
+  const autoOpenedArtifactsRef = useRef(new Set<string>());
   const [composerHeight, setComposerHeight] = useState(0);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const currentSessionIdRef = useRef(sessionId);
@@ -262,6 +279,9 @@ const GroupChatPage = () => {
     setHistory([]);
     setSession(pendingSession?.id === sessionId ? pendingSession : undefined);
     setRunStartedAt(undefined);
+    setArtifact(undefined);
+    setArtifactOpen(false);
+    autoOpenedArtifactsRef.current.clear();
     // pendingSession 只在切换到新 id 时用于首帧，避免旧群聊历史残留。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
@@ -422,9 +442,27 @@ const GroupChatPage = () => {
         sourceComponentId: 'open',
         surfaceId: surface[0],
       }),
+    onOpenArtifact: (nextArtifact) => {
+      setArtifact(nextArtifact);
+      setSettingsOpen(false);
+      setArtifactOpen(true);
+    },
     onRegenerateError: () => regenerateError(),
   }, { deletedKeys, showReasoning });
   const hasLiveAssistant = liveAssistantMessages.length > 0;
+
+  useEffect(() => {
+    if (!run) return;
+    const nextArtifact = findLatestHtmlArtifact(Object.values(run.activities || {}));
+    if (!nextArtifact) return;
+    setArtifact(nextArtifact);
+    const key = htmlArtifactKey(nextArtifact);
+    if (nextArtifact.presentation.autoOpen && !autoOpenedArtifactsRef.current.has(key)) {
+      autoOpenedArtifactsRef.current.add(key);
+      setSettingsOpen(false);
+      setArtifactOpen(true);
+    }
+  }, [run]);
   const liveProcessHostId = findLiveProcessHostId(liveSpecialRecords, hasLiveAssistant);
   const hasLiveBlocks = Array.isArray(blocks) && blocks.length > 0;
   const hasLiveTimelineText = hasRunTextTimeline(run, deletedKeys);
@@ -680,6 +718,11 @@ const GroupChatPage = () => {
                     sourceComponentId: 'open',
                     surfaceId,
                   }),
+                onOpenArtifact: (nextArtifact) => {
+                  setArtifact(nextArtifact);
+                  setSettingsOpen(false);
+                  setArtifactOpen(true);
+                },
                 onRegenerateError: (runId) => regenerateError(runId),
               }, { deletedKeys, showReasoning });
               const assistantActions = (
@@ -815,6 +858,11 @@ const GroupChatPage = () => {
                   id="current-group-assistant"
                   loading={running}
                   name={session?.title || t('nav.group')}
+                  onPreviewHtml={(nextArtifact) => {
+                    setArtifact(nextArtifact);
+                    setSettingsOpen(false);
+                    setArtifactOpen(true);
+                  }}
                   role="assistant"
                   time={Date.now()}
                 >
@@ -852,7 +900,13 @@ const GroupChatPage = () => {
         </Flexbox>
       </Flexbox>
 
-      {settingsOpen && (
+      {artifactOpen && artifact && (
+        <Flexbox className={styles.artifactPanel} height="100%">
+          <HtmlArtifactPanel artifact={artifact} key={htmlArtifactKey(artifact)} onClose={() => setArtifactOpen(false)} />
+        </Flexbox>
+      )}
+
+      {settingsOpen && !artifactOpen && (
       <Flexbox className={styles.panel} gap={16} padding={16}>
         <Tabs
           items={[

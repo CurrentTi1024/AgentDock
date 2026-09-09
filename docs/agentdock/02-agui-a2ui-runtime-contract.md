@@ -591,6 +591,7 @@ Content-Type: application/json
 - 最小 payload 必须包含 `artifactId`、`revision`、`title`、`mimeType=text/html`、`storage`、`body`、`sizeBytes` 和 `sha256`。
 - Browser 正文显示 Artifact 文件卡，点击打开右栏；右栏默认预览，可切换源码。历史 Activity 必须能恢复文件卡和面板。
 - HTML 必须视为不受信代码：使用不带 `allow-same-origin/allow-scripts` 的 iframe sandbox，注入严格 CSP，执行 sanitize 和大小校验。
+- 兼容期普通 `TEXT_MESSAGE_*` 可包含 fenced `html/htm` code block；正文显示源码，用户点击代码块“预览”后才进入同一安全 iframe。禁止根据普通正文中的 HTML 标签自动渲染或自动打开。
 - 完整字段、兼容结构、安全策略和当前迁移审计见 `design/19-run-control-and-html-artifact.md`。
 
 ## 12. 错误码建议

@@ -464,6 +464,28 @@ test('ACTIVITY_SNAPSHOT stores activityType alongside content for live rendering
   assert.deepEqual(state.orderedBlocks, [{ id: 'task-10', kind: 'activity' }]);
 });
 
+test('HTML artifact snapshot preserves its complete file payload and timeline position', () => {
+  const state = reduceRunEvent(createRunState('run-html', 'thread-html'), {
+    eventId: 'html-1',
+    event: {
+      activityType: 'agentDock.artifact',
+      content: {
+        artifactId: 'report-1',
+        body: '<!doctype html><h1>Report</h1>',
+        fileName: 'report.html',
+        mimeType: 'text/html',
+        presentation: { autoOpen: true, defaultTab: 'preview' },
+        revision: 1,
+      },
+      messageId: 'artifact-event-1',
+      type: 'ACTIVITY_SNAPSHOT',
+    },
+  });
+  assert.equal(state.activities['artifact-event-1'].body, '<!doctype html><h1>Report</h1>');
+  assert.equal(state.activities['artifact-event-1'].activityType, 'agentDock.artifact');
+  assert.deepEqual(state.orderedBlocks, [{ id: 'artifact-event-1', kind: 'activity' }]);
+});
+
 test('standalone ACTIVITY_DELTA preserves top-level activityType for task-card rendering', () => {
   const state = reduceRunEvent(createRunState('run-activity-delta', 'thread-activity-delta'), {
     eventId: 'activity-delta-1',

@@ -6,6 +6,7 @@ import { createStaticStyles, cx } from 'antd-style';
 import { type MouseEventHandler, type ReactNode, memo } from 'react';
 
 import { Markdown } from '@/features/chat/components/Markdown';
+import type { HtmlArtifact } from '@/features/chat/htmlArtifact';
 import { useI18n } from '@/i18n';
 import { formatRelativeTime } from '@/lib/relativeTime';
 
@@ -76,6 +77,7 @@ export interface ChatItemProps {
   onChange?: (value: string) => void;
   onDoubleClick?: MouseEventHandler<HTMLDivElement>;
   onEditingChange?: (editing: boolean) => void;
+  onPreviewHtml?: (artifact: HtmlArtifact) => void;
   role: 'assistant' | 'user';
   showAvatar?: boolean;
   showTitle?: boolean;
@@ -103,6 +105,7 @@ const ChatItem = memo<ChatItemProps>(
     messageExtra,
     name,
     onDoubleClick,
+    onPreviewHtml,
     role,
     showAvatar,
     showTitle,
@@ -182,7 +185,7 @@ const ChatItem = memo<ChatItemProps>(
             onDoubleClick={onDoubleClick}
           >
             {children}
-            {hasContent ? <Markdown content={content!} enableStream={enableStream} /> : null}
+            {hasContent ? <Markdown content={content!} enableStream={enableStream} onPreviewHtml={isUser ? undefined : onPreviewHtml} /> : null}
             {messageExtra}
           </Flexbox>
           {belowMessage}

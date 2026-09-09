@@ -1,7 +1,7 @@
 // AgentDock conversation page — LobeHub ConversationArea + ChatItem + ChatInput adaptation.
 import { ActionIcon, Button, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { FileBarChart, X } from 'lucide-react';
+import { FileBarChart } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
@@ -15,6 +15,7 @@ import ChatHeader from '@/features/chat/components/ChatHeader';
 import ChatInput from '@/features/chat/components/ChatInput';
 import ChatItem from '@/features/chat/components/ChatItem';
 import FeedbackModal, { type FeedbackTarget } from '@/features/chat/components/FeedbackModal';
+import { HtmlArtifactPanel } from '@/features/chat/components/HtmlArtifact';
 import { MessageActions } from '@/features/chat/components/MessageActions';
 import {
   buildSessionTitle,
@@ -55,13 +56,20 @@ import {
 } from '@/features/chat/components/lobehub/SpecialMessages';
 import { useUiStore } from '@/stores/uiStore';
 import { useI18n } from '@/i18n';
+import { findLatestHtmlArtifact, htmlArtifactKey, type HtmlArtifact } from '@/features/chat/htmlArtifact';
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
   artifact: css`
     flex: none;
-    width: 380px;
+    width: min(520px, 45vw);
     border-inline-start: 1px solid ${token.colorBorderSecondary};
     background: ${token.colorBgContainer};
+    @media (max-width: 800px) {
+      position: fixed;
+      z-index: 20;
+      inset: 0;
+      width: 100vw;
+    }
   `,
   scroll: css`
     overflow-y: auto;
@@ -113,7 +121,8 @@ export default function ChatPage() {
   const loadedTextCountRef = useRef(0);
   const loadingOlderRef = useRef(false);
   const [artifactOpen, setArtifactOpen] = useState(false);
-  const [artifact, setArtifact] = useState<{ html?: string; title?: string }>();
+  const [artifact, setArtifact] = useState<HtmlArtifact>();
+  const autoOpenedArtifactsRef = useRef(new Set<string>());
   const [runStartedAt, setRunStartedAt] = useState<number>();
   // React Router 会复用同一个 ChatPage 实例。所有异步读取都必须校验目标 session，
   // 防止 A 的慢请求在已经切到 B 后回写 B 页面（历史串会话/身份闪回）。
@@ -405,6 +414,7 @@ export default function ChatPage() {
     setRunStartedAt(undefined);
     setArtifact(undefined);
     setArtifactOpen(false);
+    autoOpenedArtifactsRef.current.clear();
     // pendingSession 只属于导航到该 session 的瞬时 state；同一 id 内 state 变化不应重置页面。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
@@ -608,6 +618,10 @@ export default function ChatPage() {
         sourceComponentId: 'action-button',
         surfaceId: surface[0],
       }),
+    onOpenArtifact: (nextArtifact) => {
+      setArtifact(nextArtifact);
+      setArtifactOpen(true);
+    },
     onRegenerateError: () => regenerateError(),
   }, { deletedKeys, showReasoning, showSurfaces: true });
   const hasLiveAssistant = liveAssistantMessages.length > 0;
@@ -630,16 +644,17 @@ export default function ChatPage() {
     void navigator.clipboard.writeText(content || '');
   }, []);
 
-  // LobeHub Portal：输出含 artifact（agentDock.artifact 活动）时自动打开右侧面板。
+  // live HTML Artifact 只按 artifactId+revision 自动打开一次。用户关闭后，普通
+  // React 重渲染不得再次抢焦点；历史恢复始终通过正文文件卡手动打开。
   useEffect(() => {
     if (!run) return;
-    for (const value of Object.values(run.activities || {})) {
-      const activity = value as { activityType?: string; html?: string; title?: string };
-      if (activity.activityType === 'agentDock.artifact' && typeof activity.html === 'string') {
-        setArtifact({ html: activity.html, title: activity.title });
-        setArtifactOpen(true);
-        return;
-      }
+    const nextArtifact = findLatestHtmlArtifact(Object.values(run.activities || {}));
+    if (!nextArtifact) return;
+    setArtifact(nextArtifact);
+    const key = htmlArtifactKey(nextArtifact);
+    if (nextArtifact.presentation.autoOpen && !autoOpenedArtifactsRef.current.has(key)) {
+      autoOpenedArtifactsRef.current.add(key);
+      setArtifactOpen(true);
     }
   }, [run]);
 
@@ -664,7 +679,7 @@ export default function ChatPage() {
           fab={fab}
           icon={agentIcon}
           status={run?.status}
-          onToggleArtifact={() => setArtifactOpen((open) => !open)}
+          onToggleArtifact={() => artifact && setArtifactOpen((open) => !open)}
         />
         <Flexbox
           className={styles.scroll}
@@ -745,6 +760,10 @@ export default function ChatPage() {
                     sourceComponentId: 'action-button',
                     surfaceId,
                   }),
+                onOpenArtifact: (nextArtifact) => {
+                  setArtifact(nextArtifact);
+                  setArtifactOpen(true);
+                },
                 onRegenerateError: (runId) => regenerateError(runId),
               }, { deletedKeys, showReasoning, showSurfaces: true });
               const assistantActions = (
@@ -872,12 +891,16 @@ export default function ChatPage() {
                   id="current-assistant"
                   loading={running}
                   name={agent}
+                  onPreviewHtml={(nextArtifact) => {
+                    setArtifact(nextArtifact);
+                    setArtifactOpen(true);
+                  }}
                   role="assistant"
                   time={Date.now()}
                 >
                   {!liveProcessHostId && blocks}
                   {running && !answer && !hasLiveBlocks && <ContentLoading startTime={runStartedAt} />}
-                  {!running && answer && (
+                  {!running && answer && artifact && (
                     <Flexbox horizontal gap={8}>
                       <ActionIcon
                         aria-label={t('chat.openReport')}
@@ -926,58 +949,9 @@ export default function ChatPage() {
         </Flexbox>
       </Flexbox>
 
-      {artifactOpen && (
+      {artifactOpen && artifact && (
         <Flexbox className={styles.artifact} height="100%">
-          <Flexbox
-            horizontal
-            align="center"
-            height={44}
-            justify="space-between"
-            paddingInline={16}
-            style={{ borderBlockEnd: `1px solid ${cssVar.colorBorderSecondary}` }}
-          >
-            <Flexbox horizontal align="center" gap={8}>
-              <Icon icon={FileBarChart} />
-              <Text weight={500}>{t('chat.artifact.title')}</Text>
-            </Flexbox>
-            <ActionIcon aria-label={t('common.close')} icon={X} onClick={() => setArtifactOpen(false)} />
-          </Flexbox>
-          <Flexbox gap={20} padding={20} style={{ overflowY: 'auto' }}>
-            {artifact?.html ? (
-              <iframe
-                sandbox="allow-same-origin"
-                srcDoc={artifact.html}
-                style={{
-                  border: 'none',
-                  borderRadius: 12,
-                  background: '#fff',
-                  flex: 1,
-                  minHeight: 420,
-                  width: '100%',
-                }}
-                title={artifact.title || t('chat.artifact.title')}
-              />
-            ) : (
-              <>
-                <Text as="h1" fontSize={22} weight={600}>
-                  {artifact?.title || t('chat.artifact.title')}
-                </Text>
-                <Text type="secondary">{t('chat.artifact.subtitle', { name: agent })}</Text>
-                <Flexbox gap={8} padding={16} style={{ border: `1px solid ${cssVar.colorBorderSecondary}`, borderRadius: 12 }}>
-                  <Text weight={500}>{t('chat.artifact.status')}</Text>
-                  <Text fontSize={30} weight={600}>
-                    {t('chat.artifact.stable')}
-                  </Text>
-                  <Tag color="success">{t('chat.artifact.passed')}</Tag>
-                </Flexbox>
-                <Flexbox gap={8} padding={16} style={{ border: `1px solid ${cssVar.colorBorderSecondary}`, borderRadius: 12 }}>
-                  <Text weight={500}>{t('chat.artifact.anomalies')}</Text>
-                  <Text>{t('chat.artifact.anomaly1')}</Text>
-                  <Text>{t('chat.artifact.anomaly2')}</Text>
-                </Flexbox>
-              </>
-            )}
-          </Flexbox>
+          <HtmlArtifactPanel artifact={artifact} key={htmlArtifactKey(artifact)} onClose={() => setArtifactOpen(false)} />
         </Flexbox>
       )}
       <FeedbackModal

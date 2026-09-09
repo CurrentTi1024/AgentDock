@@ -1,13 +1,23 @@
 // Adapted from: src/features/Conversation/Messages/Assistant/useMarkdown (LobeHub canary)
 // 直接使用 @lobehub/ui 的 Markdown 渲染管线（代码高亮/mermaid/latex/流式动画），
 // 与 LobeHub 对话页视觉一致。
-import { Markdown as LobeMarkdown } from '@lobehub/ui';
+import { ActionIcon, Flexbox, Markdown as LobeMarkdown, Text } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { memo } from 'react';
+import { Check, Copy, Eye } from 'lucide-react';
+import { memo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { createInlineHtmlPreview, splitHtmlCodeBlocks, type HtmlArtifact } from '@/features/chat/htmlArtifact';
+import { useI18n } from '@/i18n';
 
 // LobeHub Mention 插件样式：内联 info 色 chip。
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
+  htmlCode: css`
+    overflow: hidden;
+    margin-block: 12px;
+    border: 1px solid ${token.colorBorderSecondary};
+    border-radius: ${token.borderRadiusLG}px;
+    background: ${token.colorBgLayout};
+  `,
   mention: css`
     cursor: pointer;
     position: relative;
@@ -111,11 +121,37 @@ const AgentMentionLink = ({ children, href }: { children?: React.ReactNode; href
 interface MarkdownProps {
   content: string;
   enableStream?: boolean;
+  onPreviewHtml?: (artifact: HtmlArtifact) => void;
 }
 
-// 历史消息进入 Session 时会整批挂载，默认禁用动画，避免完整内容被当作新 token 重放。
-// 当前正在运行的助手消息由调用方显式开启流式动画。
-export const Markdown = memo<MarkdownProps>(({ content, enableStream = false }) => (
+const HtmlCodeBlock = ({ code, onPreview }: { code: string; onPreview: (artifact: HtmlArtifact) => void }) => {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const artifact = createInlineHtmlPreview(code);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch (error) {
+      console.warn('[AgentDock] Copy HTML code block failed', { error });
+    }
+  };
+  return (
+    <div className={styles.htmlCode}>
+      <Flexbox horizontal align="center" gap={8} padding="6px 8px" style={{ borderBlockEnd: `1px solid ${cssVar.colorBorderSecondary}` }}>
+        <Text fontSize={12} style={{ flex: 1 }} type="secondary">HTML</Text>
+        {artifact && <ActionIcon aria-label={t('chat.artifact.preview')} icon={Eye} size="small" onClick={() => onPreview(artifact)} />}
+        <ActionIcon aria-label={t('chat.copy')} icon={copied ? Check : Copy} size="small" onClick={() => void copy()} />
+      </Flexbox>
+      <pre style={{ fontFamily: cssVar.fontFamilyCode, fontSize: 12, margin: 0, maxHeight: 420, overflow: 'auto', padding: 12, whiteSpace: 'pre', width: '100%' }}>
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+};
+
+const MarkdownBody = ({ content, enableStream }: { content: string; enableStream: boolean }) => (
   <LobeMarkdown
     animated={enableStream}
     components={{ a: AgentMentionLink }}
@@ -127,7 +163,20 @@ export const Markdown = memo<MarkdownProps>(({ content, enableStream = false }) 
   >
     {withMentionLinks(content)}
   </LobeMarkdown>
-));
+);
+
+// 历史消息进入 Session 时会整批挂载，默认禁用动画，避免完整内容被当作新 token 重放。
+// 当前正在运行的助手消息由调用方显式开启流式动画。
+export const Markdown = memo<MarkdownProps>(({ content, enableStream = false, onPreviewHtml }) => {
+  if (!onPreviewHtml) return <MarkdownBody content={content} enableStream={enableStream} />;
+  const segments = splitHtmlCodeBlocks(content);
+  if (!segments.some((segment) => segment.kind === 'html')) {
+    return <MarkdownBody content={content} enableStream={enableStream} />;
+  }
+  return <>{segments.map((segment, index) => segment.kind === 'html'
+    ? <HtmlCodeBlock code={segment.content} key={`html-${index}`} onPreview={onPreviewHtml} />
+    : <MarkdownBody content={segment.content} enableStream={enableStream} key={`markdown-${index}`} />)}</>;
+});
 
 Markdown.displayName = 'Markdown';
 

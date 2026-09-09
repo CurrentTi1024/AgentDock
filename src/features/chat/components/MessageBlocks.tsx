@@ -11,6 +11,8 @@ import { findLogicalSurfaceId } from '@/api/runtime/runReducer';
 import type { RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
 import type { SessionMessageRecord } from '@/api/session/sessionHistoryService';
 import ErrorAlert from '@/features/chat/components/lobehub/ErrorAlert';
+import { HtmlArtifactCard } from '@/features/chat/components/HtmlArtifact';
+import { normalizeHtmlArtifact, type HtmlArtifact } from '@/features/chat/htmlArtifact';
 import {
   buildDisplayUnits,
   type DisplayUnit,
@@ -294,6 +296,7 @@ export const renderStoredBlocks = (
     onApproveHitl: (requestId: string, payload?: Record<string, unknown>) => void;
     onRejectHitl: (requestId: string) => void;
     onSurfaceAction: (actionName: string, surfaceId: string) => void;
+    onOpenArtifact?: (artifact: HtmlArtifact) => void;
     onRegenerateError?: (runId?: string) => void;
   },
   options: { deletedKeys?: Set<string>; showReasoning?: boolean; showSurfaces?: boolean } = {},
@@ -344,7 +347,7 @@ export const renderStoredBlocks = (
     if (record.kind === 'narration') {
       flushSteps();
       if (record.content?.trim()) {
-        nodes.push(<Markdown content={record.content} key={record.id} />);
+        nodes.push(<Markdown content={record.content} key={record.id} onPreviewHtml={handlers.onOpenArtifact} />);
       }
       continue;
     }
@@ -382,7 +385,15 @@ export const renderStoredBlocks = (
         typeof payload.finishedAt === 'number' ? payload.finishedAt : undefined,
       );
     } else if (record.kind === 'activity') {
-      if (payload.activityType === 'a2ui.surface' || payload.activityType === 'a2ui-surface' || payload.activityType === 'agentDock.artifact') {
+      if (payload.activityType === 'agentDock.artifact') {
+        flushSteps();
+        const artifact = normalizeHtmlArtifact(payload);
+        if (artifact && handlers.onOpenArtifact) {
+          nodes.push(<HtmlArtifactCard artifact={artifact} key={record.id} onOpen={() => handlers.onOpenArtifact?.(artifact)} />);
+        }
+        continue;
+      }
+      if (payload.activityType === 'a2ui.surface' || payload.activityType === 'a2ui-surface') {
         flushSteps();
         continue;
       }
@@ -460,6 +471,7 @@ export const renderRunBlocks = (
     onApproveHitl: (requestId: string, payload?: Record<string, unknown>) => void;
     onRejectHitl: (requestId: string) => void;
     onSurfaceAction: (actionName: string) => void;
+    onOpenArtifact?: (artifact: HtmlArtifact) => void;
     onRegenerateError?: () => void;
   },
   options: { deletedKeys?: Set<string>; showReasoning?: boolean; showSurfaces?: boolean } = {},
@@ -502,6 +514,7 @@ export const renderRunBlocks = (
                 content={content}
                 enableStream={streaming && visibleOrdered.at(-1) === ref}
                 key={`text-${ref.id}`}
+                onPreviewHtml={handlers.onOpenArtifact}
               />,
             );
           }
@@ -539,7 +552,15 @@ export const renderRunBlocks = (
         // MESSAGES_SNAPSHOT 的 task/supervisor 等角色已经由 SpecialMessage 走原生组件展示；
         // reducer 仅保留 diagnosticOnly activity 供诊断，不能再塞进 assistant workflow 重复显示。
         if (value.diagnosticOnly === true) continue;
-        if (value.activityType === 'a2ui.surface' || value.activityType === 'a2ui-surface' || value.activityType === 'agentDock.artifact') {
+        if (value.activityType === 'agentDock.artifact') {
+          flushSteps(false);
+          const artifact = normalizeHtmlArtifact(value);
+          if (artifact && handlers.onOpenArtifact) {
+            blocks.push(<HtmlArtifactCard artifact={artifact} key={`artifact-${ref.id}`} onOpen={() => handlers.onOpenArtifact?.(artifact)} />);
+          }
+          continue;
+        }
+        if (value.activityType === 'a2ui.surface' || value.activityType === 'a2ui-surface') {
           flushSteps(false);
           continue;
         }
