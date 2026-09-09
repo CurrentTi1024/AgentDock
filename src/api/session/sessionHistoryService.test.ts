@@ -245,6 +245,46 @@ test('多段助手正文都按 timelineText 落库，并与工具保持真实事
   assert.equal(timeline[2].payload?.timelineText, true);
 });
 
+test('A2UI Delta 生成的 Surface 作为正文级时间线节点落库，刷新后仍位于两段正文之间', async () => {
+  const sessionId = 'session-a2ui-delta-order';
+  await sessionHistoryService.createSession({
+    agentId: 'flight-analysis',
+    agentName: 'FlightAnalysis_Agent',
+    fab: 'F15B',
+    id: sessionId,
+    pinned: false,
+    threadId: `thread-${sessionId}`,
+    title: 'A2UI Delta 顺序',
+    type: 'agent',
+  });
+  let snapshot = createRunState('run-a2ui-delta-order', `thread-${sessionId}`);
+  snapshot = reduceRunEvent(snapshot, { eventId: '1', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'before-surface', delta: '正文一' } });
+  snapshot = reduceRunEvent(snapshot, {
+    eventId: '2',
+    event: { activityType: 'a2ui-surface', content: { status: 'building' }, messageId: 'a2ui-delta-activity', type: 'ACTIVITY_SNAPSHOT' },
+  });
+  snapshot = reduceRunEvent(snapshot, {
+    eventId: '3',
+    event: {
+      activityType: 'a2ui-surface',
+      messageId: 'a2ui-delta-activity',
+      patch: [{ op: 'add', path: '/components', value: [{ id: 'metric', type: 'metricCard' }] }, { op: 'add', path: '/surfaceId', value: 'delta-dashboard' }],
+      type: 'ACTIVITY_DELTA',
+    },
+  });
+  snapshot = reduceRunEvent(snapshot, { eventId: '4', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'after-surface', delta: '正文二' } });
+  snapshot.status = 'success';
+  await sessionHistoryService.persistRunSnapshot(sessionId, snapshot);
+
+  const rows = await sessionHistoryService.getMessages(sessionId);
+  const visibleOutputTimeline = rows.filter((record) => record.kind === 'narration' || record.kind === 'surface');
+  assert.deepEqual(visibleOutputTimeline.map((record) => record.id), [
+    'narration:before-surface',
+    'surface:delta-dashboard',
+    'narration:after-surface',
+  ]);
+});
+
 test('流式防抖：空闲 350ms 后自动落盘，无需手动 flush', async () => {
   const sessionId = 'session-persist-debounce';
   const runId = 'run-debounce';

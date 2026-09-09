@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable, type Table } from 'dexie';
 import { LOBE_VISIBLE_MESSAGE_ROLES, type RunAgentInput, type RuntimeMessage, type RuntimeRunState } from '../runtime/types.ts';
-import { findLogicalSurfaceId } from '../runtime/runReducer.ts';
+import { findLogicalSurfaceId, isA2uiActivityType } from '../runtime/runReducer.ts';
 export interface SessionRecord { agentId?: string; agentName?: string; createdAt: string; deletedMessageIds?: string[]; fab: string; group?: unknown; id: string; lastMessageAt?: string; pinned: boolean; threadId: string; title: string; type: 'agent' | 'group'; updatedAt: string; version?: string }
 export type SessionMessageKind = 'activity' | 'narration' | 'reasoning' | 'step' | 'surface' | 'text' | 'tool';
 export interface SessionMessageRecord { content?: string; createdAt: string; id: string; kind: SessionMessageKind; payload?: Record<string, unknown>; role?: RuntimeMessage['role']; runId?: string; sequence: number; sessionId: string; eventId?: string }
@@ -541,7 +541,7 @@ export const sessionHistoryService = {
       if (payload.diagnosticOnly === true) return;
       const activityType = String(payload.activityType || '');
       push('activity', id, { payload: { ...payload, activityType, messageId: id }, runId: snapshot.runId, eventId: snapshot.latestEventId });
-      if (activityType === 'a2ui.surface') {
+      if (isA2uiActivityType(activityType)) {
         // 中间态（building/progress）无 UI 内容，不落 surface 行；否则正文出现 JSON 回退卡。
         if (
           !Array.isArray(payload.a2ui_operations) &&

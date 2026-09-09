@@ -63,9 +63,31 @@ export const findLogicalSurfaceId = (payload: unknown): string | undefined => {
       if (typeof create === 'string') return create;
       const update = (op as { updateComponents?: { surfaceId?: unknown } }).updateComponents?.surfaceId;
       if (typeof update === 'string') return update;
+      const dataUpdate = (op as { updateDataModel?: { surfaceId?: unknown } }).updateDataModel?.surfaceId;
+      if (typeof dataUpdate === 'string') return dataUpdate;
+      const remove = (op as { deleteSurface?: { surfaceId?: unknown } }).deleteSurface?.surfaceId;
+      if (typeof remove === 'string') return remove;
     }
   }
   return undefined;
+};
+export const isA2uiActivityType = (activityType: string): boolean =>
+  activityType === 'a2ui.surface' || activityType === 'a2ui-surface';
+const hasA2uiSurfaceContent = (payload: Record<string, unknown>): boolean =>
+  Array.isArray(payload.a2ui_operations) || Array.isArray(payload.components);
+/** 把 Runtime middleware 的 A2UI activity 投影成正文级 surface。
+ * Snapshot 与 Delta 共用此入口，确保增量首次补齐 operations 时不会留在过程折叠层。 */
+const projectA2uiSurface = (
+  next: RuntimeRunState,
+  activityId: string,
+  activityType: string,
+  payload: Record<string, unknown>,
+  explicitSurfaceId?: unknown,
+) => {
+  if (!isA2uiActivityType(activityType) || !hasA2uiSurfaceContent(payload)) return;
+  const surfaceId = findLogicalSurfaceId(payload) || String(explicitSurfaceId || activityId);
+  next.surfaces[surfaceId] = payload;
+  pushOrderedBlock(next, 'surface', surfaceId);
 };
 /** 公司自定义活动类型：直接投影为 LobeHub activity 卡片。 */
 const AGENT_DOCK_ACTIVITY_TYPES = new Set([
@@ -388,24 +410,9 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
       next.activities[id] = { ...((event.content && typeof event.content === 'object') ? event.content as Record<string, unknown> : { description: event.content }), activityType, messageId: id };
       pushOrderedBlock(next, 'activity', id);
       if (activityType === 'agentDock.hitl') next.status = 'paused';
-      if (activityType === 'a2ui.surface' || activityType === 'a2ui-surface') {
-        // 中间态（如 {status:'building', progressTokens}）没有可渲染 UI，不建 surface 行；
-        // 最终 a2ui_operations 或 components 到达时才渲染，避免正文出现 building JSON 回退卡。
-        const content = event.content as Record<string, unknown> | undefined;
-        if (
-          !content ||
-          typeof content !== 'object' ||
-          (!Array.isArray(content.a2ui_operations) && !Array.isArray(content.components))
-        ) {
-          break;
-        }
-        // 统一以逻辑 surfaceId 为键：与 render_a2ui 工具的 components 版本共用键，
-        // pushOrderedBlock 按 `${kind}:${id}` 幂等，不会重复插入同一 surface。
-        const surfaceId = findLogicalSurfaceId(event.content) || String(event.surfaceId || id);
-        // ops 版本信息更全（官方 renderer 依赖 a2ui_operations），后到则覆盖 components 版。
-        next.surfaces[surfaceId] = event.content;
-        pushOrderedBlock(next, 'surface', surfaceId);
-      }
+      // 中间态（如 {status:'building'}）不会建 surface；operations/components 首次可用时，
+      // Surface 作为正文级时间线节点出现，而不是进入过程折叠。
+      projectA2uiSurface(next, id, activityType, next.activities[id] as Record<string, unknown>, event.surfaceId);
       break;
     }
     case 'ACTIVITY_DELTA': {
@@ -417,6 +424,9 @@ export function reduceRunEvent(previous: RuntimeRunState, input: StreamedEvent):
         messageId: id,
       };
       pushOrderedBlock(next, 'activity', id);
+      // 部分 AG-UI adapter 先发 building snapshot，再由 ACTIVITY_DELTA 补齐 operations。
+      // 必须在 Delta 后重新投影，否则官方 A2UI 数据已到达却永远没有正文级 Surface。
+      projectA2uiSurface(next, id, activityType, next.activities[id] as Record<string, unknown>, event.surfaceId);
       break;
     }
     case 'CUSTOM_EVENT': {

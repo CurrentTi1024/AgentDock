@@ -173,7 +173,12 @@ AgentDock 是纯前端项目，对话能力对外只依赖两类接口：
 
 ### 5.5 A2UI Surface
 
-- 实时渲染：官方 A2UI Provider + catalog（Metric/Title/Card/Column/Row 等）；
+- Agent 侧按官方 Dynamic Schema 路径流式输出 `render_a2ui` Tool Args；CopilotRuntime A2UI Middleware 自动
+  转成 `a2ui-surface` Activity Snapshot，不要求业务 Agent 手工拼装 Surface 事件；
+- 实时渲染：官方 A2UI Provider + catalog（Metric/Title/Card/Column/Row 等）。Snapshot 或 Delta 首次出现
+  `a2ui_operations/components` 时建立正文级 Surface；building/progress 中间态不显示原始 JSON；
+- `generate_a2ui` / `render_a2ui` 工具卡隐藏且不计入过程步数；Surface 会结束前一个过程段，严格占据其
+  在正文时间线中的位置，并以逻辑 `surfaceId` 原地更新、去重；
 - 历史持久化：surface 快照（`a2ui_operations`）经 `StoredA2uiSurface` 还原，刷新后仍可见；
 - Action 按钮 → `sendA2uiAction` 回传后端。
 

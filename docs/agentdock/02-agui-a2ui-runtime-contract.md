@@ -334,6 +334,9 @@ State Delta 使用 RFC 6902 JSON Patch。
 - 正文可以在一轮 run 中出现多次。页面必须保持 `过程 1 → 正文 1 → 过程 2 → 正文 2` 的真实顺序，刷新后从本地历史恢复时顺序不变。
 - 流式期间只自动展开时间线上最后一个、且尚未被后续正文截断的过程段。正文开始后，前一个过程段立即自动折叠；后续过程段开始时只展开新过程段。
 - Error Alert 与 A2UI Surface 属于用户可见输出，不收入过程折叠；`generate_a2ui` / `render_a2ui` 等仅服务于 Surface 的内部工具仍隐藏。
+- 当前正式链路由 Agent 输出 `render_a2ui` 的 `TOOL_CALL_ARGS`，CopilotRuntime 的 A2UI Middleware 自动投影为
+  `ACTIVITY_SNAPSHOT(activityType="a2ui-surface")`。Browser 同时兼容 Snapshot，以及其他 AG-UI adapter 通过 Delta 首次补齐
+  `a2ui_operations/components` 以及未经过转换的完整 `render_a2ui` 参数；三者最终都只生成一个正文级 Surface。
 - 同一事件实体的增量（例如 `TOOL_CALL_ARGS`、`ACTIVITY_DELTA`）更新该实体，不因每个 token/delta 重复创建卡片；顺序锚点取该可见实体首次出现的位置。
 
 ### 6.8 扩展

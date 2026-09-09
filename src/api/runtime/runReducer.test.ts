@@ -79,6 +79,40 @@ test('a2ui.surface 中间态（building/progress）不建 surface 行，最终 o
   assert.equal(state.orderedBlocks.filter((block) => block.kind === 'surface').length, 1);
 });
 
+test('A2UI Activity Delta 补齐 operations 后建立正文级 Surface，并保持正文间的真实顺序', () => {
+  let state = createRunState('run-a2ui-delta', 'thread-a2ui-delta');
+  state = reduceRunEvent(state, { eventId: '1', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'text-1', delta: '正文一' } });
+  state = reduceRunEvent(state, {
+    eventId: '2',
+    event: {
+      activityType: 'a2ui-surface',
+      content: { status: 'building' },
+      messageId: 'a2ui-activity',
+      type: 'ACTIVITY_SNAPSHOT',
+    },
+  });
+  state = reduceRunEvent(state, {
+    eventId: '3',
+    event: {
+      activityType: 'a2ui-surface',
+      messageId: 'a2ui-activity',
+      patch: [{ op: 'add', path: '/a2ui_operations', value: [{ version: 'v0.9', updateDataModel: { path: '/', surfaceId: 'dashboard', value: { count: 2 } } }] }],
+      type: 'ACTIVITY_DELTA',
+    },
+  });
+  state = reduceRunEvent(state, { eventId: '4', event: { type: 'TEXT_MESSAGE_CONTENT', messageId: 'text-2', delta: '正文二' } });
+
+  assert.ok(state.surfaces.dashboard);
+  assert.deepEqual(
+    state.orderedBlocks.filter((block) => block.kind === 'text' || block.kind === 'surface'),
+    [
+      { id: 'text-1', kind: 'text' },
+      { id: 'dashboard', kind: 'surface' },
+      { id: 'text-2', kind: 'text' },
+    ],
+  );
+});
+
 test('tracks workflow step lifecycle from STEP events', () => {
   let state = createRunState('run-3', 'thread-3');
   state = reduceRunEvent(state, { eventId: '1', event: { type: 'STEP_STARTED', stepId: 'plan', stepName: '规划' } });

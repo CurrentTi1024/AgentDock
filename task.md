@@ -460,6 +460,11 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
   实时页逐项投影，历史落库为每段正文保留 `timelineText` 锚点。连续过程事件组成独立折叠段，正文、
   A2UI surface 和错误切断该段；仅当前时间线末端的过程段自动展开，正文开始后前一段立即折叠，
   因而可稳定呈现「过程 1 → 正文 1 → 过程 2 → 正文 2」，刷新后顺序一致。
+- **A2UI 正文级时间线补强（2026-09-09）**：确认正式链路由 CopilotRuntime A2UI Middleware 自动把
+  `render_a2ui` Tool Args 转成 `ACTIVITY_SNAPSHOT(a2ui-surface)`；内部 A2UI 工具卡继续隐藏，Surface
+  作为正文级输出切断过程折叠。补齐 `ACTIVITY_DELTA` 首次带来 operations/components 时的 Surface
+  投影、连字符/点号 activityType 兼容、`updateDataModel/deleteSurface` 逻辑 id 解析，以及刷新后
+  「正文 1 → A2UI → 正文 2」持久化顺序回归测试。
 - **「已处理 0 步 · –」空折叠修复（2026-08-24）**：flush 折叠条件原是 `hasWork || nodes.length>=2`，narration/HITL/纯推理等 0 步过程也会套上折叠卡且标题显示「已处理 0 步 · –」；改为仅 `stepCount>0`（真实步骤/工具）才渲染折叠，0 步过程块直接平铺（推理块自带折叠）；实测简单回复无折叠、看板回复正常显示「已处理 1 步 · 9.2s」。
 - **删除并重新生成历史污染修复（2026-08-24）**：删除只清了本地 IndexedDB，后端线程（CopilotKit checkpointer）仍携带被删轮次，新 run 的 MESSAGES_SNAPSHOT 会把已删消息复活（user 消息重复、旧回复混入新 run）；CopilotKit 上下文不可直接修改，采用**已删消息墓碑**方案：`removeTurn` 记录被删轮次的全部消息 key 到 `session.deletedMessageIds`，`persistRunSnapshot` 据此跳过写回，ChatPage/renderRunBlocks/renderStoredBlocks 展示时同步过滤；实测「删除并重新生成」后 IndexedDB 与 UI 均无重复 user、无旧回复复活；47/47 测试通过。
 - **Chat Group 与单聊组件/能力对齐（2026-08-24）**：抽公共模块再复用——`MessageBlocks.buildDisplayUnits`（同 run 助手文本合并单气泡 + narration）与新增 `hooks/useChatScroll`（进入/发送/新消息/结束贴底、上滑不拉回、ResizeObserver、scrollRestoration）由单聊/群聊共用；群聊页接入：同 run 气泡合并、已删消息墓碑过滤（deletedKeys）、OpStatusTray（activity/startTime/stepCount 计时）、HITL 暂停视为忙态（停止按钮）、输入区点击穿透（surface pointer-events）、完整消息操作栏（重新生成/删除并重新生成/编辑/点赞点踩反馈/回填输入框）+ FeedbackModal；浏览器实测（mock 群聊）：消息渲染、过程折叠（正在处理…/步骤）、状态条计时、停止按钮、操作栏齐全；真实后端 demo 无群编排能力（tools=[]）故群运行不产生消息，属后端限制。
