@@ -1,18 +1,16 @@
 import { ActionIcon, Flexbox, Icon, Segmented, Text } from '@lobehub/ui';
 import { cssVar } from 'antd-style';
 import { Check, Code2, Copy, Download, Eye, FileCode2, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 
 import type { HtmlArtifact } from '@/features/chat/htmlArtifact';
-import { buildSafeHtmlSrcDoc } from '@/features/chat/htmlArtifact';
 import { useI18n } from '@/i18n';
-import { HtmlPreviewRenderer } from './HtmlPreviewRenderer';
+import { CodePreviewRenderer } from './CodePreviewRenderer';
 
 export const HtmlArtifactPanel = ({ artifact, onClose }: { artifact: HtmlArtifact; onClose: () => void }) => {
   const { t } = useI18n();
   const [tab, setTab] = useState<'preview' | 'source'>(artifact.presentation.defaultTab);
   const [copied, setCopied] = useState(false);
-  const safeSrcDoc = useMemo(() => buildSafeHtmlSrcDoc(artifact.body), [artifact.body]);
 
   const copySource = async () => {
     try {
@@ -20,11 +18,11 @@ export const HtmlArtifactPanel = ({ artifact, onClose }: { artifact: HtmlArtifac
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch (error) {
-      console.warn('[AgentDock] Copy HTML artifact failed', { error });
+      console.warn('[AgentDock] Copy preview source failed', { error });
     }
   };
   const download = () => {
-    const url = URL.createObjectURL(new Blob([artifact.body], { type: 'text/html;charset=utf-8' }));
+    const url = URL.createObjectURL(new Blob([artifact.body], { type: `${artifact.mimeType};charset=utf-8` }));
     const anchor = document.createElement('a');
     anchor.href = url;
     anchor.download = artifact.fileName;
@@ -61,7 +59,7 @@ export const HtmlArtifactPanel = ({ artifact, onClose }: { artifact: HtmlArtifac
       </Flexbox>
       {tab === 'preview' ? (
         <Flexbox flex={1} style={{ minHeight: 0, overflow: 'hidden' }}>
-          <HtmlPreviewRenderer content={safeSrcDoc} title={artifact.title} />
+          <CodePreviewRenderer preview={artifact} />
         </Flexbox>
       ) : (
         <pre style={{ flex: 1, fontFamily: cssVar.fontFamilyCode, fontSize: 12, margin: 0, overflow: 'auto', padding: 16, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>

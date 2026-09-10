@@ -8,7 +8,7 @@ export default {
   'chat.artifact.anomalies': '需复核异常',
   'chat.artifact.anomaly1': '09:42 · 振动峰值 +18%',
   'chat.artifact.anomaly2': '10:17 · 温度跃升 +6.2°C',
-  'chat.artifact.copySource': '复制 HTML 源码',
+  'chat.artifact.copySource': '复制源码',
   'chat.artifact.open': '打开预览',
   'chat.artifact.passed': '通过',
   'chat.artifact.preview': '预览',

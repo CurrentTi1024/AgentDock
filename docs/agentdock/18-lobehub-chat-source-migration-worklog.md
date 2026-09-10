@@ -126,7 +126,8 @@ AG-UI / CopilotKit events
 - FAB Agent 路由和 `mentionAgents`。
 - AG-UI SSE、Copilot Runtime、断线 checkpoint 和 IndexedDB 会话历史。
 - A2UI 官方 renderer、Mock catalog 兼容和 surface 去重。
-- assistant `TEXT_MESSAGE_*` 中显式 fenced `html/htm` 代码块映射到 LobeHub `HtmlPreview` 右侧工作面板；不定义后端 Artifact Activity。
+- assistant `TEXT_MESSAGE_*` 中显式 fenced `html/htm/svg/mermaid/markdown/md` 代码块映射到右侧工作面板；
+  HTML/SVG/Mermaid/Markdown renderer 按 LobeHub 本地源码分发，不定义后端 Artifact Activity。
 - `agentDock.agentDelegation / tasks / groupTasks / supervisor` 自定义 Activity wire；当后端发送 LobeHub 原生消息 role 时优先使用原生组件，自定义 wire 仍兼容旧编排服务。
 - 点赞/点踩反馈、删除、重新生成、复制和恢复到输入框。
 

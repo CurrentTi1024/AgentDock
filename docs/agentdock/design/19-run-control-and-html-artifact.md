@@ -1,9 +1,10 @@
 # Agent Run 控制与 HTML Artifact 方案
 
-> **2026-09-11 决策更新**：HTML 不再采用后端 Artifact 事件。本文件的 Stop 设计继续有效；其中
+> **2026-09-11 决策更新**：代码预览不再采用后端 Artifact 事件。本文件的 Stop 设计继续有效；其中
 > `ACTIVITY_SNAPSHOT(activityType="artifact")`、文件卡和 Artifact 版本协议属于已撤销方案，不得实现。
-> 当前唯一 HTML 路径是标准 `TEXT_MESSAGE_*` 中的显式 fenced `html/htm` 代码块：正文显示源码与“预览”，
-> 右栏为空时自动打开，已有内容时不抢占；渲染复用 LobeHub `HtmlPreview` 并保留 AgentDock 的严格 sandbox/CSP。
+> 当前路径是标准 `TEXT_MESSAGE_*` 中显式 fenced `html/htm/svg/mermaid/markdown/md` 代码块：正文显示源码与“预览”，
+> 右栏为空时自动打开最新完整代码块，已有内容时不抢占。渲染器复用 LobeHub 分发思路；HTML 保留严格
+> sandbox/CSP，SVG 在主文档挂载前净化。本文后续保留的 Artifact 段落仅作为被撤销方案的历史记录。
 
 > 状态：架构决策与联调实施方案  
 > 日期：2026-09-09  
@@ -24,13 +25,13 @@
 - 关闭 SSE/Abort HTTP 只能停止接收，不足以证明后端任务停止；真正的取消需要后端任务注册表、取消令牌和终态确认。
 - P0 采用协作式取消：停止 LLM 流、阻止下一轮 loop、在工具边界检查取消；对可控子进程再做强制终止和超时兜底。
 
-### 1.2 HTML Artifact
+### 1.2 代码预览（当前决策）
 
-- Agent 输出应分为“正文摘要”和“Artifact 结构化事件”，不把整段 HTML 塞进普通助手正文。
-- HTML 不属于 A2UI。A2UI 用于受 Catalog 约束的原生交互组件；完整 HTML 页面使用标准 `ACTIVITY_SNAPSHOT`，其领域类型为 `activityType="artifact"`。
-- 聊天正文展示文件卡片（标题、类型、大小、状态）；点击后打开右侧工作面板，默认“预览”，可切换“源码”、复制和下载。
-- 首期无 MinIO 时允许 inline HTML；必须设置大小上限、持久化到 IndexedDB，并在 sandbox iframe 中执行严格 CSP。
-- 当前代码已经具备 live Activity 自动打开右栏和 `iframe.srcDoc` 渲染骨架，但尚缺稳定契约、历史恢复、源码切换、Artifact Service 归档和足够安全的 sandbox/CSP。
+- 后端保持标准 AG-UI `TEXT_MESSAGE_*`，各团队 Agent 只需输出普通 Markdown fenced code，不引入 AgentDock 标签或 Artifact Activity。
+- 支持 `html/htm/svg/mermaid/markdown/md`；正文保留源码、复制和“预览”，右栏提供预览/源码/复制/下载。
+- 完整 fence 到达且右栏为空时自动打开最新代码块；右栏非空时不覆盖，显式点击“预览”才切换。
+- 单块上限 512 KiB。HTML 使用 permissionless sandbox iframe + CSP；SVG 经 DOMPurify 严格净化；Mermaid/Markdown 使用 LobeHub UI renderer。
+- 这不是 A2UI：A2UI 仍只用于 Catalog 约束的交互组件。
 
 ## 2. 本项目需要开发哪些 API
 
@@ -46,7 +47,7 @@
 | 已有 | A2UI Action | `/api/copilotkit` `agent/run` + `a2uiAction` | `POST /ag-ui` | 否 | 属于继续执行 Agent，现有 RunAgentInput 足够 |
 | 内部 | Agent loop/工具取消 | 无 Browser API | cancellation token | 否（但要改 Core） | loop 是同一 Run 内部行为；每个 node/tool 边界检查 token，不能由前端逐步控制 |
 | 本地已有 | Session History | IndexedDB Service | 无 | 否 | 当前产品明确本地存储，不新增公司后端 CRUD |
-| 后续 P1 | HTML Artifact | AG-UI `ACTIVITY_SNAPSHOT(activityType="artifact")` + 既有 Artifact Service 规划 | 既有 `/ag-ui` 事件 | 本次只冻结协议 | 与 Stop 无关，不阻塞 P0；不新增另一条“HTML API” |
+| 已有 | 代码预览 | 标准 `TEXT_MESSAGE_*` fenced code | 既有 `/ag-ui` 事件 | 否 | Browser 本地识别 HTML/SVG/Mermaid/Markdown fence；不新增 Artifact API/事件 |
 
 明确不开发：单独 `continue`、`retry`、`loop`、`a2uiAction`、`hitlResponse` API；它们都应继续创建/恢复 CopilotKit Run。也不开发 Runtime 的 `threadId → runId/FAB` 映射。
 

@@ -6,7 +6,7 @@ import { createStaticStyles, cssVar } from 'antd-style';
 import { Check, Copy, Eye } from 'lucide-react';
 import { memo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createInlineHtmlPreview, splitHtmlCodeBlocks, type HtmlArtifact } from '@/features/chat/htmlArtifact';
+import { createInlineCodePreview, splitPreviewCodeBlocks, type CodePreview, type CodePreviewKind } from '@/features/chat/htmlArtifact';
 import { useI18n } from '@/i18n';
 
 // LobeHub Mention 插件样式：内联 info 色 chip。
@@ -121,26 +121,26 @@ const AgentMentionLink = ({ children, href }: { children?: React.ReactNode; href
 interface MarkdownProps {
   content: string;
   enableStream?: boolean;
-  onPreviewHtml?: (artifact: HtmlArtifact) => void;
+  onPreviewHtml?: (artifact: CodePreview) => void;
 }
 
-const HtmlCodeBlock = ({ code, onPreview }: { code: string; onPreview: (artifact: HtmlArtifact) => void }) => {
+const PreviewCodeBlock = ({ code, kind, onPreview }: { code: string; kind: CodePreviewKind; onPreview: (artifact: CodePreview) => void }) => {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
-  const artifact = createInlineHtmlPreview(code);
+  const artifact = createInlineCodePreview(code, kind);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch (error) {
-      console.warn('[AgentDock] Copy HTML code block failed', { error });
+      console.warn('[AgentDock] Copy preview code block failed', { error, kind });
     }
   };
   return (
     <div className={styles.htmlCode}>
       <Flexbox horizontal align="center" gap={8} padding="6px 8px" style={{ borderBlockEnd: `1px solid ${cssVar.colorBorderSecondary}` }}>
-        <Text fontSize={12} style={{ flex: 1 }} type="secondary">HTML</Text>
+        <Text fontSize={12} style={{ flex: 1 }} type="secondary">{kind.toUpperCase()}</Text>
         {artifact && (
           <Button
             aria-label={t('chat.artifact.preview')}
@@ -179,12 +179,12 @@ const MarkdownBody = ({ content, enableStream }: { content: string; enableStream
 // 当前正在运行的助手消息由调用方显式开启流式动画。
 export const Markdown = memo<MarkdownProps>(({ content, enableStream = false, onPreviewHtml }) => {
   if (!onPreviewHtml) return <MarkdownBody content={content} enableStream={enableStream} />;
-  const segments = splitHtmlCodeBlocks(content);
-  if (!segments.some((segment) => segment.kind === 'html')) {
+  const segments = splitPreviewCodeBlocks(content);
+  if (!segments.some((segment) => segment.kind === 'preview')) {
     return <MarkdownBody content={content} enableStream={enableStream} />;
   }
-  return <>{segments.map((segment, index) => segment.kind === 'html'
-    ? <HtmlCodeBlock code={segment.content} key={`html-${index}`} onPreview={onPreviewHtml} />
+  return <>{segments.map((segment, index) => segment.kind === 'preview'
+    ? <PreviewCodeBlock code={segment.content} key={`${segment.previewKind}-${index}`} kind={segment.previewKind} onPreview={onPreviewHtml} />
     : <MarkdownBody content={segment.content} enableStream={enableStream} key={`markdown-${index}`} />)}</>;
 });
 

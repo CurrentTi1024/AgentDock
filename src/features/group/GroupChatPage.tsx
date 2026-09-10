@@ -47,7 +47,7 @@ import { messageFeedbackService } from '@/api/conversation/messageFeedbackServic
 import type { RuntimeStep } from '@/api/runtime/types';
 import { useI18n } from '@/i18n';
 import { useUiStore } from '@/stores/uiStore';
-import { findLatestInlineHtmlPreview, htmlArtifactKey, type HtmlArtifact } from '@/features/chat/htmlArtifact';
+import { findLatestInlineCodePreview, htmlArtifactKey, type HtmlArtifact } from '@/features/chat/htmlArtifact';
 import {
   runtimeMessageToSessionRecord,
   SpecialMessage,
@@ -453,7 +453,7 @@ const GroupChatPage = () => {
   // settings or preview content keeps ownership until the user switches it.
   useEffect(() => {
     if (artifactOpen || settingsOpen) return;
-    const nextPreview = findLatestInlineHtmlPreview(answer);
+    const nextPreview = findLatestInlineCodePreview(answer);
     if (!nextPreview) return;
     setArtifact(nextPreview);
     setArtifactOpen(true);

@@ -56,7 +56,7 @@ import {
 } from '@/features/chat/components/lobehub/SpecialMessages';
 import { useUiStore } from '@/stores/uiStore';
 import { useI18n } from '@/i18n';
-import { findLatestInlineHtmlPreview, htmlArtifactKey, type HtmlArtifact } from '@/features/chat/htmlArtifact';
+import { findLatestInlineCodePreview, htmlArtifactKey, type HtmlArtifact } from '@/features/chat/htmlArtifact';
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
   artifact: css`
@@ -438,7 +438,6 @@ export default function ChatPage() {
     );
     stickToBottom();
     setRunStartedAt(Date.now());
-    setArtifactOpen(false);
     const active = session ?? (await ensureSession());
     if (!active) return false;
     // 标题默认 = 首条消息前 20 字符：会话还没有可见文本消息时才更新，
@@ -646,7 +645,7 @@ export default function ChatPage() {
   // replace content that is already open. An explicit Preview click can.
   useEffect(() => {
     if (artifactOpen) return;
-    const nextPreview = findLatestInlineHtmlPreview(answer);
+    const nextPreview = findLatestInlineCodePreview(answer);
     if (!nextPreview) return;
     setArtifact(nextPreview);
     setArtifactOpen(true);

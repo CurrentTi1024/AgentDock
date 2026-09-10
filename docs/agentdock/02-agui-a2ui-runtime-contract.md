@@ -583,14 +583,15 @@ Content-Type: application/json
 
 接口必须校验 `runId + threadId + principal`。FAB 与上游地址从 run 启动记录读取，不能相信取消请求重新提交的 FAB。
 
-### 11.2 HTML 代码预览
+### 11.2 代码预览（HTML / SVG / Mermaid / Markdown）
 
 - 不定义 Artifact AG-UI 事件，也不要求 Agent、Orchestration 或 CopilotKit Runtime 转换前端展示协议。
-- Agent 通过标准 `TEXT_MESSAGE_*` 返回 Markdown；显式 fenced `html/htm` 代码块在正文显示源码，工具栏提供“预览”。
+- Agent 通过标准 `TEXT_MESSAGE_*` 返回 Markdown；显式 fenced `html/htm/svg/mermaid/markdown/md` 代码块在正文显示源码，工具栏提供“预览”。
 - 完整代码块到达且右侧栏为空时自动打开；右侧栏已有内容时不切换、不覆盖。用户点击“预览”属于显式切换。
-- 禁止根据普通正文里的零散 HTML 标签模糊识别；单段预览 UTF-8 上限为 512 KiB。
+- 禁止根据普通正文里的零散标签模糊识别；单段预览 UTF-8 上限为 512 KiB，未闭合 fence 不触发预览。
 - HTML 视为不受信代码：使用不带 `allow-same-origin/allow-scripts` 的 iframe sandbox，注入严格 CSP，并执行 sanitize。
-- A2UI 仍只承载 Catalog 约束的原生交互组件，与 HTML 代码预览无关。
+- SVG 在主文档挂载前用 DOMPurify 清除脚本、事件、外链、内联 CSS 和 `foreignObject`；Mermaid/Markdown 复用 LobeHub renderer。
+- A2UI 仍只承载 Catalog 约束的原生交互组件，与代码预览无关。
 
 ## 12. 错误码建议
 
