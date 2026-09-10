@@ -1,4 +1,5 @@
-export const HTML_ARTIFACT_ACTIVITY_TYPE = 'agentDock.artifact';
+/** Wire-level AG-UI activity discriminator. UI component names must not leak into the backend contract. */
+export const HTML_ARTIFACT_ACTIVITY_TYPE = 'artifact';
 export const MAX_INLINE_HTML_BYTES = 512 * 1024;
 
 export interface HtmlArtifact {
@@ -62,18 +63,14 @@ const safeFileName = (value: string): string => {
   return withExtension.slice(0, 180);
 };
 
-/** Validate the wire payload and normalize the temporary legacy `{title, html}` shape. */
+/** Validate the canonical `ACTIVITY_SNAPSHOT(activityType="artifact")` payload. */
 export const normalizeHtmlArtifact = (value: unknown): HtmlArtifact | undefined => {
   if (!value || typeof value !== 'object') return undefined;
   const payload = value as Record<string, unknown>;
   if (payload.activityType !== HTML_ARTIFACT_ACTIVITY_TYPE) return undefined;
   const mimeType = String(payload.mimeType ?? 'text/html').toLowerCase();
   if (mimeType !== 'text/html') return undefined;
-  const body = typeof payload.body === 'string'
-    ? payload.body
-    : typeof payload.html === 'string'
-      ? payload.html
-      : undefined;
+  const body = typeof payload.body === 'string' ? payload.body : undefined;
   if (body === undefined) return undefined;
   const sizeBytes = utf8Size(body);
   if (sizeBytes > MAX_INLINE_HTML_BYTES) return undefined;

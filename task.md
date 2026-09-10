@@ -411,7 +411,7 @@ Review 模块：R1 协议入口、R2 前端传输、R3 状态机、R4 官方 hea
 - **Step 5 ✅ HITL 全模式**：HitlBlock 支持 editArguments/textInput/singleSelect/multiSelect/form，批准回传对应 payload。
 - **Step 6 ✅ Tool Inspector 升级**：参数 JSON 缩进、结果独立折叠、耗时/状态。
 - **Step 7 ✅ 委派树/技能卡**：agentDelegation 渲染 Supervisor→成员树 + 技能标签 + 查看技能页面/调用信息。
-- **Step 8 ✅ Artifact 侧边栏自动打开**：agentDock.artifact 活动触发右侧面板，html 用 sandbox iframe 渲染。
+- **Step 8 ✅ Artifact 侧边栏自动打开**：标准 `activityType="artifact"` 活动触发右侧面板，HTML 用 sandbox iframe 渲染。
 - **Step 9 ✅ Markdown @Agent 提及**：@AgentName 转为站内链接（SPA 导航）。
 - 所有步骤均浏览器实测（单 Agent + 群聊）+ 30/30 测试通过；分支 `codex/lobehub-chat-full-copy` 统一提交，最后一起 push。
 - **Step 10 ✅（2026-08-23）真实后端端到端补测 + antd6 下拉紧凑修复**：

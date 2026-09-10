@@ -585,7 +585,7 @@ Content-Type: application/json
 
 ### 11.2 HTML Artifact
 
-- 完整 HTML 页面使用 `ACTIVITY_SNAPSHOT(activityType="agentDock.artifact")`，不使用普通文本或 A2UI Surface 承载。
+- 完整 HTML 页面使用标准 `ACTIVITY_SNAPSHOT(activityType="artifact")`，不使用普通文本或 A2UI Surface 承载；`artifact` 是领域协议值，不包含 AgentDock 前端命名。
 - A2UI 只用于 Catalog 约束的原生组件；Artifact 是具有 MIME、版本、预览、源码、下载和持久化语义的资产。
 - 首期无对象存储时允许 `storage="inline" + body`，UTF-8 内容建议上限 512 KiB；后续可无损扩展为 object storage。
 - 最小 payload 必须包含 `artifactId`、`revision`、`title`、`mimeType=text/html`、`storage`、`body`、`sizeBytes` 和 `sha256`。

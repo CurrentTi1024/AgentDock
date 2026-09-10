@@ -60,21 +60,10 @@ test('selects the highest revision regardless of activity insertion order', () =
   assert.equal(latest?.body, 'v3');
 });
 
-test('keeps backward compatibility with legacy title/html activities', () => {
-  const artifact = normalizeHtmlArtifact({
-    activityType: HTML_ARTIFACT_ACTIVITY_TYPE,
-    html: '<p>legacy</p>',
-    messageId: 'activity-1',
-    title: 'Legacy report',
-  });
-  assert.ok(artifact);
-  assert.equal(artifact.artifactId, 'activity-1');
-  assert.equal(artifact.fileName, 'Legacy report.html');
-  assert.equal(artifact.revision, 1);
-});
-
 test('rejects wrong activity types, MIME types, missing bodies and oversized HTML', () => {
   assert.equal(normalizeHtmlArtifact({ activityType: 'agentDock.task', body: '<p>x</p>' }), undefined);
+  assert.equal(normalizeHtmlArtifact({ activityType: 'agentDock.artifact', body: '<p>x</p>' }), undefined);
+  assert.equal(normalizeHtmlArtifact({ activityType: HTML_ARTIFACT_ACTIVITY_TYPE, html: '<p>legacy</p>' }), undefined);
   assert.equal(normalizeHtmlArtifact({ activityType: HTML_ARTIFACT_ACTIVITY_TYPE, body: '<p>x</p>', mimeType: 'image/svg+xml' }), undefined);
   assert.equal(normalizeHtmlArtifact({ activityType: HTML_ARTIFACT_ACTIVITY_TYPE }), undefined);
   assert.equal(normalizeHtmlArtifact({ activityType: HTML_ARTIFACT_ACTIVITY_TYPE, body: 'x'.repeat(MAX_INLINE_HTML_BYTES + 1) }), undefined);

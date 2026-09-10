@@ -67,7 +67,7 @@ export async function* createAgentRuntimeMockEvents(input: RunAgentInput, signal
   yield event({
     type: 'ACTIVITY_SNAPSHOT',
     messageId: `artifact-${input.runId}`,
-    activityType: 'agentDock.artifact',
+    activityType: 'artifact',
     content: {
       artifactId: `flight-report-${input.runId}`,
       body: artifactHtml,

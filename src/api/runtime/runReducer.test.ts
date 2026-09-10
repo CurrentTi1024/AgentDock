@@ -468,7 +468,7 @@ test('HTML artifact snapshot preserves its complete file payload and timeline po
   const state = reduceRunEvent(createRunState('run-html', 'thread-html'), {
     eventId: 'html-1',
     event: {
-      activityType: 'agentDock.artifact',
+      activityType: 'artifact',
       content: {
         artifactId: 'report-1',
         body: '<!doctype html><h1>Report</h1>',
@@ -482,7 +482,7 @@ test('HTML artifact snapshot preserves its complete file payload and timeline po
     },
   });
   assert.equal(state.activities['artifact-event-1'].body, '<!doctype html><h1>Report</h1>');
-  assert.equal(state.activities['artifact-event-1'].activityType, 'agentDock.artifact');
+  assert.equal(state.activities['artifact-event-1'].activityType, 'artifact');
   assert.deepEqual(state.orderedBlocks, [{ id: 'artifact-event-1', kind: 'activity' }]);
 });
 

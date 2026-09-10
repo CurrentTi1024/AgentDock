@@ -22,7 +22,7 @@
 ### 1.2 HTML Artifact
 
 - Agent 输出应分为“正文摘要”和“Artifact 结构化事件”，不把整段 HTML 塞进普通助手正文。
-- HTML 不属于 A2UI。A2UI 用于受 Catalog 约束的原生交互组件；完整 HTML 页面使用 `agentDock.artifact` Activity。
+- HTML 不属于 A2UI。A2UI 用于受 Catalog 约束的原生交互组件；完整 HTML 页面使用标准 `ACTIVITY_SNAPSHOT`，其领域类型为 `activityType="artifact"`。
 - 聊天正文展示文件卡片（标题、类型、大小、状态）；点击后打开右侧工作面板，默认“预览”，可切换“源码”、复制和下载。
 - 首期无 MinIO 时允许 inline HTML；必须设置大小上限、持久化到 IndexedDB，并在 sandbox iframe 中执行严格 CSP。
 - 当前代码已经具备 live Activity 自动打开右栏和 `iframe.srcDoc` 渲染骨架，但尚缺稳定契约、历史恢复、源码切换、Artifact Service 归档和足够安全的 sandbox/CSP。
@@ -41,7 +41,7 @@
 | 已有 | A2UI Action | `/api/copilotkit` `agent/run` + `a2uiAction` | `POST /ag-ui` | 否 | 属于继续执行 Agent，现有 RunAgentInput 足够 |
 | 内部 | Agent loop/工具取消 | 无 Browser API | cancellation token | 否（但要改 Core） | loop 是同一 Run 内部行为；每个 node/tool 边界检查 token，不能由前端逐步控制 |
 | 本地已有 | Session History | IndexedDB Service | 无 | 否 | 当前产品明确本地存储，不新增公司后端 CRUD |
-| 后续 P1 | HTML Artifact | AG-UI `agentDock.artifact` + 既有 Artifact Service 规划 | 既有 `/ag-ui` 事件 | 本次只冻结协议 | 与 Stop 无关，不阻塞 P0；不新增另一条“HTML API” |
+| 后续 P1 | HTML Artifact | AG-UI `ACTIVITY_SNAPSHOT(activityType="artifact")` + 既有 Artifact Service 规划 | 既有 `/ag-ui` 事件 | 本次只冻结协议 | 与 Stop 无关，不阻塞 P0；不新增另一条“HTML API” |
 
 明确不开发：单独 `continue`、`retry`、`loop`、`a2uiAction`、`hitlResponse` API；它们都应继续创建/恢复 CopilotKit Run。也不开发 Runtime 的 `threadId → runId/FAB` 映射。
 
@@ -397,7 +397,7 @@ Orchestration 的 `runId → worker/task/cancellation token` 是执行服务自�
 {
   "type": "ACTIVITY_SNAPSHOT",
   "messageId": "artifact-event-001",
-  "activityType": "agentDock.artifact",
+  "activityType": "artifact",
   "content": {
     "artifactId": "artifact-001",
     "revision": 1,
@@ -432,16 +432,16 @@ Orchestration 的 `runId → worker/task/cancellation token` 是执行服务自�
 - 不使用 `TEXT_MESSAGE_CONTENT` 承载 HTML，不使用 Markdown 裸标签猜测 Artifact。
 - `presentation.autoOpen=true` 只对当前 live run 的该 `artifactId + revision` 生效一次；用户手动关闭后不得因 React 重渲染重复抢焦点。历史恢复只显示文件卡，不自动打开。
 
-兼容公司 Agent 暂时只能输出普通文本的场景：允许在 `TEXT_MESSAGE_*` 中返回 fenced code block（` ```html` 或 ` ```htm`）。前端继续把它作为正文代码块展示并保留复制能力，只在该代码块工具栏增加“预览”按钮；用户点击后才打开同一个安全侧栏。不得用“正文含 `<div>`”之类的模糊规则识别，避免把讲解文字、XML、模板片段误执行为页面。该兼容路径不自动打开、不生成持久 Artifact ID；后端具备结构化事件能力后仍应迁移到 `agentDock.artifact`。
+兼容公司 Agent 暂时只能输出普通文本的场景：允许在 `TEXT_MESSAGE_*` 中返回 fenced code block（` ```html` 或 ` ```htm`）。前端继续把它作为正文代码块展示并保留复制能力，只在该代码块工具栏增加“预览”按钮；用户点击后才打开同一个安全侧栏。不得用“正文含 `<div>`”之类的模糊规则识别，避免把讲解文字、XML、模板片段误执行为页面。该兼容路径不自动打开、不生成持久 Artifact ID；后端具备结构化事件能力后仍应迁移到 `ACTIVITY_SNAPSHOT(activityType="artifact")`。
 
-兼容期可读取当前 `{ title, html }`，但新后端只应生成上面的规范结构；前端归一化后再渲染。
+结构化路径只接受上述规范结构，不兼容旧 `activityType` 或 `{title, html}` payload，避免协议长期分叉。普通文本 fenced HTML 是独立的显式兼容路径。
 
 ### 6.2 为什么用 Activity，不用 A2UI
 
 | 输出 | 协议 | 原因 |
 |---|---|---|
 | 指标卡、按钮、表单、审批组件 | A2UI Surface | 组件来自受信 Catalog，行为可验证、可回传 action |
-| 完整单页 HTML/CSS 结果 | `agentDock.artifact` Activity | 内容是文档资产，需要预览/源码/下载/版本管理 |
+| 完整单页 HTML/CSS 结果 | `ACTIVITY_SNAPSHOT(activityType="artifact")` | 内容是文档资产，需要预览/源码/下载/版本管理 |
 | 简短解释、结论 | Assistant text | 便于阅读、搜索和无障碍 |
 
 如果 HTML 里的按钮需要影响 Agent，不允许它直接调用父页面。应把关键交互建模为 A2UI Action，或由 iframe `postMessage` 发出经过白名单校验的 Artifact action，再由宿主转换为 `a2uiAction`/业务 action。
@@ -480,21 +480,23 @@ HTML 来自模型，必须按不受信代码处理：
 
 ### 已迁入
 
-- ChatPage 能从 live `agentDock.artifact` Activity 读取 `{html,title}`。
-- 收到 live HTML 后自动打开 380px 右侧栏。
+- ChatPage 能从 live `activityType="artifact"` Activity 读取规范 HTML Artifact payload。
+- 收到配置 `autoOpen=true` 的 live HTML 后按 `artifactId + revision` 自动打开一次响应式右侧栏。
 - 使用 iframe `srcDoc` 预览。
 - Activity 会进入 runtime snapshot，并能落入 IndexedDB activity record。
 - 独立 `/artifact` 页面和 `artifactService` 已有本地 Mock 列表/详情骨架。
 
-### 尚未完成
+### 已完成
 
-- 正文没有真实、可点击的 Artifact 文件卡；目前只隐藏 Activity，结束后显示通用报告图标。
-- 无“预览 / 源码”切换、复制、全屏和规范 HTML 下载。
-- ChatPage 只从 live run 查找 Artifact，没有从历史 activity 建立侧栏模型。
-- live Activity 与 `/artifact` 的 `artifactService` 没有统一数据源。
-- wire 仍是临时 `{title, html}`，没有 artifactId/revision/MIME/大小/hash。
-- iframe 使用 `allow-same-origin`，且未注入严格 CSP/内容上限。
-- ArtifactPage 把非 code 内容按 Markdown 显示，尚未按 `text/html` 使用安全 renderer。
+- 正文实时与历史时间线均显示可点击 Artifact 文件卡，且在插入卡片前结束 process collector，因此不会进入思考/工作流折叠区。
+- 右侧栏支持“预览 / 源码”、复制与规范 HTML 下载。
+- wire 使用领域中性的 `activityType="artifact"` 和规范 artifactId/revision/MIME/body/大小/hash。
+- iframe 使用空 sandbox、严格 CSP、危险节点/属性清理与 512 KiB 内容上限。
+
+### 后续工作
+
+- live Activity 与独立 `/artifact` 页的 `artifactService` 尚未统一为跨会话 Artifact 数据源。
+- 独立 ArtifactPage 仍需复用同一安全 HTML renderer。
 
 ## 8. 实施顺序与验收
 
@@ -509,7 +511,7 @@ HTML 来自模型，必须按不受信代码处理：
 
 ### P1：HTML Artifact（本次实现）
 
-1. 冻结规范 payload 和兼容 `{title, html}` 归一化器。
+1. 冻结 `ACTIVITY_SNAPSHOT(activityType="artifact")` 规范 payload；不保留旧结构化协议兼容。
 2. 实现正文 ArtifactCard 与共用 Portal 的“预览 / 源码”、复制和下载。
 3. 实现无权限 sandbox、CSP、危险节点/属性清理和 512 KiB 大小限制。
 4. 当前会话沿用既有 Activity IndexedDB 落库实现历史恢复；后续 Artifact 列表跨会话检索时再拆独立 object store，避免本次双写。
