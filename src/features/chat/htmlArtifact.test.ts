@@ -2,32 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  HTML_ARTIFACT_ACTIVITY_TYPE,
-  MAX_INLINE_HTML_BYTES,
   createInlineHtmlPreview,
-  findLatestHtmlArtifact,
-  htmlArtifactKey,
-  normalizeHtmlArtifact,
+  findLatestInlineHtmlPreview,
   splitHtmlCodeBlocks,
 } from './htmlArtifact.ts';
-
-test('normalizes the canonical AG-UI HTML artifact payload', () => {
-  const artifact = normalizeHtmlArtifact({
-    activityType: HTML_ARTIFACT_ACTIVITY_TYPE,
-    artifactId: 'report-1',
-    body: '<h1>Report</h1>',
-    fileName: 'flight/report?.html',
-    mimeType: 'text/html',
-    presentation: { autoOpen: true, defaultTab: 'source' },
-    revision: 2,
-    title: 'Flight report',
-  });
-  assert.ok(artifact);
-  assert.equal(artifact.fileName, 'flight-report-.html');
-  assert.equal(artifact.presentation.defaultTab, 'source');
-  assert.equal(htmlArtifactKey(artifact), 'report-1:2');
-  assert.equal(artifact.sizeBytes, new TextEncoder().encode('<h1>Report</h1>').byteLength);
-});
 
 test('extracts only explicit fenced HTML blocks and preserves surrounding markdown', () => {
   assert.deepEqual(splitHtmlCodeBlocks('说明\n```html\n<div>ok</div>\n```\n结尾'), [
@@ -51,20 +29,10 @@ test('inline preview identity differs for equal-length HTML bodies', () => {
   assert.notEqual(first.artifactId, second.artifactId);
 });
 
-test('selects the highest revision regardless of activity insertion order', () => {
-  const latest = findLatestHtmlArtifact([
-    { activityType: HTML_ARTIFACT_ACTIVITY_TYPE, artifactId: 'a', body: 'v3', revision: 3 },
-    { activityType: HTML_ARTIFACT_ACTIVITY_TYPE, artifactId: 'a', body: 'v1', revision: 1 },
-    { activityType: 'agentDock.task', body: 'ignored' },
-  ]);
-  assert.equal(latest?.body, 'v3');
-});
-
-test('rejects wrong activity types, MIME types, missing bodies and oversized HTML', () => {
-  assert.equal(normalizeHtmlArtifact({ activityType: 'agentDock.task', body: '<p>x</p>' }), undefined);
-  assert.equal(normalizeHtmlArtifact({ activityType: 'agentDock.artifact', body: '<p>x</p>' }), undefined);
-  assert.equal(normalizeHtmlArtifact({ activityType: HTML_ARTIFACT_ACTIVITY_TYPE, html: '<p>legacy</p>' }), undefined);
-  assert.equal(normalizeHtmlArtifact({ activityType: HTML_ARTIFACT_ACTIVITY_TYPE, body: '<p>x</p>', mimeType: 'image/svg+xml' }), undefined);
-  assert.equal(normalizeHtmlArtifact({ activityType: HTML_ARTIFACT_ACTIVITY_TYPE }), undefined);
-  assert.equal(normalizeHtmlArtifact({ activityType: HTML_ARTIFACT_ACTIVITY_TYPE, body: 'x'.repeat(MAX_INLINE_HTML_BYTES + 1) }), undefined);
+test('finds only the latest complete fenced HTML preview', () => {
+  assert.equal(findLatestInlineHtmlPreview('```html\n<div>unfinished</div>'), undefined);
+  const preview = findLatestInlineHtmlPreview(
+    '```html\n<p>first</p>\n```\ntext\n```htm\n<p>second</p>\n```',
+  );
+  assert.equal(preview?.body, '<p>second</p>');
 });

@@ -583,16 +583,14 @@ Content-Type: application/json
 
 接口必须校验 `runId + threadId + principal`。FAB 与上游地址从 run 启动记录读取，不能相信取消请求重新提交的 FAB。
 
-### 11.2 HTML Artifact
+### 11.2 HTML 代码预览
 
-- 完整 HTML 页面使用标准 `ACTIVITY_SNAPSHOT(activityType="artifact")`，不使用普通文本或 A2UI Surface 承载；`artifact` 是领域协议值，不包含 AgentDock 前端命名。
-- A2UI 只用于 Catalog 约束的原生组件；Artifact 是具有 MIME、版本、预览、源码、下载和持久化语义的资产。
-- 首期无对象存储时允许 `storage="inline" + body`，UTF-8 内容建议上限 512 KiB；后续可无损扩展为 object storage。
-- 最小 payload 必须包含 `artifactId`、`revision`、`title`、`mimeType=text/html`、`storage`、`body`、`sizeBytes` 和 `sha256`。
-- Browser 正文显示 Artifact 文件卡，点击打开右栏；右栏默认预览，可切换源码。历史 Activity 必须能恢复文件卡和面板。
-- HTML 必须视为不受信代码：使用不带 `allow-same-origin/allow-scripts` 的 iframe sandbox，注入严格 CSP，执行 sanitize 和大小校验。
-- 兼容期普通 `TEXT_MESSAGE_*` 可包含 fenced `html/htm` code block；正文显示源码，用户点击代码块“预览”后才进入同一安全 iframe。禁止根据普通正文中的 HTML 标签自动渲染或自动打开。
-- 完整字段、兼容结构、安全策略和当前迁移审计见 `design/19-run-control-and-html-artifact.md`。
+- 不定义 Artifact AG-UI 事件，也不要求 Agent、Orchestration 或 CopilotKit Runtime 转换前端展示协议。
+- Agent 通过标准 `TEXT_MESSAGE_*` 返回 Markdown；显式 fenced `html/htm` 代码块在正文显示源码，工具栏提供“预览”。
+- 完整代码块到达且右侧栏为空时自动打开；右侧栏已有内容时不切换、不覆盖。用户点击“预览”属于显式切换。
+- 禁止根据普通正文里的零散 HTML 标签模糊识别；单段预览 UTF-8 上限为 512 KiB。
+- HTML 视为不受信代码：使用不带 `allow-same-origin/allow-scripts` 的 iframe sandbox，注入严格 CSP，并执行 sanitize。
+- A2UI 仍只承载 Catalog 约束的原生交互组件，与 HTML 代码预览无关。
 
 ## 12. 错误码建议
 

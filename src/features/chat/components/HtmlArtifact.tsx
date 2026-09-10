@@ -1,4 +1,4 @@
-import { ActionIcon, Button, Flexbox, Icon, Segmented, Text } from '@lobehub/ui';
+import { ActionIcon, Flexbox, Icon, Segmented, Text } from '@lobehub/ui';
 import { cssVar } from 'antd-style';
 import { Check, Code2, Copy, Download, Eye, FileCode2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -6,27 +6,7 @@ import { useMemo, useState } from 'react';
 import type { HtmlArtifact } from '@/features/chat/htmlArtifact';
 import { buildSafeHtmlSrcDoc } from '@/features/chat/htmlArtifact';
 import { useI18n } from '@/i18n';
-
-export const HtmlArtifactCard = ({ artifact, onOpen }: { artifact: HtmlArtifact; onOpen: () => void }) => {
-  const { t } = useI18n();
-  return (
-    <Button
-      block
-      style={{ height: 'auto', justifyContent: 'flex-start', padding: 12 }}
-      onClick={onOpen}
-    >
-      <Flexbox horizontal align="center" gap={10} style={{ minWidth: 0, width: '100%' }}>
-        <Icon icon={FileCode2} size={22} />
-        <Flexbox align="flex-start" style={{ minWidth: 0 }}>
-          <Text ellipsis weight={500}>{artifact.fileName}</Text>
-          <Text fontSize={12} type="secondary">
-            HTML · {Math.max(1, Math.ceil(artifact.sizeBytes / 1024))} KB · {t('chat.artifact.open')}
-          </Text>
-        </Flexbox>
-      </Flexbox>
-    </Button>
-  );
-};
+import { HtmlPreviewRenderer } from './HtmlPreviewRenderer';
 
 export const HtmlArtifactPanel = ({ artifact, onClose }: { artifact: HtmlArtifact; onClose: () => void }) => {
   const { t } = useI18n();
@@ -80,12 +60,9 @@ export const HtmlArtifactPanel = ({ artifact, onClose }: { artifact: HtmlArtifac
         <ActionIcon aria-label={t('common.close')} icon={X} onClick={onClose} />
       </Flexbox>
       {tab === 'preview' ? (
-        <iframe
-          sandbox=""
-          srcDoc={safeSrcDoc}
-          style={{ background: '#fff', border: 0, flex: 1, minHeight: 0, width: '100%' }}
-          title={artifact.title}
-        />
+        <Flexbox flex={1} style={{ minHeight: 0, overflow: 'hidden' }}>
+          <HtmlPreviewRenderer content={safeSrcDoc} title={artifact.title} />
+        </Flexbox>
       ) : (
         <pre style={{ flex: 1, fontFamily: cssVar.fontFamilyCode, fontSize: 12, margin: 0, overflow: 'auto', padding: 16, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
           {artifact.body}

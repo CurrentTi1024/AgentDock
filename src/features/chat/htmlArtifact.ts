@@ -1,5 +1,3 @@
-/** Wire-level AG-UI activity discriminator. UI component names must not leak into the backend contract. */
-export const HTML_ARTIFACT_ACTIVITY_TYPE = 'artifact';
 export const MAX_INLINE_HTML_BYTES = 512 * 1024;
 
 export interface HtmlArtifact {
@@ -56,51 +54,14 @@ export const createInlineHtmlPreview = (body: string): HtmlArtifact | undefined 
   };
 };
 
+/** Return the last complete fenced HTML block in a text message. */
+export const findLatestInlineHtmlPreview = (content?: string): HtmlArtifact | undefined => {
+  if (!content) return undefined;
+  const htmlSegments = splitHtmlCodeBlocks(content).filter((segment) => segment.kind === 'html');
+  return htmlSegments.length ? createInlineHtmlPreview(htmlSegments.at(-1)!.content) : undefined;
+};
+
 const utf8Size = (value: string) => new TextEncoder().encode(value).byteLength;
-const safeFileName = (value: string): string => {
-  const cleaned = value.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '-').trim();
-  const withExtension = /\.html?$/i.test(cleaned) ? cleaned : `${cleaned || 'artifact'}.html`;
-  return withExtension.slice(0, 180);
-};
-
-/** Validate the canonical `ACTIVITY_SNAPSHOT(activityType="artifact")` payload. */
-export const normalizeHtmlArtifact = (value: unknown): HtmlArtifact | undefined => {
-  if (!value || typeof value !== 'object') return undefined;
-  const payload = value as Record<string, unknown>;
-  if (payload.activityType !== HTML_ARTIFACT_ACTIVITY_TYPE) return undefined;
-  const mimeType = String(payload.mimeType ?? 'text/html').toLowerCase();
-  if (mimeType !== 'text/html') return undefined;
-  const body = typeof payload.body === 'string' ? payload.body : undefined;
-  if (body === undefined) return undefined;
-  const sizeBytes = utf8Size(body);
-  if (sizeBytes > MAX_INLINE_HTML_BYTES) return undefined;
-  const revision = Number.isSafeInteger(payload.revision) && Number(payload.revision) > 0
-    ? Number(payload.revision)
-    : 1;
-  const artifactId = typeof payload.artifactId === 'string' && payload.artifactId.trim()
-    ? payload.artifactId.trim().slice(0, 200)
-    : String(payload.messageId || 'html-artifact').slice(0, 200);
-  const title = typeof payload.title === 'string' && payload.title.trim()
-    ? payload.title.trim().slice(0, 200)
-    : 'HTML document';
-  const presentation = payload.presentation && typeof payload.presentation === 'object'
-    ? payload.presentation as Record<string, unknown>
-    : {};
-  return {
-    artifactId,
-    body,
-    fileName: safeFileName(typeof payload.fileName === 'string' ? payload.fileName : title),
-    mimeType: 'text/html',
-    presentation: {
-      autoOpen: presentation.autoOpen !== false,
-      defaultTab: presentation.defaultTab === 'source' ? 'source' : 'preview',
-    },
-    revision,
-    sizeBytes,
-    title,
-  };
-};
-
 const PREVIEW_CSP = [
   "default-src 'none'",
   "img-src data: blob:",
@@ -137,15 +98,3 @@ export const buildSafeHtmlSrcDoc = (html: string): string => {
 };
 
 export const htmlArtifactKey = (artifact: HtmlArtifact) => `${artifact.artifactId}:${artifact.revision}`;
-
-export const findLatestHtmlArtifact = (values: Iterable<unknown>): HtmlArtifact | undefined => {
-  let latest: HtmlArtifact | undefined;
-  for (const value of values) {
-    const artifact = normalizeHtmlArtifact(value);
-    if (!artifact) continue;
-    if (!latest || artifact.artifactId !== latest.artifactId || artifact.revision >= latest.revision) {
-      latest = artifact;
-    }
-  }
-  return latest;
-};

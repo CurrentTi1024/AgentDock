@@ -56,7 +56,7 @@ import {
 } from '@/features/chat/components/lobehub/SpecialMessages';
 import { useUiStore } from '@/stores/uiStore';
 import { useI18n } from '@/i18n';
-import { findLatestHtmlArtifact, htmlArtifactKey, type HtmlArtifact } from '@/features/chat/htmlArtifact';
+import { findLatestInlineHtmlPreview, htmlArtifactKey, type HtmlArtifact } from '@/features/chat/htmlArtifact';
 
 const styles = createStaticStyles(({ css, cssVar: token }) => ({
   artifact: css`
@@ -122,7 +122,6 @@ export default function ChatPage() {
   const loadingOlderRef = useRef(false);
   const [artifactOpen, setArtifactOpen] = useState(false);
   const [artifact, setArtifact] = useState<HtmlArtifact>();
-  const autoOpenedArtifactsRef = useRef(new Set<string>());
   const [runStartedAt, setRunStartedAt] = useState<number>();
   // React Router 会复用同一个 ChatPage 实例。所有异步读取都必须校验目标 session，
   // 防止 A 的慢请求在已经切到 B 后回写 B 页面（历史串会话/身份闪回）。
@@ -414,7 +413,6 @@ export default function ChatPage() {
     setRunStartedAt(undefined);
     setArtifact(undefined);
     setArtifactOpen(false);
-    autoOpenedArtifactsRef.current.clear();
     // pendingSession 只属于导航到该 session 的瞬时 state；同一 id 内 state 变化不应重置页面。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
@@ -644,19 +642,17 @@ export default function ChatPage() {
     void navigator.clipboard.writeText(content || '');
   }, []);
 
-  // live HTML Artifact 只按 artifactId+revision 自动打开一次。用户关闭后，普通
-  // React 重渲染不得再次抢焦点；历史恢复始终通过正文文件卡手动打开。
+  // A completed HTML code block may fill an empty right panel, but must never
+  // replace content that is already open. An explicit Preview click can.
   useEffect(() => {
-    if (!run) return;
-    const nextArtifact = findLatestHtmlArtifact(Object.values(run.activities || {}));
-    if (!nextArtifact) return;
-    setArtifact(nextArtifact);
-    const key = htmlArtifactKey(nextArtifact);
-    if (nextArtifact.presentation.autoOpen && !autoOpenedArtifactsRef.current.has(key)) {
-      autoOpenedArtifactsRef.current.add(key);
-      setArtifactOpen(true);
-    }
-  }, [run]);
+    if (artifactOpen) return;
+    const nextPreview = findLatestInlineHtmlPreview(answer);
+    if (!nextPreview) return;
+    setArtifact(nextPreview);
+    setArtifactOpen(true);
+    // Only new message content may auto-open. Closing stays closed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answer]);
 
   // 消息列底部留白跟随输入区实际高度（textarea 自动变高时也能滚到最后一条）。
   useEffect(() => {

@@ -60,28 +60,5 @@ export async function* createAgentRuntimeMockEvents(input: RunAgentInput, signal
   for (const token of text.match(/[\s\S]{1,3}/g) || []) { await delay(24, signal); yield event({ type: 'TEXT_MESSAGE_CONTENT', messageId: assistantId, delta: token }); }
   yield event({ type: 'TEXT_MESSAGE_END', messageId: assistantId });
   yield event({ type: 'ACTIVITY_SNAPSHOT', messageId: `surface-${input.runId}`, activityType: 'a2ui.surface', surfaceId: `surface-${input.runId}`, content: { catalogId: 'agentdock://catalog', components: [{ id: 'summary', type: 'metricCard', props: { label: '异常数量', value: 2 } }, { id: 'open', type: 'button', props: { label: '打开报告', actionName: 'open_report' } }] } });
-  const artifactHtml = '<!doctype html><html><head><meta charset="utf-8"><title>飞行测试分析报告</title></head><body><h2>飞行测试概览</h2><table border="1" cellpadding="6"><tr><th>指标</th><th>数值</th><th>状态</th></tr><tr><td>振动峰值</td><td>+18%</td><td style="color:#faad14">关注</td></tr><tr><td>温度跃升</td><td>+6.2°C</td><td style="color:#faad14">关注</td></tr><tr><td>总体状态</td><td>稳定</td><td style="color:#52c41a">通过</td></tr></table><p>建议复核 09:42 与 10:17 两处异常并加入下次检查清单。</p></body></html>';
-  const artifactBytes = new TextEncoder().encode(artifactHtml);
-  const artifactDigest = await crypto.subtle.digest('SHA-256', artifactBytes);
-  const artifactSha256 = [...new Uint8Array(artifactDigest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-  yield event({
-    type: 'ACTIVITY_SNAPSHOT',
-    messageId: `artifact-${input.runId}`,
-    activityType: 'artifact',
-    content: {
-      artifactId: `flight-report-${input.runId}`,
-      body: artifactHtml,
-      capabilities: { download: true, preview: true, source: true },
-      encoding: 'utf-8',
-      fileName: '飞行测试分析报告.html',
-      mimeType: 'text/html',
-      presentation: { autoOpen: true, defaultTab: 'preview', display: 'side-panel' },
-      revision: 1,
-      sha256: artifactSha256,
-      sizeBytes: artifactBytes.byteLength,
-      storage: 'inline',
-      title: '飞行测试分析报告',
-    },
-  });
   yield event({ type: 'RUN_FINISHED', threadId: input.threadId, runId: input.runId });
 }

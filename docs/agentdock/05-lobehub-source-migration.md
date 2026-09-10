@@ -41,6 +41,9 @@
 ## 当前迁移状态
 
 - 已替换全局主题为 LobeHub `ThemeProvider` 与语义 token。
+- HTML 代码预览已迁移 LobeHub `Portal/Artifacts/Body/Renderer/HTML.tsx` 与
+  `components/HtmlPreview/InlinePreview.tsx` 的渲染结构，复用 `@lobehub/ui HtmlPreview`；AgentDock
+  仍对不可信 Agent 输出施加空 iframe sandbox、CSP 和 HTML 净化，不沿用上游允许脚本的默认 sandbox。
 - 已从三类 Community List Item 源码迁移统一市场卡片结构（FAB 版本右上角、skill/mcp 数量标签、底部时间到时分 + ownerName）；分页迁移为 antd `Pagination`（右下角），排序迁移为 `SortButton` 下拉 + 升降序切换。
 - 已从 Conversation 仓库内 ChatItem 源码迁移消息头、消息体、用户气泡、过程折叠和悬浮操作结构，不再以 npm 通用 ChatItem 代替源码迁移。
 - 已覆盖 `Messages/index.tsx` 的全部可见 role，并把实时/历史统一为 props-first 渲染；完整作业和代码分块见 [18-lobehub-chat-source-migration-worklog.md](18-lobehub-chat-source-migration-worklog.md)。

@@ -47,7 +47,7 @@ import { messageFeedbackService } from '@/api/conversation/messageFeedbackServic
 import type { RuntimeStep } from '@/api/runtime/types';
 import { useI18n } from '@/i18n';
 import { useUiStore } from '@/stores/uiStore';
-import { findLatestHtmlArtifact, htmlArtifactKey, type HtmlArtifact } from '@/features/chat/htmlArtifact';
+import { findLatestInlineHtmlPreview, htmlArtifactKey, type HtmlArtifact } from '@/features/chat/htmlArtifact';
 import {
   runtimeMessageToSessionRecord,
   SpecialMessage,
@@ -132,7 +132,6 @@ const GroupChatPage = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [artifact, setArtifact] = useState<HtmlArtifact>();
   const [artifactOpen, setArtifactOpen] = useState(false);
-  const autoOpenedArtifactsRef = useRef(new Set<string>());
   const [composerHeight, setComposerHeight] = useState(0);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const currentSessionIdRef = useRef(sessionId);
@@ -281,7 +280,6 @@ const GroupChatPage = () => {
     setRunStartedAt(undefined);
     setArtifact(undefined);
     setArtifactOpen(false);
-    autoOpenedArtifactsRef.current.clear();
     // pendingSession 只在切换到新 id 时用于首帧，避免旧群聊历史残留。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
@@ -451,18 +449,17 @@ const GroupChatPage = () => {
   }, { deletedKeys, showReasoning });
   const hasLiveAssistant = liveAssistantMessages.length > 0;
 
+  // Auto-open completed HTML only when the right side is empty. Existing
+  // settings or preview content keeps ownership until the user switches it.
   useEffect(() => {
-    if (!run) return;
-    const nextArtifact = findLatestHtmlArtifact(Object.values(run.activities || {}));
-    if (!nextArtifact) return;
-    setArtifact(nextArtifact);
-    const key = htmlArtifactKey(nextArtifact);
-    if (nextArtifact.presentation.autoOpen && !autoOpenedArtifactsRef.current.has(key)) {
-      autoOpenedArtifactsRef.current.add(key);
-      setSettingsOpen(false);
-      setArtifactOpen(true);
-    }
-  }, [run]);
+    if (artifactOpen || settingsOpen) return;
+    const nextPreview = findLatestInlineHtmlPreview(answer);
+    if (!nextPreview) return;
+    setArtifact(nextPreview);
+    setArtifactOpen(true);
+    // Only new message content may auto-open. Closing stays closed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answer]);
   const liveProcessHostId = findLiveProcessHostId(liveSpecialRecords, hasLiveAssistant);
   const hasLiveBlocks = Array.isArray(blocks) && blocks.length > 0;
   const hasLiveTimelineText = hasRunTextTimeline(run, deletedKeys);

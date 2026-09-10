@@ -1270,7 +1270,7 @@ env:
 
 完整请求字段、SSE 格式、事件清单、幂等、断线恢复、HITL 与 A2UI 规则以 `02-agui-a2ui-runtime-contract.md` 为唯一权威来源，本文件不复制另一份事件协议。
 
-### 9.3 Stop 与 HTML Artifact 边界
+### 9.3 Stop 与 HTML 代码预览边界
 
 - Stop 是独立 Run 控制操作，不是消息内容。Browser 调用 `POST /api/agent-runtime/runs/{runId}/cancel`，body 为
   `{sessionId, threadId, agentId, fab, reason:"user_requested", mode:"interrupt"}`；若返回 HTTP 202/`cancel_requested`，再调用
@@ -1278,13 +1278,11 @@ env:
 - AgentDock App Server 是无状态 Control Gateway：用现有 `AGENT_ORCHESTRATION_BASE_URLS_JSON[fab]` 转发到
   `{baseUrl}/ag-ui/runs/{runId}/cancel|status`，不维护 `threadId → runId/FAB`。Browser 不得接触或提交真实 Base URL。
 - `copilotkit.stopAgent` 可并行执行，但仅清理 Browser 流、frontend tools 与 CopilotKit 本地生命周期；只关闭 SSE 不等于后端任务已停止。
-- HTML 页面首选用一条完整的标准 `ACTIVITY_SNAPSHOT(activityType="artifact")` 传输；`content` 至少包含
-  `artifactId`、`revision`、`mimeType:"text/html"`、`fileName`、`title`、`body` 和 `presentation`。前端在正文时间线显示文件卡，
-  点击后在右侧工作区预览或查看/复制源码；同一 Artifact 更新时发送更高 `revision` 的完整 snapshot，不逐字符发送 `ACTIVITY_DELTA`。
-- 为兼容尚未接入 Artifact 协议的 Agent，普通 `TEXT_MESSAGE_*` 中显式的 fenced `html`/`htm` 代码块仍按源码显示，并在代码块工具栏提供“预览”；
-  只有用户点击才打开右侧工作区。不得根据零散 HTML 标签模糊识别，也不得自动预览普通文本消息。
-- 两条路径都必须进入无脚本、无同源权限的 sandbox iframe；不要把任意 HTML 包装成 A2UI。A2UI 只承载前端 Catalog 允许的原生组件。
-- 完整接口和实现方案见 `02-agui-a2ui-runtime-contract.md` §11 与 `design/19-run-control-and-html-artifact.md`。
+- HTML 不新增后端 API 或 Artifact 事件。Agent 继续通过普通 `TEXT_MESSAGE_*` 输出 Markdown；其中显式的 fenced `html`/`htm` 代码块按源码显示，并在代码块工具栏提供“预览”；
+  用户可点击后打开右侧工作区；完整代码块生成后，仅当右侧工作区为空时自动打开，已有内容时不切换、不覆盖。
+  不得根据零散 HTML 标签模糊识别，也不得自动预览普通文本消息。
+- 预览必须进入无脚本、无同源权限的 sandbox iframe；不要把任意 HTML 包装成 A2UI。A2UI 只承载前端 Catalog 允许的原生组件。
+- 完整运行时边界见 `02-agui-a2ui-runtime-contract.md` §11。
 
 ## 10. 前端 Service 边界
 

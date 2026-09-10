@@ -11,8 +11,7 @@ import { findLogicalSurfaceId } from '@/api/runtime/runReducer';
 import type { RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
 import type { SessionMessageRecord } from '@/api/session/sessionHistoryService';
 import ErrorAlert from '@/features/chat/components/lobehub/ErrorAlert';
-import { HtmlArtifactCard } from '@/features/chat/components/HtmlArtifact';
-import { HTML_ARTIFACT_ACTIVITY_TYPE, normalizeHtmlArtifact, type HtmlArtifact } from '@/features/chat/htmlArtifact';
+import type { HtmlArtifact } from '@/features/chat/htmlArtifact';
 import {
   buildDisplayUnits,
   type DisplayUnit,
@@ -385,14 +384,6 @@ export const renderStoredBlocks = (
         typeof payload.finishedAt === 'number' ? payload.finishedAt : undefined,
       );
     } else if (record.kind === 'activity') {
-      if (payload.activityType === HTML_ARTIFACT_ACTIVITY_TYPE) {
-        flushSteps();
-        const artifact = normalizeHtmlArtifact(payload);
-        if (artifact && handlers.onOpenArtifact) {
-          nodes.push(<HtmlArtifactCard artifact={artifact} key={record.id} onOpen={() => handlers.onOpenArtifact?.(artifact)} />);
-        }
-        continue;
-      }
       if (payload.activityType === 'a2ui.surface' || payload.activityType === 'a2ui-surface') {
         flushSteps();
         continue;
@@ -552,14 +543,6 @@ export const renderRunBlocks = (
         // MESSAGES_SNAPSHOT 的 task/supervisor 等角色已经由 SpecialMessage 走原生组件展示；
         // reducer 仅保留 diagnosticOnly activity 供诊断，不能再塞进 assistant workflow 重复显示。
         if (value.diagnosticOnly === true) continue;
-        if (value.activityType === HTML_ARTIFACT_ACTIVITY_TYPE) {
-          flushSteps(false);
-          const artifact = normalizeHtmlArtifact(value);
-          if (artifact && handlers.onOpenArtifact) {
-            blocks.push(<HtmlArtifactCard artifact={artifact} key={`artifact-${ref.id}`} onOpen={() => handlers.onOpenArtifact?.(artifact)} />);
-          }
-          continue;
-        }
         if (value.activityType === 'a2ui.surface' || value.activityType === 'a2ui-surface') {
           flushSteps(false);
           continue;

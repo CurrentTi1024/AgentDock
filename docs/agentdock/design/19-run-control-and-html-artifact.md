@@ -1,5 +1,10 @@
 # Agent Run 控制与 HTML Artifact 方案
 
+> **2026-09-11 决策更新**：HTML 不再采用后端 Artifact 事件。本文件的 Stop 设计继续有效；其中
+> `ACTIVITY_SNAPSHOT(activityType="artifact")`、文件卡和 Artifact 版本协议属于已撤销方案，不得实现。
+> 当前唯一 HTML 路径是标准 `TEXT_MESSAGE_*` 中的显式 fenced `html/htm` 代码块：正文显示源码与“预览”，
+> 右栏为空时自动打开，已有内容时不抢占；渲染复用 LobeHub `HtmlPreview` 并保留 AgentDock 的严格 sandbox/CSP。
+
 > 状态：架构决策与联调实施方案  
 > 日期：2026-09-09  
 > 优先级：P0 = 真正停止后端执行；P1 = HTML Artifact 完整体验  
