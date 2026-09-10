@@ -1,7 +1,7 @@
 // Adapted from: src/features/Conversation/Messages/Assistant/useMarkdown (LobeHub canary)
 // 直接使用 @lobehub/ui 的 Markdown 渲染管线（代码高亮/mermaid/latex/流式动画），
 // 与 LobeHub 对话页视觉一致。
-import { ActionIcon, Flexbox, Markdown as LobeMarkdown, Text } from '@lobehub/ui';
+import { ActionIcon, Button, Flexbox, Markdown as LobeMarkdown, Text } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import { Check, Copy, Eye } from 'lucide-react';
 import { memo, useState } from 'react';
@@ -141,7 +141,17 @@ const HtmlCodeBlock = ({ code, onPreview }: { code: string; onPreview: (artifact
     <div className={styles.htmlCode}>
       <Flexbox horizontal align="center" gap={8} padding="6px 8px" style={{ borderBlockEnd: `1px solid ${cssVar.colorBorderSecondary}` }}>
         <Text fontSize={12} style={{ flex: 1 }} type="secondary">HTML</Text>
-        {artifact && <ActionIcon aria-label={t('chat.artifact.preview')} icon={Eye} size="small" onClick={() => onPreview(artifact)} />}
+        {artifact && (
+          <Button
+            aria-label={t('chat.artifact.preview')}
+            icon={Eye}
+            size="small"
+            type="text"
+            onClick={() => onPreview(artifact)}
+          >
+            {t('chat.artifact.preview')}
+          </Button>
+        )}
         <ActionIcon aria-label={t('chat.copy')} icon={copied ? Check : Copy} size="small" onClick={() => void copy()} />
       </Flexbox>
       <pre style={{ fontFamily: cssVar.fontFamilyCode, fontSize: 12, margin: 0, maxHeight: 420, overflow: 'auto', padding: 12, whiteSpace: 'pre', width: '100%' }}>
