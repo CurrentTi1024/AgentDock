@@ -531,6 +531,24 @@ form.fields.length > 4          -> Drawer
 4. `runAgent({ runId, forwardedProps, resume })` 返回的新 SSE 继续 reduce 到同一个 run/row。
 5. 整个 batch 改为 resolved 摘要，后续文本排在其后。
 
+### 10.1 重新进入 Session：仅本地恢复
+
+用户重新进入 Session 时，paused HITL 只从浏览器 IndexedDB 中保存的 run checkpoint 恢复：
+
+```text
+进入 Session
+  -> 读取本地 paused checkpoint
+  -> 恢复其中的 agentDock.hitl activity 与 interrupts[]
+  -> 仅在当前 Session 渲染 HITL 弹窗
+```
+
+进入 Session 本身不得查询远端 run 状态、拉取远端 pending interrupt、建立恢复 SSE，或根据
+`lastEventId` 补发 HITL Event。本地不存在 paused checkpoint 时不显示 HITL；不尝试从远端补齐。
+只有用户提交完整 `resume[]` 后，前端才向 CopilotKit Runtime 发起远程恢复请求。
+
+该约束专门适用于 `status=paused` 的 HITL 恢复；普通 `status=running` 的网络断线续传仍按实时
+协议的游标恢复规则处理，不应被误认为 HITL 弹窗恢复。
+
 同一 `runId` 恢复后，`eventId` 不得从头计数，否则当前 reducer 会把事件误判为重复。
 
 ## 11. 校验、幂等与 fallback

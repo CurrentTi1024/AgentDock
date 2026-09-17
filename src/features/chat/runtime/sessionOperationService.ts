@@ -703,6 +703,9 @@ export const sessionOperationService = {
       sessionId: context.sessionId,
       threadId: checkpoint.threadId || checkpoint.input.threadId,
     };
+    // A paused HITL is restored exclusively from this local IndexedDB checkpoint. Entering the
+    // Session must not query remote run state or open a resume stream; network activity starts
+    // only after the user submits resume[]. Generic running checkpoints keep cursor reconnect.
     const restoredInput = checkpoint.status === 'running'
       ? {
           ...checkpoint.input,

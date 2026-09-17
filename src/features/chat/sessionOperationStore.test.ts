@@ -706,6 +706,8 @@ test('paused checkpoint 恢复使用 checkpoint 的权威 threadId，而不是�
 
   const state = useSessionOperationStore.getState();
   assert.equal(state.operationsById['run-restore']?.threadId, 'thread-session-restore');
+  assert.equal(state.operationsById['run-restore']?.input.forwardedProps.action, 'run');
+  assert.equal(state.operationsById['run-restore']?.status, 'paused');
   assert.equal(state.runtimeBySession['session-restore']?.threadId, 'thread-session-restore');
   cancelPendingCheckpoint('run-restore');
   resetStore();
