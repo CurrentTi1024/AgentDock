@@ -269,6 +269,31 @@ type HitlAnswer =
   | Record<string, string | number | HitlChoiceAnswer>;
 ```
 
+#### `resume[].status` 取值与含义
+
+`status` 是 AG-UI `ResumeEntry` 的处理结果，不是弹窗显示状态，固定只有两个取值：
+
+| status | 含义 | payload | 是否继续当前 run |
+|---|---|---|---:|
+| `resolved` | 用户已经对该 interrupt 给出有效决定 | 必须携带；具体决定由 `payload.action` 表达 | 是 |
+| `cancelled` | 用户明确选择停止本次 run | 不得携带 | 否 |
+
+`resolved` 不等于“批准”。回答文本、提交选项、提交表单、`revise` 和 `skip` 都属于
+`resolved`；其中 `skip` 表示用户不补充信息但允许 Agent 自行继续。`cancelled` 只表示终止
+当前 run，不能用于普通关闭或暂时离开页面。
+
+以下概念不得混用：
+
+| 层级 | 取值 | 是否发送给后端 |
+|---|---|---:|
+| Run 状态 | `running / paused / success / error / cancelled` | 由运行协议维护 |
+| HITL UI 状态 | `pending / submitting / resolved` | 否，仅前端渲染使用 |
+| `resume[].status` | `resolved / cancelled` | 是 |
+
+用户切换到其他 Session、刷新前仍未提交、或暂时离开页面时，不发送 resume，interrupt 继续保持
+pending。弹窗不支持右上角关闭、点击遮罩关闭或 Esc 关闭；只有明确点击“停止本次任务”才生成
+整批 `cancelled`。
+
 `answer` 的合法形状由 pending interrupt 的 `kind` 确定：
 
 | kind/action | answer |
@@ -349,6 +374,56 @@ type HitlAnswer =
 ```
 
 skip 与 cancel 不同：skip 表示“不补充，由 Agent 自行继续”，cancel 表示终止当前 run。
+
+### 7.4 一个 batch 只渲染一个弹窗
+
+一次 `RUN_FINISHED(outcome=interrupt)` 中的整个 `interrupts[]` 对应一个 HITL Modal。每个
+interrupt 是 Modal 正文中的一个问题区块，底部只有一组 batch 级操作按钮：
+
+```text
+┌──────────────────────────────────┐
+│ 需要你的输入                      │
+│                                  │
+│ 1/3 请选择报告范围                │
+│     ○ 摘要  ○ 完整报告            │
+│                                  │
+│ 2/3 请填写报告语言                │
+│     [ 中文                     ]  │
+│                                  │
+│ 3/3 是否包含原始数据              │
+│     ○ 是    ○ 否                  │
+│                                  │
+│ [停止本次任务]       [提交并继续]  │
+└──────────────────────────────────┘
+```
+
+对应的前端结构应保持 footer 位于问题循环之外：
+
+```tsx
+<Modal
+  closable={false}
+  keyboard={false}
+  maskClosable={false}
+  footer={(
+    <>
+      <Button onClick={cancelBatch}>停止本次任务</Button>
+      <Button type="primary" onClick={submitBatch}>提交并继续</Button>
+    </>
+  )}
+>
+  {interrupts.map((interrupt, index) => (
+    <HitlQuestion
+      key={interrupt.id}
+      index={index}
+      interrupt={interrupt}
+    />
+  ))}
+</Modal>
+```
+
+`submitBatch` 等全部问题通过校验后一次发送完整、有序的 `resolved` 数组；`cancelBatch` 一次
+生成与全部 pending interrupt 对应的 `cancelled` 数组。不得为三个问题分别创建三个 Modal，
+也不得在每个问题内部放置“停止本次任务”按钮。
 
 ## 8. 后端 Event 示例
 

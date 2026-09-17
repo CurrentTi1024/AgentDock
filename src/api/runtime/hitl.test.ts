@@ -48,6 +48,14 @@ test('requires one ordered resume entry for every interrupt in the batch', () =>
     ]),
     /order or identity/,
   );
+  assert.doesNotThrow(() => validateHitlResumeBatch(interrupts, [
+    { interruptId: 'first', status: 'cancelled' },
+    { interruptId: 'second', status: 'cancelled' },
+  ]));
+  assert.throws(() => validateHitlResumeBatch(interrupts, [
+    { interruptId: 'first', payload: { action: 'continue' }, status: 'resolved' },
+    { interruptId: 'second', status: 'cancelled' },
+  ]), /mixed resume statuses/);
 });
 
 test('rejects duplicate interrupt identities and unsupported reasons', () => {
