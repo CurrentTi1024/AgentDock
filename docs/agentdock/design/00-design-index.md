@@ -36,6 +36,7 @@
 | [17-chat-full-feature-architecture.md](17-chat-full-feature-architecture.md) | Chat 全功能架构与设计机制：运行时/事件投影/历史落库/消息渲染/过程可视化/输入区/消息操作/滚动/群聊复用/一致性防护（重机制轻代码） | 前端 |
 | [18-multi-session-concurrent-runs.md](18-multi-session-concurrent-runs.md) | 多 Session 独立订阅与并发运行：全局 Operation Store、常驻 Runtime Worker、按 Session 路由事件、per-run checkpoint、顶层 eventId 断点续传 | 前端架构 + 运行时联调 |
 | [19-run-control-and-html-artifact.md](19-run-control-and-html-artifact.md) | Agent Run 控制与 HTML Artifact：真实后端取消链路、API 契约、当前实现审计、侧栏预览/源码交互与安全边界 | 前端 + Runtime + Orchestration/Core |
+| [20-hitl-v2-interaction-protocol.md](20-hitl-v2-interaction-protocol.md) | HITL v2：标准 Interrupt/Resume、四种紧凑判别 Schema、固定组件映射、幂等恢复与兼容 fallback | 前端 + Runtime + Orchestration/Core |
 
 ## 3. 与权威文档的关系
 

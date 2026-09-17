@@ -386,17 +386,77 @@ State Delta 使用 RFC 6902 JSON Patch。
 
 ### 8.1 原则
 
-- 优先使用 CopilotKit/DeepAgents 集成原生 interrupt/tool lifecycle。
-- AgentDock UI 归一化支持全部 `HitlMode`。
-- HITL request 必须拥有稳定 `requestId`，重复响应必须幂等。
-- HITL UI 未完成前不得发出 `RUN_FINISHED`。
-- 用户取消、超时和拒绝必须形成可显示结果，不能静默结束。
+- 使用 AG-UI 标准 `RUN_FINISHED(outcome.type="interrupt")` 表示执行已暂停；不以 CustomEvent
+  作为新链路的 HITL 主协议。
+- 当前 SSE 在 interrupt 后正常关闭。用户回答通过下一次 `RunAgentInput.resume[]` 提交，该 POST
+  返回新的 SSE，并继续原 `sessionId/threadId/runId` 与原 assistant row。
+- 同一次 Event 的 `interrupts[]` 是一个原子 batch（1–8 项），每项必须拥有稳定
+`interruptId`；存在顺序依赖的问题不得放进同一 batch。
+- 同一张业务表单使用一个 `kind="form"` interrupt；数组主要承载并行 graph branch、子 Agent
+  或其他真正独立的暂停点。
+- UI 只支持 `confirm | text | choice | form` 四种紧凑 kind；组件、布局和按钮样式由前端确定。
+- 用户取消、超时和 skip 必须形成明确状态，不能静默结束。
+- 完整字段、校验和 fallback 规则见
+  `design/20-hitl-v2-interaction-protocol.md`；本节是实时协议权威摘要。
 
-### 8.2 真实 HITL 事件样本（2026-08-20 已抓取）
+### 8.2 标准 Event 与 Resume
+
+```json
+{
+  "type": "RUN_FINISHED",
+  "threadId": "thread-1",
+  "runId": "run-100",
+  "outcome": {
+    "type": "interrupt",
+    "interrupts": [{
+      "id": "int-01JXYZ",
+      "reason": "human_input_required",
+      "message": "请选择需要重点分析的维度。",
+      "metadata": {
+        "hitl": {
+          "kind": "choice",
+          "multiple": true,
+          "options": [
+            { "value": "cost", "label": "成本" },
+            { "value": "quality", "label": "质量" }
+          ]
+        }
+      }
+    }]
+  }
+}
+```
+
+`responseSchema` 在 AG-UI 0.0.57 中是 optional，本项目不逐 Event 发送。前后端使用同一个
+固定判别联合校验 `metadata.hitl`，并在 resume 时结合数据库中的 pending spec 校验回答。
+
+```json
+{
+  "resume": [{
+    "interruptId": "int-01JXYZ",
+    "status": "resolved",
+    "payload": {
+      "action": "submit",
+      "answer": { "selected": ["quality"] }
+    }
+  }]
+}
+```
+
+按钮无需后端逐次声明：confirm 固定为 continue，可选 revise/skip；其他 kind 固定为 submit，
+可选 skip；所有 kind 均可 cancel。cancel 使用 `status="cancelled"` 且不带 payload。
+
+若 `interrupts[]` 有多项，前端必须等待用户完成全部交互，再用一次请求提交 `resume[]`。
+`resume[]` 按原顺序覆盖全部 pending ID，每个 ID 恰好一次；后端对整个 batch 原子校验、原子
+恢复，禁止部分成功。正常提交全部为 resolved；取消整个 batch 全部为 cancelled，P0 不支持
+两种 status 混合。遗漏、重复或未知 ID 返回 `HITL_INCOMPLETE_BATCH`，checkpoint 保持 paused。
+
+### 8.3 Legacy 真实样本与迁移边界（2026-08-20 已抓取）
 
 DeepAgents 0.7.5 `interrupt_on={"write_file": True}` + ag_ui-langgraph 0.0.40 + CopilotKit 0.1.94 的真实 wire（demo 后端实测）：
 
-1. **interrupt 以 Custom 事件暴露**（不是 Tool Call / Activity / RUN_FINISHED(outcome=interrupt)）：
+旧 DeepAgents 适配链路曾把 interrupt 以 Custom 事件暴露，而不是标准
+`RUN_FINISHED(outcome=interrupt)`：
 
 ```json
 {
@@ -415,7 +475,7 @@ DeepAgents 0.7.5 `interrupt_on={"write_file": True}` + ag_ui-langgraph 0.0.40 + 
 }
 ```
 
-2. **response 是同一 Run 恢复**（沿用 threadId/runId，通过 `RunAgentInput.resume`），不是新 Run + parentRunId：
+旧 response 同样沿用 threadId/runId，通过 `RunAgentInput.resume` 恢复：
 
 ```json
 {
@@ -427,9 +487,10 @@ DeepAgents 0.7.5 `interrupt_on={"write_file": True}` + ag_ui-langgraph 0.0.40 + 
 }
 ```
 
-3. **前端行为**：页面渲染 HitlBlock（需要你的确认 / 允许并继续 / 拒绝）；批准走 legacy HITL wire（无官方 pendingInterrupts 时）→ `runAgent({ resume: [...] })`，携带原 forwardedProps。
-
-4. **已确认的限制**：纯 deepagents 层 resume 后工具执行成功；但经 ag_ui-langgraph 0.0.40 的 HTTP resume 映射仍会重新 interrupt（适配层把 ResumeEntry 列表原样传给 `Command(resume=...)`，与 langchain HITL 的 `interrupt()` 返回值约定不兼容；demo 已做 id 注入与 payload 解包，续跑执行仍需公司 Orchestration Service 实现正确映射或升级适配器）。在真实服务确认前，`hitlResponse` 仍仅作为归一化后备结构。
+该结构只作为迁移期输入兼容，不允许成为新后端的输出格式。纯 deepagents 层 resume 后工具执行
+成功；但 ag_ui-langgraph 0.0.40 曾把 ResumeEntry 列表原样传给 `Command(resume=...)`，导致再次
+interrupt。公司 Orchestration Service 必须把标准 ResumeEntry 解包成底层图所需的 resume value，
+或升级到已正确适配的版本。
 
 ## 9. A2UI 契约
 

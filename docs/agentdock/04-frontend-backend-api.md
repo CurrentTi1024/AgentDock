@@ -1265,7 +1265,7 @@ env:
 | 发起执行 | `agent/run` | `sessionId`、`agentId` 或 `group`、`fab`、当前 message（在 `forwardedProps`） |
 | 断线恢复 | `agent/connect` | 相同 `runId`/`threadId`；`lastEventId` 语义由后端决定 |
 | 本地停止/释放 CopilotKit 生命周期 | `agent/stop` | `agentId`、`threadId`；不代表后端权威取消 |
-| HITL 响应 | `agent/run` + `RunAgentInput.resume[]`（标准 interrupt）或 `forwardedProps.hitlResponse`（后备） | `requestId`、mode 和对应输入 |
+| HITL 响应 | `agent/run` + `RunAgentInput.resume[]`（标准 interrupt）；`forwardedProps.hitlResponse` 仅迁移后备 | 原 `threadId/runId`、完整有序的 `resume[]` batch（每项含 `interruptId/status/payload`） |
 | A2UI Action | `agent/run` + `forwardedProps.a2uiAction.userAction` | `surfaceId`、`actionName`、`context`、`sourceComponentId` |
 
 完整请求字段、SSE 格式、事件清单、幂等、断线恢复、HITL 与 A2UI 规则以 `02-agui-a2ui-runtime-contract.md` 为唯一权威来源，本文件不复制另一份事件协议。
