@@ -16,10 +16,34 @@ export async function* createAgentRuntimeMockEvents(input: RunAgentInput, signal
   yield event({ type: 'REASONING_MESSAGE_CONTENT', messageId: `reasoning-${input.runId}`, delta: '校验输入、权限和数据范围；规划只读工具调用。' });
   yield event({ type: 'REASONING_MESSAGE_END', messageId: `reasoning-${input.runId}` });
   if (input.forwardedProps.action === 'run') {
-    yield event({ type: 'ACTIVITY_SNAPSHOT', messageId: `hitl-${input.runId}`, activityType: 'agentDock.hitl', content: { requestId: `hitl-${input.runId}`, mode: 'toolAuthorization', title: '允许读取飞行测试指标', description: '只读操作，不会修改源数据。' } });
+    yield event({
+      type: 'RUN_FINISHED',
+      threadId: input.threadId,
+      runId: input.runId,
+      outcome: {
+        type: 'interrupt',
+        interrupts: [{
+          id: `hitl-${input.runId}`,
+          reason: 'human_input_required',
+          message: '请选择需要分析的飞行测试指标。',
+          metadata: {
+            hitl: {
+              kind: 'choice',
+              multiple: true,
+              allowOther: true,
+              options: [
+                { value: 'vibration', label: '振动' },
+                { value: 'temperature', label: '温度' },
+                { value: 'pressure', label: '压力' },
+              ],
+            },
+          },
+        }],
+      },
+    });
     return;
   }
-  if (input.forwardedProps.action === 'hitlResponse' && input.forwardedProps.hitlResponse?.decision === 'reject') {
+  if (input.forwardedProps.action === 'hitlResponse' && input.resume?.every((entry) => entry.status === 'cancelled')) {
     yield event({ type: 'RUN_ERROR', threadId: input.threadId, runId: input.runId, code: 'CANCELLED', message: 'The requested tool call was rejected.' });
     return;
   }

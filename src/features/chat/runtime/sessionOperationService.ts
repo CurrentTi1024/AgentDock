@@ -2,8 +2,9 @@ import type { Message } from '@ag-ui/client';
 
 import { getChatServiceMode } from '../../../api/core/serviceMode.ts';
 import { agentRuntimeService, createRunInput } from '../../../api/runtime/agentRuntimeService.ts';
+import { projectHitlInterrupts, validateHitlResumeBatch } from '../../../api/runtime/hitl.ts';
 import { createRunState, finalizeReasoningMeta, reduceRunEvent } from '../../../api/runtime/runReducer.ts';
-import type { AgUiEvent, MentionAgentRef, RunAgentInput, RuntimeRunState, StreamedEvent } from '../../../api/runtime/types.ts';
+import type { AgUiEvent, HitlInterrupt, MentionAgentRef, RunAgentInput, RuntimeRunState, StreamedEvent } from '../../../api/runtime/types.ts';
 import {
   cancelPendingCheckpoint,
   flushRunCheckpoint,
@@ -20,7 +21,7 @@ import { sessionRuntimeRegistry } from './sessionRuntimeRegistry.ts';
 import type {
   A2uiAction,
   EventRoute,
-  HitlResponse,
+  HitlResumeBatch,
   OperationStatus,
   SessionOperation,
   SessionRuntimeContext,
@@ -37,6 +38,50 @@ const hotSnapshots = new Map<string, RuntimeRunState>();
 const mockControllers = new Map<string, AbortController>();
 const stopPromises = new Map<string, Promise<void>>();
 const stoppingRuns = new Set<string>();
+
+interface HitlActivityValue {
+  activityType: 'agentDock.hitl';
+  interrupts: HitlInterrupt[];
+  messageId: string;
+  responses?: HitlResumeBatch;
+  status: 'pending' | 'resolved' | 'submitting';
+}
+
+const findPendingHitlActivity = (
+  snapshot: RuntimeRunState,
+): { activityId: string; value: HitlActivityValue } | undefined => {
+  for (let index = snapshot.orderedBlocks.length - 1; index >= 0; index -= 1) {
+    const block = snapshot.orderedBlocks[index];
+    if (block.kind !== 'activity') continue;
+    const value = snapshot.activities[block.id] as Partial<HitlActivityValue> | undefined;
+    if (
+      value?.activityType === 'agentDock.hitl' &&
+      value.status === 'pending' &&
+      Array.isArray(value.interrupts)
+    ) {
+      return { activityId: block.id, value: value as HitlActivityValue };
+    }
+  }
+  return undefined;
+};
+
+const updateHitlActivity = (
+  snapshot: RuntimeRunState,
+  activityId: string,
+  status: HitlActivityValue['status'],
+  responses?: HitlResumeBatch,
+): RuntimeRunState => ({
+  ...snapshot,
+  activities: {
+    ...snapshot.activities,
+    [activityId]: {
+      ...(snapshot.activities[activityId] as Record<string, unknown>),
+      ...(responses ? { responses } : {}),
+      ...(responses === undefined && status === 'pending' ? { responses: undefined } : {}),
+      status,
+    },
+  },
+});
 
 const waitForRemoteStop = async (task: Promise<void>) => {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -359,6 +404,22 @@ const executeMock = async (operation: SessionOperation) => {
     for await (const streamed of agentRuntimeService.stream(operation.input, {
       signal: controller.signal,
     })) {
+      const outcome = streamed.event.outcome as { interrupts?: unknown[]; type?: string } | undefined;
+      if (streamed.event.type === 'RUN_FINISHED' && outcome?.type === 'interrupt') {
+        sessionOperationService.applyRunFinished(
+          { sessionId: operation.sessionId, threadId: operation.threadId },
+          streamed.event,
+          'interrupt',
+          outcome.interrupts as Array<{
+            expiresAt?: string;
+            id: string;
+            message?: string;
+            metadata?: Record<string, unknown>;
+            reason: string;
+          }>,
+        );
+        continue;
+      }
       applyStreamedEvent(
         { sessionId: operation.sessionId, threadId: operation.threadId },
         streamed,
@@ -427,17 +488,24 @@ export const sessionOperationService = {
     const operation = resolveOperation(route, event);
     if (!operation) return;
     const requestId = custom.value?.id ?? '';
+    if (!requestId) return;
+    const interrupts = projectHitlInterrupts([{
+      id: requestId,
+      message: custom.value?.message ?? 'Agent requests your confirmation.',
+      metadata: { hitl: { kind: 'confirm' } },
+      reason: 'human_input_required',
+    }]);
     useSessionOperationStore.getState().updateOperation(operation.runId, {
-      legacyInterruptId: requestId || undefined,
+      legacyInterruptId: requestId,
     });
     applyStreamedEvent(route, {
       event: {
         activityType: 'agentDock.hitl',
         content: {
-          description: custom.value?.message ?? 'Agent requests your confirmation.',
-          requestId,
+          interrupts,
+          status: 'pending',
         },
-        messageId: `hitl-${requestId || Date.now()}`,
+        messageId: `hitl-batch-${requestId}`,
         type: 'ACTIVITY_SNAPSHOT',
       },
     });
@@ -451,7 +519,13 @@ export const sessionOperationService = {
     route: EventRoute,
     event: AgUiEvent,
     outcome?: string,
-    interrupts: Array<{ id: string; message?: string }> = [],
+    interrupts: Array<{
+      expiresAt?: string;
+      id: string;
+      message?: string;
+      metadata?: Record<string, unknown>;
+      reason: string;
+    }> = [],
   ) {
     if (outcome !== 'interrupt') {
       applyStreamedEvent(route, toStreamedEvent(event));
@@ -472,41 +546,59 @@ export const sessionOperationService = {
       });
       return;
     }
-    for (const [index, interrupt] of interrupts.entries()) {
+    let projected: HitlInterrupt[];
+    try {
+      projected = projectHitlInterrupts(interrupts);
+    } catch (error) {
       applyStreamedEvent(route, {
         event: {
-          activityType: 'agentDock.hitl',
-          content: {
-            description: interrupt.message ?? 'Agent requests your confirmation.',
-            requestId: interrupt.id,
-          },
-          messageId: `hitl-${interrupt.id}`,
-          eventId: index === 0 ? streamed.eventId : undefined,
+          code: 'INTERRUPT_INVALID',
+          message: error instanceof Error ? error.message : 'Invalid interrupt payload.',
+          eventId: streamed.eventId,
           runId: event.runId,
           threadId: event.threadId,
-          type: 'ACTIVITY_SNAPSHOT',
+          type: 'RUN_ERROR',
         },
-        eventId: index === 0 ? streamed.eventId : undefined,
+        eventId: streamed.eventId,
       });
+      return;
     }
+    applyStreamedEvent(route, {
+      event: {
+        activityType: 'agentDock.hitl',
+        content: { interrupts: projected, status: 'pending' },
+        eventId: streamed.eventId,
+        messageId: `hitl-batch-${projected.map((item) => item.id).join('-')}`,
+        runId: event.runId,
+        threadId: event.threadId,
+        type: 'ACTIVITY_SNAPSHOT',
+      },
+      eventId: streamed.eventId,
+    });
   },
 
   async hydrateRuntime(sessionId: string) {
     return buildAgentMessages(sessionId);
   },
 
-  async respondToHitl(sessionId: string, response: HitlResponse) {
+  async respondToHitl(sessionId: string, resume: HitlResumeBatch) {
     const operation = getOperation(sessionId);
     if (!operation || operation.status !== 'paused') return;
     const snapshot = hotSnapshots.get(operation.runId) ?? operation.snapshot;
-    const running = { ...snapshot, status: 'running' as const };
+    const pending = findPendingHitlActivity(snapshot);
+    if (!pending) throw new Error('No pending HITL interrupt batch was found.');
+    validateHitlResumeBatch(pending.value.interrupts, resume);
+    const running = {
+      ...updateHitlActivity(snapshot, pending.activityId, 'resolved', resume),
+      status: 'running' as const,
+    };
     const resumedInput: RunAgentInput = {
       ...operation.input,
       forwardedProps: {
         ...operation.input.forwardedProps,
         action: 'hitlResponse',
-        hitlResponse: response,
       },
+      resume,
     };
     hotSnapshots.set(operation.runId, running);
     useSessionOperationStore.getState().updateOperation(operation.runId, {
@@ -534,7 +626,7 @@ export const sessionOperationService = {
           !snapshotAfterReady ||
           isTerminal(snapshotAfterReady.status)
         ) return;
-        await runtime.respondToHitl(resumedInput, response, operation.legacyInterruptId);
+        await runtime.respondToHitl(resumedInput, resume, operation.legacyInterruptId);
         finalizeOperationAfterStreamClosed(operation);
         return;
       }
@@ -558,7 +650,10 @@ export const sessionOperationService = {
         return;
       }
       // 恢复请求失败时仍然允许用户重试，不能永久卡在 running 且失去审批按钮。
-      const paused = { ...latest, status: 'paused' as const };
+      const paused = {
+        ...updateHitlActivity(latest, pending.activityId, 'pending'),
+        status: 'paused' as const,
+      };
       hotSnapshots.set(operation.runId, paused);
       useSessionOperationStore.getState().updateOperation(operation.runId, {
         input: operation.input,

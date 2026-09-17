@@ -8,9 +8,10 @@ import { useMemo } from 'react';
 import { useI18n } from '@/i18n';
 import { getChatServiceMode } from '@/api/core/serviceMode';
 import { findLogicalSurfaceId } from '@/api/runtime/runReducer';
-import type { RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
+import type { HitlInterrupt, HitlResumeEntry, RuntimeRunState, RuntimeStep, RuntimeToolCall } from '@/api/runtime/types';
 import type { SessionMessageRecord } from '@/api/session/sessionHistoryService';
 import ErrorAlert from '@/features/chat/components/lobehub/ErrorAlert';
+import { HitlBatchBlock } from '@/features/chat/components/lobehub/HitlBatchBlock';
 import type { HtmlArtifact } from '@/features/chat/htmlArtifact';
 import {
   buildDisplayUnits,
@@ -21,7 +22,6 @@ import { Markdown } from '@/features/chat/components/Markdown';
 import {
   ActivityBlock,
   formatProcessDuration,
-  HitlBlock,
   ProcessFold,
   ReasoningBlock,
   ToolCallBlock,
@@ -292,8 +292,7 @@ export const hasRunTextTimeline = (
 export const renderStoredBlocks = (
   blocks: SessionMessageRecord[],
   handlers: {
-    onApproveHitl: (requestId: string, payload?: Record<string, unknown>) => void;
-    onRejectHitl: (requestId: string) => void;
+    onRespondHitl: (resume: HitlResumeEntry[]) => void;
     onSurfaceAction: (actionName: string, surfaceId: string) => void;
     onOpenArtifact?: (artifact: HtmlArtifact) => void;
     onRegenerateError?: (runId?: string) => void;
@@ -405,26 +404,17 @@ export const renderStoredBlocks = (
         continue;
       }
       pushStepsIntoProcess();
-      const requestId = typeof payload.requestId === 'string' ? payload.requestId : '';
-      if (requestId) {
-        // HITL 属于过程本身（LobeHub 干预在 workflow 内部）：
-        // 暂停时折叠展开可见，完成后随过程一起收起。
+      const storedInterrupts = Array.isArray(payload.interrupts)
+        ? payload.interrupts as HitlInterrupt[]
+        : undefined;
+      if (payload.activityType === 'agentDock.hitl' && storedInterrupts?.length) {
         process.state.nodes.push(
-          <HitlBlock
-            description={typeof payload.description === 'string' ? payload.description : undefined}
-            fields={Array.isArray(payload.fields) ? (payload.fields as Array<{ key: string; label: string; type?: string }>) : undefined}
+          <HitlBatchBlock
+            interrupts={storedInterrupts}
             key={record.id}
-            mode={typeof payload.mode === 'string' ? payload.mode : 'toolAuthorization'}
-            onApprove={(requestId, approvePayload) =>
-              handlers.onApproveHitl(requestId, {
-                ...approvePayload,
-                mode: payload.mode || 'toolAuthorization',
-              })
-            }
-            onReject={handlers.onRejectHitl}
-            options={Array.isArray(payload.options) ? (payload.options as string[]) : undefined}
-            requestArgs={typeof payload.requestArgs === 'string' ? payload.requestArgs : undefined}
-            requestId={requestId}
+            responses={Array.isArray(payload.responses) ? payload.responses as HitlResumeEntry[] : undefined}
+            status="resolved"
+            onRespond={handlers.onRespondHitl}
           />,
         );
         process.state.stepCount += 1;
@@ -459,8 +449,7 @@ export const renderStoredBlocks = (
 export const renderRunBlocks = (
   run: RuntimeRunState | undefined,
   handlers: {
-    onApproveHitl: (requestId: string, payload?: Record<string, unknown>) => void;
-    onRejectHitl: (requestId: string) => void;
+    onRespondHitl: (resume: HitlResumeEntry[]) => void;
     onSurfaceAction: (actionName: string) => void;
     onOpenArtifact?: (artifact: HtmlArtifact) => void;
     onRegenerateError?: () => void;
@@ -539,7 +528,7 @@ export const renderRunBlocks = (
       } else if (ref.kind === 'activity') {
         const activity = run.activities?.[ref.id];
         if (!activity || typeof activity !== 'object') continue;
-        const value = activity as { activityType?: string; description?: string; requestId?: string; [key: string]: unknown };
+        const value = activity as { activityType?: string; [key: string]: unknown };
         // MESSAGES_SNAPSHOT 的 task/supervisor 等角色已经由 SpecialMessage 走原生组件展示；
         // reducer 仅保留 diagnosticOnly activity 供诊断，不能再塞进 assistant workflow 重复显示。
         if (value.diagnosticOnly === true) continue;
@@ -560,44 +549,14 @@ export const renderRunBlocks = (
           continue;
         }
         pushStepsIntoProcess();
-        if (value.requestId) {
-          // HITL 属于过程（LobeHub 干预在 workflow 内部）：进入折叠。
+        if (value.activityType === 'agentDock.hitl' && Array.isArray(value.interrupts)) {
           process.state.nodes.push(
-            <HitlBlock
-              description={value.description}
-              fields={Array.isArray(value.fields) ? (value.fields as Array<{ key: string; label: string; type?: string }>) : undefined}
+            <HitlBatchBlock
+              interrupts={value.interrupts as HitlInterrupt[]}
               key={`hitl-${ref.id}`}
-              mode={typeof value.mode === 'string' ? value.mode : 'toolAuthorization'}
-              onApprove={(requestId, approvePayload) =>
-                handlers.onApproveHitl(requestId, {
-                  ...approvePayload,
-                  mode: value.mode || 'toolAuthorization',
-                })
-              }
-              onReject={handlers.onRejectHitl}
-              options={Array.isArray(value.options) ? (value.options as string[]) : undefined}
-              requestArgs={typeof value.requestArgs === 'string' ? value.requestArgs : undefined}
-              requestId={value.requestId}
-            />,
-          );
-          process.state.stepCount += 1;
-        } else if (value.activityType === 'agentDock.hitl') {
-          process.state.nodes.push(
-            <HitlBlock
-              description={typeof value.description === 'string' ? value.description : undefined}
-              fields={Array.isArray(value.fields) ? (value.fields as Array<{ key: string; label: string; type?: string }>) : undefined}
-              key={`hitl-${ref.id}`}
-              mode={typeof value.mode === 'string' ? value.mode : 'toolAuthorization'}
-              onApprove={(requestId, approvePayload) =>
-                handlers.onApproveHitl(requestId, {
-                  ...approvePayload,
-                  mode: value.mode || 'toolAuthorization',
-                })
-              }
-              onReject={handlers.onRejectHitl}
-              options={Array.isArray(value.options) ? (value.options as string[]) : undefined}
-              requestArgs={typeof value.requestArgs === 'string' ? value.requestArgs : undefined}
-              requestId={String(value.requestId || ref.id)}
+              responses={Array.isArray(value.responses) ? value.responses as HitlResumeEntry[] : undefined}
+              status={value.status === 'resolved' || value.status === 'submitting' ? value.status : 'pending'}
+              onRespond={handlers.onRespondHitl}
             />,
           );
           process.state.stepCount += 1;

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { getChatServiceMode } from '@/api/core/serviceMode';
-import type { MentionAgentRef, RunAgentInput, RuntimeRunState } from '@/api/runtime/types';
+import type { HitlResumeEntry, MentionAgentRef, RunAgentInput, RuntimeRunState } from '@/api/runtime/types';
 import { sessionOperationService } from '@/features/chat/runtime/sessionOperationService';
 import type { SessionRuntimeContext } from '@/features/chat/runtime/types';
 import { selectSessionRun, useSessionOperationStore } from '@/stores/sessionOperationStore';
@@ -21,9 +21,7 @@ export interface AgentDockConversationOptions {
 export interface AgentDockConversationResult {
   agent: unknown;
   isReady: boolean;
-  respondToHitl: (
-    hitlResponse: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>,
-  ) => Promise<void>;
+  respondToHitl: (resume: HitlResumeEntry[]) => Promise<void>;
   restore: () => Promise<void>;
   run: RuntimeRunState | undefined;
   send: (message: string, options?: { mentionAgents?: MentionAgentRef[] }) => Promise<void>;
@@ -83,8 +81,8 @@ export const useAgentDockConversation = (
   }, []);
 
   const respondToHitl = useCallback(
-    async (hitlResponse: NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>) => {
-      await sessionOperationService.respondToHitl(optionsRef.current.sessionId, hitlResponse);
+    async (resume: HitlResumeEntry[]) => {
+      await sessionOperationService.respondToHitl(optionsRef.current.sessionId, resume);
     },
     [],
   );

@@ -6,9 +6,10 @@ import type { AgUiEvent, RunAgentInput } from '@/api/runtime/types';
 import { useSessionOperationStore } from '@/stores/sessionOperationStore';
 
 import { bindEventToRun, sessionOperationService } from './sessionOperationService';
+import { createCopilotHitlRunOptions } from './hitlResume';
 import { sessionRuntimeRegistry } from './sessionRuntimeRegistry';
 import type {
-  HitlResponse,
+  HitlResumeBatch,
   SessionRuntimeDescriptor,
   SessionRuntimeHandle,
 } from './types';
@@ -68,51 +69,32 @@ const SessionRuntimeWorker = ({ descriptor }: { descriptor: SessionRuntimeDescri
 
     const respondToHitl = async (
       input: RunAgentInput,
-      hitlResponse: HitlResponse,
+      resume: HitlResumeBatch,
       legacyInterruptId?: string,
     ) => {
-      const pending = agent.pendingInterrupts || [];
-      const interrupt = pending.find((item) => item.id === hitlResponse.requestId);
-      if (interrupt) {
-        await copilotkit.runAgent({
-          agent,
-          forwardedProps: input.forwardedProps as Record<string, unknown>,
-          resume: [{
-            interruptId: interrupt.id,
-            payload: { decision: hitlResponse.decision, input: hitlResponse.input },
-            status: hitlResponse.decision === 'reject' ? 'cancelled' : 'resolved',
-          }],
-          runId: input.runId,
-        });
-        return;
-      }
       if (legacyInterruptId) {
+        if (resume.length !== 1 || resume[0].interruptId !== legacyInterruptId) {
+          throw new Error('Legacy HITL accepts exactly one matching interrupt response.');
+        }
+        const entry = resume[0];
         await copilotkit.runAgent({
           agent,
           forwardedProps: input.forwardedProps as Record<string, unknown>,
           resume: [{
             interruptId: legacyInterruptId,
             payload: {
-              decisions: [{ type: hitlResponse.decision === 'reject' ? 'reject' : 'approve' }],
+              decisions: [{ type: entry.status === 'cancelled' ? 'reject' : 'approve' }],
             },
-            status: hitlResponse.decision === 'reject' ? 'cancelled' : 'resolved',
+            status: entry.status,
           }],
           runId: input.runId,
         });
         return;
       }
-      if (pending.length > 0) {
-        throw new Error(`Pending interrupt ${hitlResponse.requestId} was not found.`);
-      }
-      await copilotkit.runAgent({
-        agent,
-        forwardedProps: {
-          ...(input.forwardedProps as Record<string, unknown>),
-          action: 'hitlResponse',
-          hitlResponse,
-        },
-        runId: input.runId,
-      });
+      // Do not reconstruct or narrow payload here. CopilotKit's runAgent accepts AG-UI
+      // ResumeEntry.payload as unknown, so the validated action/answer object must pass through
+      // byte-for-byte at the object level to the Runtime and upstream AG-UI agent.
+      await copilotkit.runAgent({ agent, ...createCopilotHitlRunOptions(input, resume) });
     };
 
     const handle: SessionRuntimeHandle = {

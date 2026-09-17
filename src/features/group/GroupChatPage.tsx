@@ -420,18 +420,7 @@ const GroupChatPage = () => {
   }, [reloadHistoryWindow, scrollRef, sessionId, stickToBottom]);
 
   const blocks = renderRunBlocks(run, {
-    onApproveHitl: (requestId, payload) =>
-      void respondToHitl({
-        mode: String(payload?.mode || 'toolAuthorization'),
-        decision: 'approve',
-        requestId,
-        ...(payload?.editedArguments !== undefined ? { editedArguments: payload.editedArguments as Record<string, unknown> } : {}),
-        ...(payload?.input !== undefined ? { input: String(payload.input) } : {}),
-        ...(payload?.selectedValues !== undefined ? { selectedValues: payload.selectedValues as string[] } : {}),
-        ...(payload?.formValues !== undefined ? { formValues: payload.formValues as Record<string, unknown> } : {}),
-      }),
-    onRejectHitl: (requestId) =>
-      void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
+    onRespondHitl: (resume) => void respondToHitl(resume),
     onSurfaceAction: () =>
       surface &&
       void sendA2uiAction({
@@ -696,18 +685,7 @@ const GroupChatPage = () => {
                     .join('\n\n')
                 : originalContent;
               const renderedStoredBlocks = record.role === 'user' ? null : renderStoredBlocks(storedBlocks, {
-                onApproveHitl: (requestId, payload) =>
-                  void respondToHitl({
-                    mode: String(payload?.mode || 'toolAuthorization'),
-                    decision: 'approve',
-                    requestId,
-                    ...(payload?.editedArguments !== undefined ? { editedArguments: payload.editedArguments as Record<string, unknown> } : {}),
-                    ...(payload?.input !== undefined ? { input: String(payload.input) } : {}),
-                    ...(payload?.selectedValues !== undefined ? { selectedValues: payload.selectedValues as string[] } : {}),
-                    ...(payload?.formValues !== undefined ? { formValues: payload.formValues as Record<string, unknown> } : {}),
-                  }),
-                onRejectHitl: (requestId) =>
-                  void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
+                onRespondHitl: () => undefined,
                 onSurfaceAction: (actionName, surfaceId) =>
                   void sendA2uiAction({
                     actionName: actionName || 'open_report',

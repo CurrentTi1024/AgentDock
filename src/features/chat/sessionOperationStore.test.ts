@@ -82,6 +82,26 @@ const createSessionRecord = async (operation: SessionOperation) => {
   });
 };
 
+const pauseForHitl = async (operation: SessionOperation, ids = ['approval-1']) => {
+  sessionOperationService.applyRunFinished(
+    { sessionId: operation.sessionId, threadId: operation.threadId },
+    {
+      eventId: `interrupt-${operation.runId}`,
+      runId: operation.runId,
+      threadId: operation.threadId,
+      type: 'RUN_FINISHED',
+    },
+    'interrupt',
+    ids.map((id) => ({
+      id,
+      message: 'Continue?',
+      metadata: { hitl: { kind: 'confirm' } },
+      reason: 'human_input_required',
+    })),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 80));
+};
+
 test('独立订阅按捕获的 sessionId 路由：A 事件不会更新 B', async () => {
   resetStore();
   addOperation('session-A', 'run-A');
@@ -540,11 +560,7 @@ test('Runtime stop 失败仍安全完成本地取消且不向 UI 抛出 rejectio
 test('HITL Runtime 恢复流正常关闭但无终态事件时退出 running', async () => {
   resetStore();
   const operation = addOperation('hitl-stream-close', 'run-hitl-stream-close');
-  operation.snapshot.status = 'paused';
-  useSessionOperationStore.getState().updateOperation(operation.runId, {
-    snapshot: operation.snapshot,
-    status: 'paused',
-  });
+  await pauseForHitl(operation, ['approval-stream-close']);
   const restoreChatMode = installHttpChatMode();
   const handle = {
     isReady: () => true,
@@ -554,11 +570,11 @@ test('HITL Runtime 恢复流正常关闭但无终态事件时退出 running', as
   };
   sessionRuntimeRegistry.register(operation.sessionId, handle);
   try {
-    await sessionOperationService.respondToHitl(operation.sessionId, {
-      decision: 'approve',
-      mode: 'approval',
-      requestId: 'approval-stream-close',
-    });
+    await sessionOperationService.respondToHitl(operation.sessionId, [{
+      interruptId: 'approval-stream-close',
+      payload: { action: 'continue' },
+      status: 'resolved',
+    }]);
     await new Promise((resolve) => setTimeout(resolve, 80));
     assert.equal(
       useSessionOperationStore.getState().operationsById[operation.runId]?.snapshot.status,
@@ -584,14 +600,17 @@ test('RUN_FINISHED interrupt 推进 cursor、保留全部审批并进入 paused'
       type: 'RUN_FINISHED',
     },
     'interrupt',
-    [{ id: 'approval-1' }, { id: 'approval-2' }],
+    [
+      { id: 'approval-1', metadata: { hitl: { kind: 'confirm' } }, reason: 'human_input_required' },
+      { id: 'approval-2', metadata: { hitl: { kind: 'confirm' } }, reason: 'human_input_required' },
+    ],
   );
   await new Promise((resolve) => setTimeout(resolve, 80));
 
   const snapshot = useSessionOperationStore.getState().operationsById[operation.runId].snapshot;
   assert.equal(snapshot.status, 'paused');
   assert.equal(snapshot.latestEventId, 'interrupt-event-7');
-  assert.equal(Object.keys(snapshot.activities).length, 2);
+  assert.equal(Object.keys(snapshot.activities).length, 1);
   await sessionOperationService.disposeSession(operation.sessionId);
 });
 
@@ -621,11 +640,7 @@ test('缺少 interrupt payload 的中断按协议错误终止，不永久停在 
 test('HITL 恢复异步失败不得把已停止 run 从 cancelled 复活为 paused', async () => {
   resetStore();
   const operation = addOperation('session-hitl-stop', 'run-hitl-stop');
-  operation.snapshot.status = 'paused';
-  useSessionOperationStore.getState().updateOperation(operation.runId, {
-    snapshot: operation.snapshot,
-    status: 'paused',
-  });
+  await pauseForHitl(operation, ['approval-stop-race']);
 
   const restoreChatMode = installHttpChatMode();
   let rejectResume!: (reason: Error) => void;
@@ -644,11 +659,11 @@ test('HITL 恢复异步失败不得把已停止 run 从 cancelled 复活为 paus
   sessionRuntimeRegistry.register(operation.sessionId, handle);
 
   try {
-    const responding = sessionOperationService.respondToHitl(operation.sessionId, {
-      decision: 'approve',
-      mode: 'approval',
-      requestId: 'approval-stop-race',
-    });
+    const responding = sessionOperationService.respondToHitl(operation.sessionId, [{
+      interruptId: 'approval-stop-race',
+      payload: { action: 'continue' },
+      status: 'resolved',
+    }]);
     await started;
     await sessionOperationService.stop(operation.sessionId);
     rejectResume(new Error('late resume failure'));

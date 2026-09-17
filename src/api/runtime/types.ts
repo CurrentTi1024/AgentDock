@@ -52,9 +52,113 @@ export interface MentionAgentRef {
   agentName?: string;
   version?: string;
 }
+
+export interface HitlOption {
+  description?: string;
+  label: string;
+  value: string;
+}
+
+interface HitlSpecBase {
+  allowSkip?: boolean;
+  title?: string;
+}
+
+export interface HitlConfirmSpec extends HitlSpecBase {
+  allowRevision?: boolean;
+  kind: 'confirm';
+}
+
+export interface HitlTextSpec extends HitlSpecBase {
+  kind: 'text';
+  label?: string;
+  maxLength?: number;
+  multiline?: boolean;
+  placeholder?: string;
+  required?: boolean;
+}
+
+export interface HitlChoiceSpec extends HitlSpecBase {
+  allowOther?: boolean;
+  kind: 'choice';
+  multiple?: boolean;
+  options: HitlOption[];
+  required?: boolean;
+}
+
+export type HitlFormField =
+  | {
+      kind: 'text' | 'textarea';
+      label: string;
+      maxLength?: number;
+      name: string;
+      placeholder?: string;
+      required?: boolean;
+    }
+  | {
+      kind: 'number';
+      label: string;
+      maximum?: number;
+      minimum?: number;
+      name: string;
+      required?: boolean;
+    }
+  | {
+      allowOther?: boolean;
+      kind: 'choice';
+      label: string;
+      multiple?: boolean;
+      name: string;
+      options: HitlOption[];
+      required?: boolean;
+    }
+  | {
+      kind: 'date' | 'datetime';
+      label: string;
+      name: string;
+      required?: boolean;
+    };
+
+export interface HitlFormSpec extends HitlSpecBase {
+  fields: HitlFormField[];
+  kind: 'form';
+}
+
+export type HitlSpec = HitlChoiceSpec | HitlConfirmSpec | HitlFormSpec | HitlTextSpec;
+
+export interface HitlInterrupt {
+  expiresAt?: string;
+  fallback?: boolean;
+  id: string;
+  message: string;
+  reason: 'human_input_required';
+  spec: HitlSpec;
+}
+
+export interface HitlChoiceAnswer {
+  other?: string;
+  selected: string[];
+}
+
+export type HitlAnswer =
+  | HitlChoiceAnswer
+  | Record<string, HitlChoiceAnswer | number | string>
+  | string;
+
+export interface HitlResumePayload {
+  action: 'continue' | 'revise' | 'skip' | 'submit';
+  answer?: HitlAnswer;
+}
+
+export type HitlResumeEntry =
+  | { interruptId: string; payload: HitlResumePayload; status: 'resolved' }
+  | { interruptId: string; status: 'cancelled' };
+
 export interface RunAgentInput {
   context: unknown[]; messages: RuntimeMessage[]; parentRunId?: string; runId: string; state: unknown; threadId: string; tools: unknown[];
   forwardedProps: { action: RunAction; agentId?: string; fab: string; sessionId: string; group?: AgentGroupInput; mentionAgents?: MentionAgentRef[]; resume?: { lastEventId: string }; hitlResponse?: { requestId: string; mode: string; decision?: 'approve' | 'reject'; editedArguments?: Record<string, unknown>; input?: string; selectedValues?: string[]; formValues?: Record<string, unknown> }; a2uiAction?: { actionName: string; context?: Record<string, unknown>; sourceComponentId?: string; surfaceId: string } };
+  /** AG-UI 标准 HITL 恢复数据。仅 checkpoint/恢复路径保存；发送时原样交给 CopilotKit runAgent。 */
+  resume?: HitlResumeEntry[];
 }
 export interface AgUiEvent { type: string; eventId?: string; rawEvent?: { runId?: string }; [key: string]: unknown }
 export interface StreamedEvent { event: AgUiEvent; eventId?: string }

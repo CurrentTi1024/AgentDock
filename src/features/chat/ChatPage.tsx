@@ -291,23 +291,6 @@ export default function ChatPage() {
     [ensureMentions],
   );
 
-  const { approvalMode, setApprovalMode } = useUiStore();
-  // 自动审批模式：出现新的 HITL 请求时自动批准，避免打断流式。
-  const autoApprovedRef = useRef(new Set<string>());
-  useEffect(() => {
-    autoApprovedRef.current.clear();
-  }, [run?.runId, sessionId]);
-  useEffect(() => {
-    if (approvalMode !== 'auto' || !run) return;
-    for (const activity of Object.values(run.activities || {})) {
-      const value = activity as { activityType?: string; requestId?: string };
-      if (value.activityType !== 'agentDock.hitl' || !value.requestId) continue;
-      if (autoApprovedRef.current.has(value.requestId)) continue;
-      autoApprovedRef.current.add(value.requestId);
-      void respondToHitl({ mode: 'toolAuthorization', decision: 'approve', requestId: value.requestId });
-    }
-  }, [approvalMode, respondToHitl, run]);
-
   useEffect(() => {
     const requested = mentions.find(
       (item) => item.agentId === searchParams.get('agent') && item.fab === searchParams.get('fab'),
@@ -595,18 +578,7 @@ export default function ChatPage() {
   }, [run?.status, scrollRef, stickToBottom]);
 
   const blocks = renderRunBlocks(run, {
-    onApproveHitl: (requestId, payload) =>
-      void respondToHitl({
-        mode: String(payload?.mode || 'toolAuthorization'),
-        decision: 'approve',
-        requestId,
-        ...(payload?.editedArguments !== undefined ? { editedArguments: payload.editedArguments as Record<string, unknown> } : {}),
-        ...(payload?.input !== undefined ? { input: String(payload.input) } : {}),
-        ...(payload?.selectedValues !== undefined ? { selectedValues: payload.selectedValues as string[] } : {}),
-        ...(payload?.formValues !== undefined ? { formValues: payload.formValues as Record<string, unknown> } : {}),
-      }),
-    onRejectHitl: (requestId) =>
-      void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
+    onRespondHitl: (resume) => void respondToHitl(resume),
     onSurfaceAction: (actionName = 'open_report') =>
       surface &&
       void sendA2uiAction({
@@ -736,18 +708,7 @@ export default function ChatPage() {
                     .join('\n\n')
                 : originalContent;
               const renderedStoredBlocks = record.role === 'user' ? null : renderStoredBlocks(storedBlocks, {
-                onApproveHitl: (requestId, payload) =>
-                  void respondToHitl({
-                    mode: String(payload?.mode || 'toolAuthorization'),
-                    decision: 'approve',
-                    requestId,
-                    ...(payload?.editedArguments !== undefined ? { editedArguments: payload.editedArguments as Record<string, unknown> } : {}),
-                    ...(payload?.input !== undefined ? { input: String(payload.input) } : {}),
-                    ...(payload?.selectedValues !== undefined ? { selectedValues: payload.selectedValues as string[] } : {}),
-                    ...(payload?.formValues !== undefined ? { formValues: payload.formValues as Record<string, unknown> } : {}),
-                  }),
-                onRejectHitl: (requestId) =>
-                  void respondToHitl({ mode: 'toolAuthorization', decision: 'reject', requestId }),
+                onRespondHitl: () => undefined,
                 onSurfaceAction: (actionName, surfaceId) =>
                   void sendA2uiAction({
                     actionName: actionName || 'open_report',
@@ -924,14 +885,12 @@ export default function ChatPage() {
               activity={opStatusActivity}
               agentId={agentId}
               agentName={agent}
-              approvalMode={approvalMode}
               fab={fab}
               draftKey={`chat:${sessionId}`}
               mentions={mentions}
               running={running}
               value={input}
               onChange={handleInputChange}
-              onApprovalModeChange={setApprovalMode}
               onSend={handleSend}
               onStop={() => void stop()}
               onSwitchAgent={(agent) => switchAgent(agent)}

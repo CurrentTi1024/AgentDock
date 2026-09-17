@@ -1,5 +1,6 @@
 import type {
   AgUiEvent,
+  HitlResumeEntry,
   MentionAgentRef,
   RunAgentInput,
   RuntimeRunState,
@@ -46,13 +47,13 @@ export interface EventRoute {
   threadId: string;
 }
 
-export type HitlResponse = NonNullable<RunAgentInput['forwardedProps']['hitlResponse']>;
+export type HitlResumeBatch = HitlResumeEntry[];
 export type A2uiAction = NonNullable<RunAgentInput['forwardedProps']['a2uiAction']>;
 
 export interface SessionRuntimeHandle {
   isReady(): boolean;
   run(input: RunAgentInput): Promise<void>;
-  respondToHitl(input: RunAgentInput, response: HitlResponse, legacyInterruptId?: string): Promise<void>;
+  respondToHitl(input: RunAgentInput, resume: HitlResumeBatch, legacyInterruptId?: string): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -62,7 +63,13 @@ export interface AgentEventSink {
     route: EventRoute,
     event: AgUiEvent,
     outcome?: string,
-    interrupts?: Array<{ id: string; message?: string }>,
+    interrupts?: Array<{
+      expiresAt?: string;
+      id: string;
+      message?: string;
+      metadata?: Record<string, unknown>;
+      reason: string;
+    }>,
   ): void;
   applyCustomEvent(route: EventRoute, event: AgUiEvent): void;
 }
