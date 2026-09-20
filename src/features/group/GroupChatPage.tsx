@@ -420,7 +420,7 @@ const GroupChatPage = () => {
   }, [reloadHistoryWindow, scrollRef, sessionId, stickToBottom]);
 
   const blocks = renderRunBlocks(run, {
-    onRespondHitl: (resume) => void respondToHitl(resume),
+    onRespondHitl: respondToHitl,
     onSurfaceAction: () =>
       surface &&
       void sendA2uiAction({

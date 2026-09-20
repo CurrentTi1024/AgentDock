@@ -2,7 +2,7 @@
 import { Block, Button, Flexbox, Input, Modal, Tag, Text, TextArea } from '@lobehub/ui';
 import { cssVar } from 'antd-style';
 import { CircleHelp, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { HitlValidationError, validateHitlResumeBatch } from '@/api/runtime/hitl';
 import type {
@@ -23,7 +23,7 @@ interface HitlDraft {
 
 export interface HitlBatchBlockProps {
   interrupts: HitlInterrupt[];
-  onRespond: (resume: HitlResumeEntry[]) => void;
+  onRespond: (resume: HitlResumeEntry[]) => Promise<void> | void;
   responses?: HitlResumeEntry[];
   status?: 'pending' | 'resolved' | 'submitting';
 }
@@ -170,10 +170,14 @@ export const HitlBatchBlock = ({
     Object.fromEntries(interrupts.map((interrupt) => [interrupt.id, initialDraft(interrupt)])),
   );
   const [error, setError] = useState<string>();
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     setDrafts(Object.fromEntries(interrupts.map((interrupt) => [interrupt.id, initialDraft(interrupt)])));
     setError(undefined);
+    submittingRef.current = false;
+    setSubmitting(false);
   }, [batchKey]);
 
   const setDraft = (interruptId: string, next: Partial<HitlDraft>) =>
@@ -196,17 +200,31 @@ export const HitlBatchBlock = ({
     [drafts, interrupts],
   );
 
+  const respond = async (entries: HitlResumeEntry[]) => {
+    if (submittingRef.current || status !== 'pending') return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      await onRespond(entries);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t('chat.hitl.invalid'));
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
   const submit = () => {
     try {
       validateHitlResumeBatch(interrupts, resume);
-      setError(undefined);
-      onRespond(resume);
+      void respond(resume);
     } catch (cause) {
       setError(cause instanceof HitlValidationError ? cause.message : t('chat.hitl.invalid'));
     }
   };
 
-  const cancel = () => onRespond(interrupts.map((interrupt) => ({
+  const cancel = () => void respond(interrupts.map((interrupt) => ({
     interruptId: interrupt.id,
     status: 'cancelled' as const,
   })));
@@ -342,11 +360,11 @@ export const HitlBatchBlock = ({
       <Modal
         cancelText={t('chat.hitl.cancel')}
         closable={false}
-        confirmLoading={status === 'submitting'}
+        confirmLoading={status === 'submitting' || submitting}
         footer={
           <Flexbox horizontal justify="flex-end" gap={8}>
-            <Button icon={X} onClick={cancel}>{t('chat.hitl.cancel')}</Button>
-            <Button type="primary" onClick={submit}>{t('chat.hitl.submit')}</Button>
+            <Button disabled={submitting} icon={X} onClick={cancel}>{t('chat.hitl.cancel')}</Button>
+            <Button loading={submitting} type="primary" onClick={submit}>{t('chat.hitl.submit')}</Button>
           </Flexbox>
         }
         keyboard={false}

@@ -292,7 +292,7 @@ export const hasRunTextTimeline = (
 export const renderStoredBlocks = (
   blocks: SessionMessageRecord[],
   handlers: {
-    onRespondHitl: (resume: HitlResumeEntry[]) => void;
+    onRespondHitl: (resume: HitlResumeEntry[]) => Promise<void> | void;
     onSurfaceAction: (actionName: string, surfaceId: string) => void;
     onOpenArtifact?: (artifact: HtmlArtifact) => void;
     onRegenerateError?: (runId?: string) => void;
@@ -449,7 +449,7 @@ export const renderStoredBlocks = (
 export const renderRunBlocks = (
   run: RuntimeRunState | undefined,
   handlers: {
-    onRespondHitl: (resume: HitlResumeEntry[]) => void;
+    onRespondHitl: (resume: HitlResumeEntry[]) => Promise<void> | void;
     onSurfaceAction: (actionName: string) => void;
     onOpenArtifact?: (artifact: HtmlArtifact) => void;
     onRegenerateError?: () => void;

@@ -592,6 +592,58 @@ test('HITL Runtime 恢复流正常关闭但无终态事件时退出 running', as
   }
 });
 
+test('HITL 提交后在 resume 网络完成前立即关闭 pending UI 并持久化操作状态', async () => {
+  resetStore();
+  const operation = addOperation('hitl-immediate-state', 'run-hitl-immediate-state');
+  await createSessionRecord(operation);
+  await pauseForHitl(operation, ['approval-immediate']);
+  const restoreChatMode = installHttpChatMode();
+  let markStarted!: () => void;
+  let finishResume!: () => void;
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  const pendingResume = new Promise<void>((resolve) => { finishResume = resolve; });
+  const handle = {
+    isReady: () => true,
+    respondToHitl: async () => {
+      markStarted();
+      await pendingResume;
+    },
+    run: async () => {},
+    stop: async () => {},
+  };
+  sessionRuntimeRegistry.register(operation.sessionId, handle);
+
+  try {
+    const responding = sessionOperationService.respondToHitl(operation.sessionId, [{
+      interruptId: 'approval-immediate',
+      payload: { action: 'continue' },
+      status: 'resolved',
+    }]);
+    await started;
+
+    const live = useSessionOperationStore.getState().operationsById[operation.runId]?.snapshot;
+    const activity = Object.values(live?.activities ?? {})[0] as { status?: string } | undefined;
+    assert.equal(live?.status, 'running');
+    assert.equal(activity?.status, 'resolved', '弹窗状态必须在等待 resume 响应时已经关闭');
+
+    const checkpoint = await sessionHistoryService.getLatestRecoverableRun(operation.sessionId);
+    const storedActivity = Object.values(checkpoint?.snapshot.activities ?? {})[0] as
+      | { status?: string }
+      | undefined;
+    assert.equal(checkpoint?.status, 'running');
+    assert.equal(storedActivity?.status, 'resolved', '刷新页面也不能重新打开已提交的弹窗');
+
+    finishResume();
+    await responding;
+  } finally {
+    finishResume();
+    await sessionOperationService.disposeSession(operation.sessionId);
+    sessionRuntimeRegistry.unregister(operation.sessionId, handle);
+    restoreChatMode();
+    resetStore();
+  }
+});
+
 test('RUN_FINISHED interrupt 推进 cursor、保留全部审批并进入 paused', async () => {
   resetStore();
   const operation = addOperation('session-hitl-cursor', 'run-hitl-cursor');

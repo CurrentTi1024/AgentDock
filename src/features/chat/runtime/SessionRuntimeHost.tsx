@@ -9,6 +9,7 @@ import { useSessionOperationStore } from '@/stores/sessionOperationStore';
 import { bindEventToRun, sessionOperationService } from './sessionOperationService';
 import { cancelCopilotRun } from './cancelCopilotRun';
 import { createCopilotHitlRunOptions } from './hitlResume';
+import { resumeCopilotRun } from './resumeCopilotRun';
 import { sessionRuntimeRegistry } from './sessionRuntimeRegistry';
 import type {
   HitlResumeBatch,
@@ -79,24 +80,35 @@ const SessionRuntimeWorker = ({ descriptor }: { descriptor: SessionRuntimeDescri
           throw new Error('Legacy HITL accepts exactly one matching interrupt response.');
         }
         const entry = resume[0];
-        await copilotkit.runAgent({
+        await resumeCopilotRun({
           agent,
-          forwardedProps: input.forwardedProps as Record<string, unknown>,
-          resume: [{
-            interruptId: legacyInterruptId,
-            payload: {
-              decisions: [{ type: entry.status === 'cancelled' ? 'reject' : 'approve' }],
-            },
-            status: entry.status,
-          }],
-          runId: input.runId,
+          resume,
+          run: () => copilotkit.runAgent({
+            agent,
+            forwardedProps: input.forwardedProps as Record<string, unknown>,
+            resume: [{
+              interruptId: legacyInterruptId,
+              payload: {
+                decisions: [{ type: entry.status === 'cancelled' ? 'reject' : 'approve' }],
+              },
+              status: entry.status,
+            }],
+            runId: input.runId,
+          }),
         });
         return;
       }
       // Do not reconstruct or narrow payload here. CopilotKit's runAgent accepts AG-UI
       // ResumeEntry.payload as unknown, so the validated action/answer object must pass through
       // byte-for-byte at the object level to the Runtime and upstream AG-UI agent.
-      await copilotkit.runAgent({ agent, ...createCopilotHitlRunOptions(input, resume) });
+      await resumeCopilotRun({
+        agent,
+        resume,
+        run: () => copilotkit.runAgent({
+          agent,
+          ...createCopilotHitlRunOptions(input, resume),
+        }),
+      });
     };
 
     const handle: SessionRuntimeHandle = {

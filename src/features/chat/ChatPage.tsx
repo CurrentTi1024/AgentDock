@@ -578,7 +578,7 @@ export default function ChatPage() {
   }, [run?.status, scrollRef, stickToBottom]);
 
   const blocks = renderRunBlocks(run, {
-    onRespondHitl: (resume) => void respondToHitl(resume),
+    onRespondHitl: respondToHitl,
     onSurfaceAction: (actionName = 'open_report') =>
       surface &&
       void sendA2uiAction({

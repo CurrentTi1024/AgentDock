@@ -451,6 +451,12 @@ State Delta 使用 RFC 6902 JSON Patch。
 恢复，禁止部分成功。正常提交全部为 resolved；取消整个 batch 全部为 cancelled，P0 不支持
 两种 status 混合。遗漏、重复或未知 ID 返回 `HITL_INCOMPLETE_BATCH`，checkpoint 保持 paused。
 
+前端提交或取消 batch 时必须先同步锁定按钮，并在发起 resume 网络请求前把对应 Activity 从
+`pending` 更新为 `resolved`、Operation 从 `paused` 更新为 `running`，随后立即刷新本地 checkpoint；
+这样弹窗不会重复提交，刷新页面也不会重新弹出已提交的 batch。resume 失败时原子回滚为
+`pending/paused`。resume 成功结束后，前端还应按本次 `resume[].interruptId` 定向清理 CopilotKit
+本地的旧 `pendingInterrupts`，不得清空恢复过程中后端新产生的 interrupt。
+
 ### 8.3 Legacy 真实样本与迁移边界（2026-08-20 已抓取）
 
 DeepAgents 0.7.5 `interrupt_on={"write_file": True}` + ag_ui-langgraph 0.0.40 + CopilotKit 0.1.94 的真实 wire（demo 后端实测）：
