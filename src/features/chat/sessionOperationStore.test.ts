@@ -498,7 +498,7 @@ test('Stop 触发 Runtime 流关闭时保持 cancelled，不被关闭兜底改�
   }
 });
 
-test('远端 stop 尚未返回时，当前 Session 已立即退出运行态', async () => {
+test('权威 HTTP cancel 返回前保持 running，成功后才本地终态化', async () => {
   resetStore();
   const restoreChatMode = installHttpChatMode();
   const operation = addOperation('stop-local-first', 'run-stop-local-first');
@@ -515,9 +515,13 @@ test('远端 stop 尚未返回时，当前 Session 已立即退出运行态', as
     const stopping = sessionOperationService.stop(operation.sessionId);
     await new Promise((resolve) => setTimeout(resolve, 0));
     const snapshot = useSessionOperationStore.getState().operationsById[operation.runId]?.snapshot;
-    assert.equal(snapshot?.status, 'cancelled');
+    assert.equal(snapshot?.status, 'running');
     releaseStop();
     await stopping;
+    assert.equal(
+      useSessionOperationStore.getState().operationsById[operation.runId]?.snapshot.status,
+      'cancelled',
+    );
   } finally {
     releaseStop();
     await sessionOperationService.disposeSession(operation.sessionId);
@@ -527,7 +531,7 @@ test('远端 stop 尚未返回时，当前 Session 已立即退出运行态', as
   }
 });
 
-test('Runtime stop 失败仍安全完成本地取消且不向 UI 抛出 rejection', async () => {
+test('权威 HTTP cancel 失败时保留运行态和 pending 状态以便重试', async () => {
   resetStore();
   const restoreChatMode = installHttpChatMode();
   const operation = addOperation('stop-rejection', 'run-stop-rejection');
@@ -546,12 +550,12 @@ test('Runtime stop 失败仍安全完成本地取消且不向 UI 抛出 rejectio
     await assert.doesNotReject(sessionOperationService.stop(operation.sessionId));
     await new Promise((resolve) => setTimeout(resolve, 80));
     const snapshot = useSessionOperationStore.getState().operationsById[operation.runId]?.snapshot;
-    assert.equal(snapshot?.status, 'cancelled');
-    assert.equal(snapshot?.error?.code, 'CANCELLED');
+    assert.equal(snapshot?.status, 'running');
+    assert.equal(snapshot?.error, undefined);
   } finally {
-    console.error = originalConsoleError;
     await sessionOperationService.disposeSession(operation.sessionId);
     sessionRuntimeRegistry.unregister(operation.sessionId, handle);
+    console.error = originalConsoleError;
     restoreChatMode();
     resetStore();
   }

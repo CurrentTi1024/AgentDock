@@ -819,14 +819,13 @@ export const sessionOperationService = {
     }
     stoppingRuns.add(operation.runId);
     const stopPromise = (async () => {
-      // UI 先按本地 Operation 立即终态化；远端 stop 只负责尽力释放后端执行。
-      cancelPendingCheckpoint(operation.runId);
-      applySyntheticError(operation, new Error('Run cancelled by user.'), 'CANCELLED');
       try {
         if (getChatServiceMode() === 'http') {
           const runtime = sessionRuntimeRegistry.get(sessionId);
           if (runtime?.isReady()) {
-            await waitForRemoteStop(runtime.stop());
+            // The ordinary HTTP cancel is authoritative. Keep the operation busy and preserve
+            // pending HITL state until it succeeds, otherwise the UI and orchestration diverge.
+            await waitForRemoteStop(runtime.stop(operation.input));
           } else {
             // 启动阶段没有可停止的远端 handle：直接终止 whenReady 等待，避免停止/删除卡 15 秒。
             sessionRuntimeRegistry.reset(sessionId, 'Run stopped before runtime became ready.');
@@ -834,11 +833,11 @@ export const sessionOperationService = {
         } else {
           mockControllers.get(operation.runId)?.abort();
         }
+        cancelPendingCheckpoint(operation.runId);
+        applySyntheticError(operation, new Error('Run cancelled by user.'), 'CANCELLED');
       } catch (error) {
-        // A failed remote cancellation must not leak an unhandled rejection from the UI.
-        // The local operation is still terminalized below; a late backend terminal event is
-        // safely ignored by the reducer once that cancellation has been projected.
-        console.error('[AgentDock] runtime stop failed; cancelling local operation', {
+        // A failed authoritative cancel must leave the run/pending interrupts retryable.
+        console.error('[AgentDock] authoritative run cancel failed', {
           error,
           runId: operation.runId,
           sessionId,

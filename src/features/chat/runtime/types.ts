@@ -54,7 +54,7 @@ export interface SessionRuntimeHandle {
   isReady(): boolean;
   run(input: RunAgentInput): Promise<void>;
   respondToHitl(input: RunAgentInput, resume: HitlResumeBatch, legacyInterruptId?: string): Promise<void>;
-  stop(): Promise<void>;
+  stop(input?: RunAgentInput): Promise<void>;
 }
 
 export interface AgentEventSink {

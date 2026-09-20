@@ -1,10 +1,19 @@
 import type { ApiEnvelope, ServiceRequestOptions } from '@/api/core/types';
 
 export class ApiError extends Error {
-  constructor(message: string, readonly code: number | string, readonly status?: number) { super(message); this.name = 'ApiError'; }
+  readonly code: number | string;
+  readonly status?: number;
+
+  constructor(message: string, code: number | string, status?: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
+  }
 }
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
+const buildEnv = (import.meta as ImportMeta & { env?: ImportMetaEnv }).env;
+const apiBaseUrl = buildEnv?.VITE_API_BASE_URL || '/api';
 
 export async function postApi<TRequest extends object, TResponse>(endpoint: string, body: TRequest, options: ServiceRequestOptions = {}): Promise<TResponse> {
   const response = await fetch(`${apiBaseUrl}/${endpoint}`, {

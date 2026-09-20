@@ -3,9 +3,11 @@ import type { Message } from '@ag-ui/client';
 import { Fragment, useEffect, useMemo, useRef } from 'react';
 
 import type { AgUiEvent, RunAgentInput } from '@/api/runtime/types';
+import { runControlService } from '@/api/runtime/runControlService';
 import { useSessionOperationStore } from '@/stores/sessionOperationStore';
 
 import { bindEventToRun, sessionOperationService } from './sessionOperationService';
+import { cancelCopilotRun } from './cancelCopilotRun';
 import { createCopilotHitlRunOptions } from './hitlResume';
 import { sessionRuntimeRegistry } from './sessionRuntimeRegistry';
 import type {
@@ -111,7 +113,27 @@ const SessionRuntimeWorker = ({ descriptor }: { descriptor: SessionRuntimeDescri
           runId: input.runId,
         });
       },
-      stop: async () => copilotkit.stopAgent({ agent }),
+      stop: async (input) => {
+        if (!input) {
+          await copilotkit.stopAgent({ agent });
+          return;
+        }
+        // Ordinary HTTP cancel bypasses AG-UI resume, so @ag-ui/client will otherwise keep
+        // pendingInterrupts and reject the next normal run during onInitialize(). Mutate only
+        // after the authoritative cancel succeeds; retain unrelated interrupts by ID.
+        await cancelCopilotRun({
+          agent,
+          cancelRemote: () => runControlService.cancelRun({
+            agentId: input.forwardedProps.agentId,
+            fab: input.forwardedProps.fab,
+            reason: 'user_requested',
+            runId: input.runId,
+            sessionId: input.forwardedProps.sessionId,
+            threadId: input.threadId,
+          }),
+          stopLocal: async () => { await copilotkit.stopAgent({ agent }); },
+        });
+      },
     };
 
     void sessionOperationService

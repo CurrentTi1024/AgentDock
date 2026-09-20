@@ -70,9 +70,12 @@ const seedCheckpoint = async (sessionId: string, runId: string) => {
 
 test('daysAgo 按最后消息时间筛选（不是创建时间）', async () => {
   await flushRunCheckpoint();
+  const now = Date.now();
+  const old = new Date(now - 45 * 24 * 60 * 60 * 1000).toISOString();
+  const fresh = new Date(now - 5 * 24 * 60 * 60 * 1000).toISOString();
   await makeSession('cleanup-old-msg', '2024-01-01T00:00:00.000Z', '2024-01-10T00:00:00.000Z');
-  await makeSession('cleanup-new-msg', '2024-01-01T00:00:00.000Z', '2026-08-20T00:00:00.000Z');
-  await makeSession('cleanup-fresh', '2026-08-20T00:00:00.000Z', '2026-08-20T00:00:00.000Z');
+  await makeSession('cleanup-new-msg', old, fresh);
+  await makeSession('cleanup-fresh', fresh, fresh);
 
   const selection = await selectCleanupCandidates({ daysAgo: 30 });
   const ids = selection.candidates.map((candidate) => candidate.session.id);

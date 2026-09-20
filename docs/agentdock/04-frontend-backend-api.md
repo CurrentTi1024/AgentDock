@@ -1273,11 +1273,36 @@ env:
 ### 9.3 Stop 与代码预览边界
 
 - Stop 是独立 Run 控制操作，不是消息内容。Browser 调用 `POST /api/agent-runtime/runs/{runId}/cancel`，body 为
-  `{sessionId, threadId, agentId, fab, reason:"user_requested", mode:"interrupt"}`；若返回 HTTP 202/`cancel_requested`，再调用
-  `POST /api/agent-runtime/runs/{runId}/status`，body 为 `{threadId, agentId, fab}`，直至终态或 10 秒超时。
+  `{sessionId, threadId, agentId, fab, reason:"user_requested"}`。
 - AgentDock App Server 是无状态 Control Gateway：用现有 `AGENT_ORCHESTRATION_BASE_URLS_JSON[fab]` 转发到
-  `{baseUrl}/ag-ui/runs/{runId}/cancel|status`，不维护 `threadId → runId/FAB`。Browser 不得接触或提交真实 Base URL。
-- `copilotkit.stopAgent` 可并行执行，但仅清理 Browser 流、frontend tools 与 CopilotKit 本地生命周期；只关闭 SSE 不等于后端任务已停止。
+  `{baseUrl}/ag-ui/cancel`，且上游请求体仅发送 `{runId}`；Gateway 不维护 `threadId → runId/FAB`。Browser
+  不得接触或提交真实 Base URL。
+- `copilotkit.stopAgent` 仅清理 Browser 流、frontend tools 与 CopilotKit 本地生命周期；只关闭 SSE 不等于后端任务已停止，
+  因此必须在权威 HTTP cancel 成功后执行。
+- 公司 Orchestration 使用普通 HTTP `POST {baseUrl}/ag-ui/cancel`，请求体至少为 `{runId}`。Browser
+  不直连该地址，而调用同源 `POST /api/agent-runtime/runs/{runId}/cancel`；App Server 根据 body 中
+  的 `fab` 路由并转发。成功响应统一为：
+
+  ```json
+  {
+    "code": 0,
+    "data": {
+      "runId": "run-001",
+      "status": "cancelled",
+      "interruptIds": ["int-001"]
+    }
+  }
+  ```
+
+  `status` 可以是 `cancelled` 或 `cancel_requested`；生产后端必须在允许同一 Session 新建 Run 前
+  对旧 `runId` 建立 fencing，不能让 Temporal 的协作式取消延迟继续阻塞新 Run。
+- 普通 HTTP cancel 不会经过 AG-UI `resume[]`，因此不会自动清理 `@ag-ui/client` 的
+  `agent.pendingInterrupts`。前端必须遵守提交顺序：保存 cancel 开始时的 pending interrupt ID
+  快照 → 等 HTTP 2xx/业务成功 → 停止本地 CopilotKit transport → 仅删除快照覆盖的
+  `agent.pendingInterrupts` → 将本地 Operation/IndexedDB checkpoint 终态化。HTTP 失败时不得清理
+  pending interrupts 或伪装成本地 cancelled。
+- 清理必须按 ID 定向过滤，禁止无条件覆盖为空数组；否则 cancel 请求进行期间新 Run/新事件产生的
+  interrupt 可能被误删。下一条普通 `runAgent()` 必须在上述清理完成后才允许发送。
 - HTML、SVG、Mermaid、Markdown 预览都不新增后端 API 或 Artifact 事件。Agent 继续通过普通 `TEXT_MESSAGE_*` 输出 Markdown；其中显式的 fenced `html/htm/svg/mermaid/markdown/md` 代码块按源码显示，并在代码块工具栏提供“预览”；
   用户可点击后打开右侧工作区；完整代码块生成后，仅当右侧工作区为空时自动打开，已有内容时不切换、不覆盖。
   不得根据零散 HTML 标签模糊识别，也不得自动预览普通文本消息。

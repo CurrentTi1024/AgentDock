@@ -9,6 +9,7 @@ import { CopilotRuntime, createCopilotRuntimeHandler } from '@copilotkit/runtime
 import { createCopilotNodeHandler } from '@copilotkit/runtime/v2/node';
 
 import { FabRoutingAgent } from './copilot-runtime/fabRoutingAgent.ts';
+import { handleRunCancelRequest } from './copilot-runtime/runControlProxy.ts';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const DIST_DIR = process.env.AGENTDOCK_DIST_DIR ?? join(process.cwd(), 'dist');
@@ -86,6 +87,29 @@ const fetchHandler = createCopilotRuntimeHandler({
 });
 const nodeHandler = createCopilotNodeHandler(fetchHandler);
 
+const toWebRequest = async (req: IncomingMessage) => {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (Array.isArray(value)) value.forEach((item) => headers.append(name, item));
+    else if (value !== undefined) headers.set(name, value);
+  }
+  const host = req.headers.host || `127.0.0.1:${PORT}`;
+  return new Request(`http://${host}${req.url || '/'}`, {
+    body: chunks.length > 0 ? Buffer.concat(chunks) : undefined,
+    headers,
+    method: req.method,
+  });
+};
+
+const writeWebResponse = async (response: Response, res: ServerResponse) => {
+  const headers: Record<string, string> = {};
+  response.headers.forEach((value, name) => { headers[name] = value; });
+  res.writeHead(response.status, headers);
+  res.end(Buffer.from(await response.arrayBuffer()));
+};
+
 const server = createServer(async (req, res) => {
   try {
     if (req.url === '/healthz' && req.method === 'GET') {
@@ -95,6 +119,13 @@ const server = createServer(async (req, res) => {
     }
     if (req.url === '/api/copilotkit' || req.url?.startsWith('/api/copilotkit/')) {
       await nodeHandler(req, res);
+      return;
+    }
+    if (req.url?.startsWith('/api/agent-runtime/runs/')) {
+      await writeWebResponse(
+        await handleRunCancelRequest(await toWebRequest(req), parseFabEndpoints()),
+        res,
+      );
       return;
     }
     if (existsSync(DIST_DIR)) {
