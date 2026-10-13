@@ -112,7 +112,7 @@ AgentDock 是公司内部使用的 Agent 前端工作台：
 - Agent Group 市场、发布、版本和持久化 CRUD。
 - Eval 评测。
 - Workspace、成员、审计和用量页面。
-- Share 会话和分享页面。
+- LobeHub 原生 Share 会话后端和分享页面；AgentDock 自有分享作为后续设计提案，见 §12。
 - Knowledge/Resource。
 - 图片/视频生成和下载中心。
 - Electron 专属功能。
@@ -197,3 +197,14 @@ Agent 版本权限结构（展平，仅当前 FAB）：
 - [失败码就是非0] 公司失败码最终使用 `1` 还是 `-1`。
 - [ 是的 ] Skill/MCP 是否也采用版本 + FAB 粒度的 `callPermission`。
 - [ 已授权 ] 首期市场中 `permissioned` 页签最终显示名称：`可用`、`已授权`或其他。
+
+## 12. 2026-10-14 后续提案：回答与会话分享
+
+用户提出分享架构设计需求，新增以下候选范围；本节是设计提案，不表示已实现，也不改变既有本地历史交付状态。
+
+- 分享单轮回答或选定会话内容的不可变快照，默认公司 SSO 登录并受 FAB 分享阅读策略约束。
+- 原会话继续保存在 IndexedDB；分享副本由公司 FastAPI 业务模块持久化，清除本地历史不删除分享副本。
+- 预览当前 `TEXT_MESSAGE_*` 中的 Markdown/HTML/SVG/Mermaid 代码块；文件附件通过独立文件服务接入。
+- 首版不开放匿名外链，默认不分享 reasoning、原始 tool 参数/结果、checkpoint、HITL 输入、可执行 A2UI Action。
+- 群聊与跨 FAB 内容在来源和授权机制明确后接入；第一阶段以单 FAB、普通文本回答为交付范围。
+- 接口提案的唯一字段定义位于 `04-frontend-backend-api.md` §14，详细设计见 `design/21-conversation-sharing-architecture.md`。

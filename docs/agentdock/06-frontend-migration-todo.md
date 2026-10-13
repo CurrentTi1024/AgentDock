@@ -15,6 +15,16 @@
 
 ## 需求变更记录
 
+### 2026-10-14：分享架构设计提案（尚未实现）
+
+- 新增 AgentDock 自有回答/会话快照分享设计，不迁回 LobeHub Share 后端；保留 IndexedDB 本地会话基线。
+- 分享 API 字段候选见 `04-frontend-backend-api.md` §14；架构与实施顺序见 `design/21-conversation-sharing-architecture.md`。
+- [ ] P0：公司 FastAPI sharing 模块、分享快照存储、SSO/FAB 阅读授权、创建/读取/列表/撤销接口。
+- [ ] P0：分享 DTO 投影、终态落库完成屏障、完整历史读取、单轮回答与会话选择、预览弹窗。
+- [ ] P0：独立 `/share/:shareSlug` 只读路由、消息操作栏 `onShare`、分享管理与真实 HTTP 链路。
+- [ ] P1：文件存储/版本/发布权限接入、分享文件票据和即时撤销、Markdown 内嵌图片引用。
+- [ ] P2：只读过程摘要、群聊及跨 FAB 来源策略、更新快照、指定成员访问与从快照新建会话。
+
 ### 2026-08-18：市场 FAB 前置（Agent/Skill/MCP）
 
 - 为满足后端 SQL 查询性能，Agent、Skill、MCP 市场统一改为 **FAB 前置**：进入页面先 `getFabOptions`，用户选择 FAB 后再查询分类/列表/详情。

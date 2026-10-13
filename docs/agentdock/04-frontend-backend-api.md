@@ -1350,7 +1350,7 @@ src/mock-data/{user,agentMarket,skillMarket,mcpMarket,...}.ts
 - Agent Group 市场、保存、详情、版本、发布和删除。
 - Skill draft、publish、unpublish、delete。
 - LobeHub 模型、Provider、API Key、计费、额度和 Cloud API。
-- Workspace、成员、审计、Eval、Share、Knowledge/Resource API。
+- Workspace、成员、审计、Eval、LobeHub 原生 Share、Knowledge/Resource API。AgentDock 自有分享的后续候选见 §14。
 
 ## 12. 后续隐藏模块的接口规划
 
@@ -1376,3 +1376,120 @@ Memory 自动注入 Agent context 属于后端运行逻辑，不允许前端把 
 - [ ] Agent `systemRoleMarkdown` 是否允许向所有可见用户展示；若不允许，后端应直接省略而不是返回后由前端隐藏。
 - [ ] 市场统计字段中哪些有真实数据；没有真实数据的字段返回 `null`，前端隐藏，不伪造。
 - [ ] Dislike 原因是否固定使用本文枚举，还是由后端动态配置。
+
+## 14. 回答与会话分享 API 提案（2026-10-14，尚未实现）
+
+本节是用户本次设计需求对应的候选契约；后续实现以本节统一字段，不能把 design 文档中的示意当成第二套契约。首版分享固定快照、要求 SSO、只支持单 FAB；正文为用户确认提交的副本，不声明为服务端验证过的 Agent 原始输出。
+
+### 14.1 数据类型
+
+```ts
+type ShareScope = 'response' | 'conversation';
+type ShareBlock =
+  | { type: 'markdown'; content: string }
+  | { type: 'file'; fileId: string; versionId: string }; // P1 文件服务接入后启用
+
+interface ShareTurn {
+  id: string; // 快照内生成的新 ID，不使用 Runtime 消息 ID
+  speaker: { role: 'user' | 'assistant'; name?: string; icon?: string };
+  blocks: ShareBlock[];
+  sourceState: 'saved' | 'partial'; // saved 不代表服务端证明该 Run 成功
+  createdAt?: string;
+}
+
+interface ShareSnapshot {
+  schemaVersion: 1;
+  title: string;
+  scope: ShareScope;
+  turns: ShareTurn[]; // 数组位置为展示顺序
+}
+
+interface ShareSource {
+  sessionId: string;
+  threadId?: string;
+  runIds: string[];
+  agentId?: string;
+  messageRecordIds: string[];
+} // 仅追溯元数据，来自 Browser，不能作为授权或真实性证明；不返回给读者
+
+interface CreateConversationShareRequest {
+  idempotencyKey: string; // 同一次确认的重试沿用，内容或选项改变时重新生成
+  fab: string; // 请求的内容分享域，后端校验 canPublishShare；链接不能扩大到其他 FAB
+  expiresAt: string;
+  includePrompt: boolean;
+  source: ShareSource;
+  snapshot: ShareSnapshot;
+}
+
+interface ConversationShareSummary {
+  shareId: string; // 管理主键
+  shareSlug: string; // 至少 128 bit 随机标识，链接定位，不替代 SSO/FAB 授权
+  shareUrl: string;
+  title: string;
+  scope: ShareScope;
+  fab: string;
+  status: 'active' | 'revoked' | 'expired';
+  snapshotHash: string; // 后端对规范化 DTO 计算 SHA-256
+  createdAt: string;
+  expiresAt: string;
+}
+
+interface SharedConversationView {
+  snapshot: ShareSnapshot;
+  files: Array<{
+    fileId: string; versionId: string; fileName: string; mimeType: string;
+    sizeBytes: number; sha256: string;
+    capabilities: { preview: boolean; download: boolean };
+  }>;
+  fab: string;
+  sharedAt: string;
+  expiresAt: string;
+  capabilities: { copy: boolean; preview: boolean; download: boolean };
+}
+```
+
+`includePrompt=false` 时快照不能包含 user turn；`scope=response` 时只有一个 assistant turn，可选一个对应的 user turn，提示词不能由后端通过 thread 自动补全。所有请求都禁止 `userId`、`tenantId`、对象存储 key、任意附件 URL、Runtime state 或 checkpoint。身份和租户来自可信 SSO。
+
+服务端校验 DTO 白名单、消息数量和字节上限，对文件元信息回填可信数据；首版建议快照 JSON 上限 5 MiB、turn 上限 200，超限返回业务错误并要求缩小选择，不静默截断。代码块预览仍执行既有每块 512 KiB 限制。匿名分享、动态 A2UI、过程块及跨 FAB 分享不在 v1 类型中。
+
+### 14.2 管理与读取接口
+
+所有接口使用既有同源 SSO、POST、普通 envelope，经 OAuth2 Proxy 固定转发到公司 FastAPI sharing 模块；前端 `postApi()` 继续复用。shareUrl 由服务端按受控站点域名生成，不信任任意 Host Header。
+
+| 方法 / 地址 | 请求 data | 响应 data | 权限与幂等 |
+|---|---|---|---|
+| `POST /api/createConversationShare` | `CreateConversationShareRequest` | `ConversationShareSummary` | 当前 SSO 用户有该 FAB 的 `canPublishShare`；同 owner + idempotencyKey + 同请求返回原结果，异内容冲突 |
+| `POST /api/getSharedConversation` | `{ shareSlug: string }` | `SharedConversationView` | 当前 SSO 租户匹配、具备该 FAB 的 `canReadShare`、链接有效；owner 阅读同样满足内容域策略 |
+| `POST /api/getConversationSharesList` | `{ cursor?: string; limit?: number }` | `{ items: ConversationShareSummary[]; nextCursor?: string }` | 仅列出当前 SSO 用户创建的分享；默认 limit=20，最大100 |
+| `POST /api/revokeConversationShare` | `{ shareId: string }` | `{ shareId: string; status: 'revoked' }` | 仅 owner 或明确授权的管理员；重复撤销返回相同结果 |
+
+`canPublishShare`、`canReadShare` 是业务服务确认的分享权限，不由前端传入，不能直接等同 Agent `callPermission`。FAB 策略撤销后，既有链接的读取权限应同步收回；owner 仍可管理/撤销自己的分享，但不能绕过内容域策略读取正文。未登录使用现有 SSO 流程并保留回跳地址；无权、失效、不存在均不返回正文或文件清单，读者统一显示“分享不可访问”；owner 管理页可显示具体状态。
+
+首版建议创建弹窗默认有效期 7 天，实际默认值和最长有效期由业务配置确认；服务端校验 expiresAt 在允许范围内，不以 Browser 时间判断分享是否过期。文件块在 P0 明确拒绝，P1 文件服务接入后再启用。
+
+首版不提供 update 接口：调整内容创建新分享，旧链接保持原快照，可单独撤销。清除本地 Session 与撤销远端分享是两个独立动作。
+
+### 14.3 分享文件访问（P1）
+
+`POST /api/getSharedFileTicket`：
+
+```ts
+// request
+{ shareSlug: string; fileId: string; versionId: string; purpose: 'preview' | 'download' }
+// response data
+{ contentUrl: string; expiresAt: string }
+```
+
+`contentUrl` 只能是同源受控路径，例如 `/api/shared-files/{ticketId}`。文件内容请求 `GET /api/shared-files/{ticketId}` 属于二进制传输例外，不使用普通 JSON envelope；每次请求（包含 Range 请求）校验 SSO、票据的用户/用途、share 有效性、版本归属和当前 FAB 策略。票据建议 60 秒过期，不可兑换任意其他文件。
+
+首版默认同域读者可预览/下载作者明确选中的生成文件。授权依据是该 share 的文件 grant，读者不必具备文件原始 owner 权限；作者必须有 `canPublishFile`，文件的租户/FAB 边界必须与 share 一致。引用外部云盘文件不自动授权或复制，外部链接依照源系统权限访问。
+
+为满足撤销后立即阻止新请求，票据接口不直接返回对象存储预签名 URL，使用受控文件网关；已下载的副本、浏览器缓存及已开始传输无法追回。`download=false` 只限制产品提供的下载入口，不能防止复制已经展示的内容。
+
+上传/登记文件的控制面接口应在文件域单独评审；P1 仅接入文件服务已经确认的 `fileId + versionId`，不由分享模块 fetch 用户提交的 URL。文件原件、预览衍生件和缩略图都需要同等授权。
+
+### 14.4 失败语义与交付条件
+
+建议业务语义为 `SHARE_INVALID_PAYLOAD`、`SHARE_TOO_LARGE`、`SHARE_UNAVAILABLE`、`SHARE_PUBLISH_FORBIDDEN`、`SHARE_FILE_UNAVAILABLE`、`SHARE_FILE_SCOPE_MISMATCH`、`SHARE_IDEMPOTENCY_CONFLICT`；实际非零业务码沿用公司分配规范。
+
+文字 P0 上线依赖：公司 FastAPI 持久存储、可信 SSO 身份、FAB 分享策略和固定路由。文件 P1 额外依赖：文件版本存储、作者文件发布权限、受控内容网关与保留引用。Mock 同样实现列表/撤销/失效语义，但只用于当前开发环境演示，不能称为跨设备分享。

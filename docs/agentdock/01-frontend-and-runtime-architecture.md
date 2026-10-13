@@ -361,3 +361,13 @@ Service 模式默认由 `VITE_SERVICE_MODE` 决定（构建期）；设置页「
 - [ 用Nodejs] Runtime 使用 Node.js 还是 Bun；建议先选团队 CI 已支持的 Node.js。
 - [不启用 ] 首期是否启用附件；如果启用，需要确认上传服务和大小限制。
 - [ 消息分支可以考虑。评论不用了，但是可以建立每个消息点赞点踩的feedback机制，点踩要有原因填写表单 ] LobeHub 原消息分支、Reaction、评论确认不迁移。
+
+## 11. 2026-10-14 分享架构提案
+
+分享使用普通业务 API，建议在公司 FastAPI 中新增独立 sharing 模块，首期可与 Agent Registry 同进程部署。Browser 从 IndexedDB 读取选定内容，投影为分享 DTO，上传不可变快照；接收方通过同源业务 API 读取该快照。Copilot Runtime 保持现有运行时职责，分享不经过 `/api/copilotkit`。
+
+分享页 `/share/:shareSlug` 使用独立只读布局；首次直接打开时只初始化主题、i18n 与 Router，不加载本地会话列表、不注册 Runtime Worker、不恢复原 thread。已打开工作台的后台 Run 仍按现有多会话机制继续，路由拆分不得卸载忙碌的 Runtime Host。
+
+文件由独立 file/storage 模块保存不可变版本；分享快照只引用 `fileId + versionId`。当前代码块预览继续沿用普通 Markdown fence，不恢复 `design/19` 中已经撤销的 Artifact Activity。
+
+此节为后续设计候选；完整职责、权限和部署方案见 `design/21-conversation-sharing-architecture.md`，API 字段见 `04-frontend-backend-api.md` §14。
